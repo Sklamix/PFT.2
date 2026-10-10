@@ -42,7 +42,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} bg-background`}>
+    <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable} bg-background`}>
       <body className="antialiased">
         <TooltipProvider>{children}</TooltipProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}

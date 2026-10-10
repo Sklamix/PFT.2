@@ -1,8 +1,8 @@
 import { cn } from '@/lib/utils'
 
-export function BrandLogo({ className }: { className?: string }) {
+export function BrandLogo({ className, href = '#top' }: { className?: string; href?: string }) {
   return (
-    <a href="#top" className={cn('flex items-center gap-2.5', className)} aria-label="Professional Funded Trader home">
+    <a href={href} className={cn('flex items-center gap-2.5', className)} aria-label="Professional Funded Trader home">
       <span className="relative flex h-8 items-center rounded-md bg-linear-to-br from-primary to-highlight p-px">
         <span className="flex h-full items-center rounded-[5px] bg-background px-2 font-mono text-xs font-bold tracking-widest text-foreground">
           PFT

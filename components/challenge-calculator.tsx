@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { ArrowRight, Info, ShieldCheck, RotateCcw, Zap } from 'lucide-react'
+import { CheckoutModal } from '@/components/checkout-modal'
 import { SegmentedControl } from '@/components/segmented-control'
 import { SectionHeading } from '@/components/section-heading'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -66,6 +67,7 @@ export function ChallengeCalculator() {
   const [size, setSize] = useState<AccountSize>(100_000)
   const [type, setType] = useState<ChallengeType>('two-step')
   const [drawdownMode, setDrawdownMode] = useState<DrawdownMode>('trailing')
+  const [checkoutOpen, setCheckoutOpen] = useState(false)
 
   const rules = CHALLENGES[type]
   const fee = getChallengeFee(type, size, drawdownMode)
@@ -224,18 +226,28 @@ export function ChallengeCalculator() {
                 </li>
               </ul>
 
-              <a
-                href="#dashboard"
+              <button
+                type="button"
+                onClick={() => setCheckoutOpen(true)}
                 className="group mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-12px] shadow-primary transition-opacity hover:opacity-90 lg:mt-auto"
               >
                 Start Challenge — {formatCurrency(fee)}
                 <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-              </a>
+              </button>
               <p className="mt-3 text-center text-xs text-muted-foreground">Card, Apple Pay & crypto accepted</p>
             </aside>
           </div>
         </div>
       </div>
+
+      <CheckoutModal
+        open={checkoutOpen}
+        onOpenChange={setCheckoutOpen}
+        accountSize={size}
+        evaluationType={type}
+        calculatedPrice={fee}
+        drawdownMode={drawdownMode}
+      />
     </section>
   )
 }
