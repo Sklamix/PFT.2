@@ -68,52 +68,32 @@ export async function POST(req: Request) {
     const fee = getChallengeFee(evaluationType, planSize, drawdownMode)
     const frozenBackupPrice = hasFrozenBackup ? getFrozenBackupPrice(fee) : 0
     const totalAmount = getCheckoutTotal(fee, hasFrozenBackup)
-    const amount = totalAmount.toFixed(2)
+    const amount = Number(totalAmount.toFixed(2))
     const evaluationLabel = evaluationType === 'one-step' ? '1-Step' : '2-Step'
     const countryCode = typeof country === 'string' ? country : undefined
     const promo = typeof promoCode === 'string' ? promoCode : undefined
     const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : traderEmail.split('@')[0]
 
     const orderId = `PFT-${Date.now()}`
-    const merchantId = process.env.CRYPTOMUS_MERCHANT_ID || ''
-    const apiKey = process.env.CRYPTOMUS_API_KEY || ''
+    const apiKey = process.env.NOWPAYMENTS_API_KEY || ''
 
+    // Формуємо payload для створення інвойсу NOWPayments з передачею пошти покупця
     const payload = {
-      amount,
-      currency: 'USD',
+      price_amount: amount,
+      price_currency: 'usd',
+      pay_currency: 'usdttrc20',
       order_id: orderId,
-      url_return: 'https://nimbus-nine-orpin.vercel.app/dashboard',
-      url_callback: 'https://nimbus-nine-orpin.vercel.app/api/webhooks/payment-success',
-      is_payment_multiple: false,
-      lifetime: 3600,
-      additional_data: JSON.stringify({
-        email: traderEmail,
-        fullName: displayName,
-        planSize,
-        evaluationType: evaluationLabel,
-        paymentMethod: 'crypto',
-        country: countryCode,
-        promoCode: promo,
-        drawdownMode,
-        hasFrozenBackup,
-        basePrice: fee,
-        frozenBackupPrice,
-        totalAmount,
-        frozenBackupPolicy: hasFrozenBackup ? FROZEN_BACKUP_POLICY : null,
-      }),
+      order_description: `PFT Challenge ${planSize}k (${evaluationLabel})`,
+      ipn_callback_url: 'https://nimbus-nine-orpin.vercel.app/api/webhooks/payment-success',
+      success_url: 'https://nimbus-nine-orpin.vercel.app/dashboard',
+      cancel_url: 'https://nimbus-nine-orpin.vercel.app/dashboard',
+      customer_email: traderEmail, // Автоматична відправка інвойсу на пошту клієнта
     }
 
-    const jsonPayload = Buffer.from(JSON.stringify(payload)).toString('base64')
-    const sign = crypto
-      .createHash('md5')
-      .update(jsonPayload + apiKey)
-      .digest('hex')
-
-    const response = await fetch('https://api.cryptomus.com/v1/payment', {
+    const response = await fetch('https://api.nowpayments.io/v1/invoice', {
       method: 'POST',
       headers: {
-        merchant: merchantId,
-        sign,
+        'x-api-key': apiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
@@ -121,7 +101,7 @@ export async function POST(req: Request) {
 
     const data = await response.json()
 
-    if (data.state === 0 && data.result && data.result.url) {
+    if (data.invoice_url) {
       if (process.env.DATABASE_URL) {
         try {
           const { prisma } = await import('@/lib/prisma')
@@ -139,7 +119,7 @@ export async function POST(req: Request) {
             data: {
               userId: user.id,
               providerOrderId: orderId,
-              amount,
+              amount: amount.toString(),
               currency: 'USD',
               status: 'PENDING',
               rawPayload: {
@@ -163,10 +143,10 @@ export async function POST(req: Request) {
           console.warn('Checkout order persist skipped', persistError)
         }
       }
-      return NextResponse.json({ url: data.result.url })
+      return NextResponse.json({ url: data.invoice_url })
     }
 
-    console.error('Cryptomus error:', data)
+    console.error('NOWPayments error:', data)
     return NextResponse.json({ error: data.message || 'Unable to generate a payment invoice.' }, { status: 400 })
   } catch (error) {
     console.error('Checkout route error:', error)
