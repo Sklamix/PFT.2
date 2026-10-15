@@ -183,6 +183,10 @@ model Order {
   invoiceEmailStatus  EmailDeliveryStatus?
   invoiceEmailSentAt  DateTime?
   invoiceEmailError   String?
+  provisionedAt           DateTime?
+  credentialsEmailStatus  EmailDeliveryStatus?
+  credentialsEmailSentAt  DateTime?
+  credentialsEmailError   String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
