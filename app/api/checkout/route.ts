@@ -1,5 +1,4 @@
-import { NextResponse } from 'next/server'
-import crypto from 'crypto'
+import { after, NextResponse } from 'next/server'
 import {
   ACCOUNT_SIZES,
   UNAVAILABLE_TIER_MESSAGE,
@@ -12,6 +11,18 @@ import {
   type ChallengeType,
   type DrawdownMode,
 } from '@/lib/challenges'
+import { isEmailConfigured } from '@/lib/email/resend'
+import { sendCheckoutInvoiceEmail, type CheckoutInvoiceDetails } from '@/lib/email/checkout-invoice'
+
+const PAY_CURRENCY = 'usdttrc20'
+const PAY_CURRENCY_LABEL = 'USDT (TRC20)'
+const INVOICE_TIMEOUT_MS = 15_000
+
+interface NowPaymentsInvoice {
+  id?: string | number
+  invoice_url?: string
+  message?: string
+}
 
 function parsePlanSize(value: unknown): AccountSize | null {
   const size = typeof value === 'number' ? value : Number(value)
@@ -75,19 +86,22 @@ export async function POST(req: Request) {
     const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : traderEmail.split('@')[0]
 
     const orderId = `PFT-${Date.now()}`
-    const apiKey = process.env.NOWPAYMENTS_API_KEY || ''
+    const apiKey = process.env.NOWPAYMENTS_API_KEY
+    if (!apiKey) {
+      console.error('Checkout misconfigured: NOWPAYMENTS_API_KEY is not set')
+      return NextResponse.json({ error: 'Crypto checkout is temporarily unavailable.' }, { status: 503 })
+    }
 
-    // Формуємо payload для створення інвойсу NOWPayments з передачею пошти покупця
     const payload = {
       price_amount: amount,
       price_currency: 'usd',
-      pay_currency: 'usdttrc20',
+      pay_currency: PAY_CURRENCY,
       order_id: orderId,
-      order_description: `PFT Challenge ${planSize}k (${evaluationLabel})`,
+      order_description: `PFT Challenge ${planSize / 1000}k (${evaluationLabel})`,
       ipn_callback_url: 'https://nimbus-nine-orpin.vercel.app/api/webhooks/payment-success',
       success_url: 'https://nimbus-nine-orpin.vercel.app/dashboard',
       cancel_url: 'https://nimbus-nine-orpin.vercel.app/dashboard',
-      customer_email: traderEmail, // Автоматична відправка інвойсу на пошту клієнта
+      customer_email: traderEmail,
     }
 
     const response = await fetch('https://api.nowpayments.io/v1/invoice', {
@@ -97,59 +111,121 @@ export async function POST(req: Request) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(INVOICE_TIMEOUT_MS),
     })
 
-    const data = await response.json()
+    const data = (await response.json().catch(() => null)) as NowPaymentsInvoice | null
+    const invoiceUrl = data?.invoice_url
+    if (!response.ok || typeof invoiceUrl !== 'string' || !invoiceUrl.startsWith('https://')) {
+      console.error('NOWPayments invoice error:', response.status, data)
+      return NextResponse.json({ error: data?.message || 'Unable to generate a payment invoice.' }, { status: 400 })
+    }
+    const providerInvoiceId = data?.id != null ? String(data.id) : null
 
-    if (data.invoice_url) {
-      if (process.env.DATABASE_URL) {
-        try {
-          const { prisma } = await import('@/lib/prisma')
-          const user = await prisma.user.upsert({
-            where: { email: traderEmail },
-            create: {
-              email: traderEmail,
-              passwordHash: 'pending-invite',
-              name: displayName,
-              role: 'TRADER',
-            },
-            update: { name: displayName },
-          })
-          await prisma.order.create({
-            data: {
-              userId: user.id,
-              providerOrderId: orderId,
-              amount: amount.toString(),
-              currency: 'USD',
-              status: 'PENDING',
-              rawPayload: {
-                planSize,
-                evaluationType: evaluationLabel,
-                email: traderEmail,
-                fullName: displayName,
-                paymentMethod: 'crypto',
-                country: countryCode ?? null,
-                promoCode: promo ?? null,
-                drawdownMode,
-                hasFrozenBackup,
-                basePrice: fee,
-                frozenBackupPrice,
-                totalAmount,
-                frozenBackupPolicy: hasFrozenBackup ? FROZEN_BACKUP_POLICY : null,
-              },
-            },
-          })
-        } catch (persistError) {
-          console.warn('Checkout order persist skipped', persistError)
-        }
-      }
-      return NextResponse.json({ url: data.invoice_url })
+    const invoiceDetails: CheckoutInvoiceDetails = {
+      orderId,
+      email: traderEmail,
+      fullName: displayName,
+      invoiceUrl,
+      planSize,
+      evaluationLabel,
+      drawdownMode,
+      hasFrozenBackup,
+      basePrice: fee,
+      frozenBackupPrice,
+      totalAmount: amount,
+      payCurrencyLabel: PAY_CURRENCY_LABEL,
     }
 
-    console.error('NOWPayments error:', data)
-    return NextResponse.json({ error: data.message || 'Unable to generate a payment invoice.' }, { status: 400 })
+    const persistedOrderId = await persistPendingOrder({
+      ...invoiceDetails,
+      providerInvoiceId,
+      countryCode,
+      promo,
+    })
+
+    // Runs after the response is sent so a slow or failing email provider never blocks the redirect.
+    after(() => deliverInvoiceEmail(invoiceDetails, persistedOrderId))
+
+    return NextResponse.json({ url: invoiceUrl, orderId })
   } catch (error) {
     console.error('Checkout route error:', error)
     return NextResponse.json({ error: 'Unable to start checkout. Please try again.' }, { status: 500 })
+  }
+}
+
+async function persistPendingOrder(
+  order: CheckoutInvoiceDetails & { providerInvoiceId: string | null; countryCode?: string; promo?: string },
+): Promise<string | null> {
+  if (!process.env.DATABASE_URL) return null
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    const user = await prisma.user.upsert({
+      where: { email: order.email },
+      create: {
+        email: order.email,
+        passwordHash: 'pending-invite',
+        name: order.fullName,
+        role: 'TRADER',
+      },
+      update: { name: order.fullName },
+    })
+    const created = await prisma.order.create({
+      data: {
+        userId: user.id,
+        provider: 'nowpayments',
+        providerOrderId: order.orderId,
+        providerInvoiceId: order.providerInvoiceId,
+        paymentUrl: order.invoiceUrl,
+        amount: order.totalAmount.toString(),
+        currency: 'USD',
+        status: 'PENDING',
+        invoiceEmailStatus: isEmailConfigured() ? 'PENDING' : 'SKIPPED',
+        rawPayload: {
+          planSize: order.planSize,
+          evaluationType: order.evaluationLabel,
+          email: order.email,
+          fullName: order.fullName,
+          paymentMethod: 'crypto',
+          payCurrency: PAY_CURRENCY,
+          country: order.countryCode ?? null,
+          promoCode: order.promo ?? null,
+          drawdownMode: order.drawdownMode,
+          hasFrozenBackup: order.hasFrozenBackup,
+          basePrice: order.basePrice,
+          frozenBackupPrice: order.frozenBackupPrice,
+          totalAmount: order.totalAmount,
+          frozenBackupPolicy: order.hasFrozenBackup ? FROZEN_BACKUP_POLICY : null,
+        },
+      },
+    })
+    return created.id
+  } catch (persistError) {
+    console.error('Checkout order persist failed', order.orderId, persistError)
+    return null
+  }
+}
+
+async function deliverInvoiceEmail(details: CheckoutInvoiceDetails, persistedOrderId: string | null) {
+  const result = await sendCheckoutInvoiceEmail(details)
+  if (result.status === 'FAILED') {
+    console.error('Checkout invoice email failed', details.orderId, result.error)
+  } else if (result.status === 'SKIPPED') {
+    console.warn('Checkout invoice email skipped', details.orderId, result.error)
+  }
+
+  if (!persistedOrderId) return
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    await prisma.order.update({
+      where: { id: persistedOrderId },
+      data: {
+        invoiceEmailStatus: result.status,
+        invoiceEmailSentAt: result.status === 'SENT' ? new Date() : null,
+        invoiceEmailError: result.status === 'SENT' ? null : result.error.slice(0, 500),
+      },
+    })
+  } catch (updateError) {
+    console.error('Checkout invoice email status update failed', details.orderId, updateError)
   }
 }
