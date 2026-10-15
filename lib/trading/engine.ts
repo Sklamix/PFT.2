@@ -158,6 +158,7 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
     userId: w.tx.account.userId,
     status: w.status,
     breachReason: w.breachReason,
+    activeSiblingAccountId: w.status === 'ACTIVE' ? null : await w.tx.findActiveSibling(),
     leverage: w.leverage,
     startingBalance: w.startingBalance,
     maxDailyLoss: w.maxDailyLoss,

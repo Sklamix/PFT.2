@@ -60,6 +60,8 @@ export interface BookTx {
   saveAccount(data: AccountSave): Promise<void>
   /** Promotes another FROZEN_STANDBY account owned by the same user to ACTIVE. */
   activateStandby(): Promise<string | null>
+  /** Another ACTIVE account owned by the same user, if any. */
+  findActiveSibling(): Promise<string | null>
 }
 
 export class StoreUnavailableError extends Error {}
@@ -215,6 +217,15 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[]): BookTx 
         },
       })
       return standby.id
+    },
+
+    async findActiveSibling() {
+      const sibling = await tx.tradingAccount.findFirst({
+        where: { userId: account.userId, id: { not: accountId }, status: 'ACTIVE' },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      })
+      return sibling?.id ?? null
     },
   }
 }
@@ -400,6 +411,13 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       if (!standby) return null
       Object.assign(standby, { status: 'ACTIVE', frozenAt: null })
       return standby.id
+    },
+
+    async findActiveSibling() {
+      const sibling = [...state.accounts.values()]
+        .filter((item) => item.userId === account.userId && item.id !== accountId && item.status === 'ACTIVE')
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
+      return sibling?.id ?? null
     },
   }
 }

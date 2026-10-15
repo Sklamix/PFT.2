@@ -33,6 +33,8 @@ export type AccountView = RiskMetrics & {
   userId: string
   status: string
   breachReason: string | null
+  /** Set when this account can no longer trade and the same user has another ACTIVE account. */
+  activeSiblingAccountId: string | null
   leverage: number
   startingBalance: number
   maxDailyLoss: number

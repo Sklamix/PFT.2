@@ -83,6 +83,13 @@ function NoticeBar() {
         <Banner
           tone="danger"
           message={`Account ${account.id} is ${account.status}${account.breachReason ? ` — ${account.breachReason}` : ''}. Trading is disabled.`}
+          action={
+            account.activeSiblingAccountId ? (
+              <Button size="sm" variant="outline" onClick={() => switchAccount(account.activeSiblingAccountId!)}>
+                Switch to {account.activeSiblingAccountId}
+              </Button>
+            ) : null
+          }
         />
       ) : null}
       {notice ? (
@@ -91,7 +98,7 @@ function NoticeBar() {
           message={notice.message}
           onDismiss={dismiss}
           action={
-            notice.switchToAccountId ? (
+            notice.switchToAccountId && notice.switchToAccountId !== account?.activeSiblingAccountId ? (
               <Button size="sm" variant="outline" onClick={() => switchAccount(notice.switchToAccountId!)}>
                 Switch to standby account
               </Button>
