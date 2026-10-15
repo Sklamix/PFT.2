@@ -31,9 +31,9 @@ function subscribeSymbolFor(symbol: string) {
   return `OANDA:${toOandaSymbol(symbol)}`
 }
 
-function nextMockPrice(symbol: string, last: number) {
-  const { pipSize, mockBasePrice } = getSymbol(symbol)
-  const meanRevert = (mockBasePrice - last) * 0.012
+function nextMockPrice(symbol: string, last: number, anchor: number) {
+  const { pipSize } = getSymbol(symbol)
+  const meanRevert = (anchor - last) * 0.012
   const noise = (Math.random() - 0.5) * pipSize * 2.4
   const spike = Math.random() < 0.03 ? (Math.random() - 0.5) * pipSize * 6 : 0
   const next = last + meanRevert + noise + spike
@@ -51,23 +51,16 @@ export function useMarketData() {
     let socket: WebSocket | null = null
     let mockTimer: ReturnType<typeof setInterval> | undefined
     let staleTimer: ReturnType<typeof setTimeout> | undefined
-    let sessionOpen: number | null = null
-    let lastMid = useTradingStore.getState().currentPrice
-    let high = useTradingStore.getState().high24h
-    let low = useTradingStore.getState().low24h
     const streamSymbol = subscribeSymbolFor(selectedSymbol)
 
     function applyMid(mid: number) {
       if (!Number.isFinite(mid) || mid <= 0) return
-      lastMid = mid
-      if (sessionOpen == null) sessionOpen = mid
-      high = high > 0 ? Math.max(high, mid) : mid
-      low = low > 0 ? Math.min(low, mid) : mid
+      const { high24h, low24h, open24h } = useTradingStore.getState()
       setTickerData({
         ...spreadFromMid(selectedSymbol, mid),
-        high24h: high,
-        low24h: low,
-        priceChangePercent24h: sessionOpen ? ((mid - sessionOpen) / sessionOpen) * 100 : 0,
+        high24h: high24h > 0 ? Math.max(high24h, mid) : mid,
+        low24h: low24h > 0 ? Math.min(low24h, mid) : mid,
+        priceChangePercent24h: open24h > 0 ? ((mid - open24h) / open24h) * 100 : 0,
       })
     }
 
@@ -82,7 +75,9 @@ export function useMarketData() {
       setFeedMode('MOCK')
       setConnectionStatus('CONNECTED')
       mockTimer = setInterval(() => {
-        if (!disposed) applyMid(nextMockPrice(selectedSymbol, lastMid))
+        if (disposed) return
+        const { currentPrice, referencePrice } = useTradingStore.getState()
+        applyMid(nextMockPrice(selectedSymbol, currentPrice, referencePrice))
       }, MOCK_INTERVAL_MS)
     }
 

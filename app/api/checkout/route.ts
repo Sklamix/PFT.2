@@ -70,6 +70,8 @@ export async function POST(req: Request) {
     const totalAmount = getCheckoutTotal(fee, hasFrozenBackup)
     const amount = totalAmount.toFixed(2)
     const evaluationLabel = evaluationType === 'one-step' ? '1-Step' : '2-Step'
+    const countryCode = typeof country === 'string' ? country : undefined
+    const promo = typeof promoCode === 'string' ? promoCode : undefined
     const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : traderEmail.split('@')[0]
 
     const orderId = `PFT-${Date.now()}`
@@ -90,8 +92,8 @@ export async function POST(req: Request) {
         planSize,
         evaluationType: evaluationLabel,
         paymentMethod: 'crypto',
-        country: typeof country === 'string' ? country : undefined,
-        promoCode: typeof promoCode === 'string' ? promoCode : undefined,
+        country: countryCode,
+        promoCode: promo,
         drawdownMode,
         hasFrozenBackup,
         basePrice: fee,
@@ -146,8 +148,8 @@ export async function POST(req: Request) {
                 email: traderEmail,
                 fullName: displayName,
                 paymentMethod: 'crypto',
-                country,
-                promoCode,
+                country: countryCode ?? null,
+                promoCode: promo ?? null,
                 drawdownMode,
                 hasFrozenBackup,
                 basePrice: fee,
