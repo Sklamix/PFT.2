@@ -52,6 +52,13 @@ enum OrderStatus {
   REFUNDED
 }
 
+enum EmailDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 enum TradeSide {
   BUY
   SELL
@@ -171,6 +178,11 @@ model Order {
   currency         String      @default("USD")
   status           OrderStatus @default(PENDING)
   rawPayload       Json?
+  paymentUrl          String?
+  providerInvoiceId   String?
+  invoiceEmailStatus  EmailDeliveryStatus?
+  invoiceEmailSentAt  DateTime?
+  invoiceEmailError   String?
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
