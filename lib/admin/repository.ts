@@ -392,7 +392,7 @@ export const adminRepo = {
         dailyStartingEquity: num(account.dailyStartingEquity),
         currentEquity,
       })
-      let status = account.status
+      let status: AccountStatus = account.status
       let breachReason = account.breachReason
       let frozenAt = account.frozenAt
       if (metrics.dailyDrawdownPct >= num(account.dailyDrawdownLimitPct)) {

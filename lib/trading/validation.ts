@@ -1,11 +1,12 @@
 import { FOREX_MAJORS, getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
+import { cachedReferencePrice } from '@/lib/market/yahoo'
 import type { CloseInput, OrderInput, Quote, Quotes } from './types'
 
 export const TRADABLE_SYMBOLS: readonly string[] = FOREX_MAJORS
 export const MIN_LOTS = 0.01
 export const MAX_LOTS = 50
 const MAX_SPREAD_PIPS = 50
-/** Client quotes further than this from the symbol reference are rejected as implausible. */
+/** Client quotes further than this from the reference (cached market close, else static base) are rejected as implausible. */
 const MAX_REFERENCE_DEVIATION = 0.25
 
 export class ValidationError extends Error {}
@@ -41,7 +42,8 @@ export function parseQuote(symbol: string, value: unknown): Quote {
   const meta = getSymbol(symbol)
   if ((ask - bid) / meta.pipSize > MAX_SPREAD_PIPS) throw new ValidationError(`Quote for ${symbol} has an implausible spread`)
   const mid = (bid + ask) / 2
-  if (Math.abs(mid - meta.mockBasePrice) / meta.mockBasePrice > MAX_REFERENCE_DEVIATION) {
+  const reference = cachedReferencePrice(meta.symbol) ?? meta.mockBasePrice
+  if (Math.abs(mid - reference) / reference > MAX_REFERENCE_DEVIATION) {
     throw new ValidationError(`Quote for ${symbol} is outside the accepted price band`)
   }
   return { bid, ask }

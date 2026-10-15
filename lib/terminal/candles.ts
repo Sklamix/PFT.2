@@ -32,37 +32,38 @@ export function bucketStart(unixMs: number, seconds: number) {
   return Math.floor(unix / seconds) * seconds
 }
 
-export function generateCandleHistory(symbol: string, timeframeSeconds: number, lastPrice: number, count = 80): Candle[] {
+/**
+ * Offline fallback history. Walks backwards from `lastPrice` so the final close equals the current
+ * quote exactly, with wicks kept at 0.2x–0.6x of the candle body.
+ */
+export function generateCandleHistory(symbol: string, timeframeSeconds: number, lastPrice: number, count = 120): Candle[] {
   const meta = getSymbol(symbol)
   const seed = Array.from(symbol).reduce((sum, char) => sum + char.charCodeAt(0), timeframeSeconds * 17)
   const random = mulberry32(seed)
   const nowBucket = bucketStart(Date.now(), timeframeSeconds)
   const pip = meta.pipSize
-  const candles: Candle[] = []
+  const step = pip * 2.5 * Math.sqrt(timeframeSeconds / 60)
+  const candles: Candle[] = new Array(count)
   let close = lastPrice
+  let momentum = 0
 
   for (let i = count - 1; i >= 0; i--) {
-    const time = nowBucket - i * timeframeSeconds
-    const drift = (random() - 0.48) * pip * 4
-    const wick = pip * (1 + random() * 6)
-    const open = close
-    close = Math.max(pip, open + drift)
-    const high = Math.max(open, close) + wick * random()
-    const low = Math.min(open, close) - wick * random()
-    candles.push({
-      time,
+    momentum = momentum * 0.6 + (random() - 0.5) * step
+    const open = Math.max(pip, close - momentum)
+    const body = Math.abs(close - open)
+    const upperWick = body * (0.2 + random() * 0.4)
+    const lowerWick = body * (0.2 + random() * 0.4)
+    candles[i] = {
+      time: nowBucket - (count - 1 - i) * timeframeSeconds,
       open,
-      high,
-      low,
+      high: Math.max(open, close) + upperWick,
+      low: Math.max(pip / 10, Math.min(open, close) - lowerWick),
       close,
       volume: Math.round(40 + random() * 220) * (timeframeSeconds / 60),
-    })
+    }
+    close = open
   }
 
-  const last = candles[candles.length - 1]
-  last.close = lastPrice
-  last.high = Math.max(last.high, lastPrice)
-  last.low = Math.min(last.low, lastPrice)
   return candles
 }
 

@@ -3,11 +3,11 @@ import type { AccountStatus, RiskBadge, TraderFilter, TraderRow } from '@/lib/ad
 export const NEAR_LIMIT_RATIO = 0.8
 
 export function isBreached(status: AccountStatus) {
-  return status === 'BREACHED_DAILY' || status === 'BREACHED_MAX'
+  return status === 'BREACHED_DAILY' || status === 'BREACHED_MAX' || status === 'BREACHED'
 }
 
 export function isPassing(status: AccountStatus) {
-  return status === 'ACTIVE' || status === 'PASSED_PHASE_1' || status === 'PASSED_PHASE_2' || status === 'FUNDED'
+  return status === 'ACTIVE' || status === 'PASSED_PHASE_1' || status === 'PASSED_PHASE_2' || status === 'FUNDED' || status === 'PASSED'
 }
 
 export function isNearLimit(row: {

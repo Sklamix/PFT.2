@@ -14,6 +14,7 @@ export type MarketSymbol = {
   lotSize: number
   priceDecimals: number
   typicalSpreadPips: number
+  /** Static fallback / reference price, used when no live or historical market data is available. */
   mockBasePrice: number
   category: SymbolCategory
   /** Finnhub trade-stream identifier, e.g. OANDA:EUR_USD */
@@ -30,7 +31,7 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     lotSize: 100000,
     priceDecimals: 5,
     typicalSpreadPips: 1,
-    mockBasePrice: 1.08642,
+    mockBasePrice: 1.122,
     category: 'forex',
     finnhubSymbol: 'OANDA:EUR_USD',
   },
@@ -43,7 +44,7 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     lotSize: 100000,
     priceDecimals: 5,
     typicalSpreadPips: 1.2,
-    mockBasePrice: 1.27185,
+    mockBasePrice: 1.3257,
     category: 'forex',
     finnhubSymbol: 'OANDA:GBP_USD',
   },
@@ -56,7 +57,7 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     lotSize: 100000,
     priceDecimals: 3,
     typicalSpreadPips: 1.1,
-    mockBasePrice: 149.824,
+    mockBasePrice: 157.91,
     category: 'forex',
     finnhubSymbol: 'OANDA:USD_JPY',
   },
@@ -69,7 +70,7 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     lotSize: 100,
     priceDecimals: 2,
     typicalSpreadPips: 25,
-    mockBasePrice: 2658.4,
+    mockBasePrice: 4172.1,
     category: 'metal',
     finnhubSymbol: 'OANDA:XAU_USD',
   },
@@ -82,7 +83,7 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     lotSize: 1,
     priceDecimals: 2,
     typicalSpreadPips: 12,
-    mockBasePrice: 67250,
+    mockBasePrice: 80935,
     category: 'crypto',
     finnhubSymbol: 'BINANCE:BTCUSDT',
   },
