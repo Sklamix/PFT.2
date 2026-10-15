@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -27,6 +28,7 @@ export function TerminalHeader() {
   const connectionStatus = useTradingStore((state) => state.connectionStatus)
   const feedMode = useTradingStore((state) => state.feedMode)
   const snapshot = useTerminalBook((state) => state.snapshot)
+  const account = useTerminalBook((state) => state.account)
   const meta = getSymbol(selectedSymbol)
   const live = connectionStatus === 'CONNECTED' && feedMode === 'LIVE'
   const mock = connectionStatus === 'CONNECTED' && feedMode === 'MOCK'
@@ -45,7 +47,9 @@ export function TerminalHeader() {
             <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="min-w-56">
-            <DropdownMenuLabel>Forex majors</DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Forex majors</DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup value={String(selectedSymbol)} onValueChange={setSelectedSymbol}>
               {FOREX_MAJORS.map((id) => {
@@ -94,6 +98,11 @@ export function TerminalHeader() {
       </div>
 
       <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 lg:flex lg:items-center lg:justify-end lg:gap-5">
+        <Metric
+          label="Account"
+          value={account ? account.status : '—'}
+          accent={account?.status === 'ACTIVE' ? 'text-primary' : account ? 'text-danger' : undefined}
+        />
         <Metric label="Balance" value={formatUsd(snapshot.balance)} />
         <Metric label="Equity" value={formatUsd(snapshot.equity)} accent={snapshot.floatingPnl >= 0 ? 'text-primary' : 'text-danger'} />
         <Metric label="Margin used" value={formatUsd(snapshot.marginUsed)} />

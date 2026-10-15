@@ -21,7 +21,6 @@ export function TerminalShell() {
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="left" className="w-72 border-border bg-sidebar p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
           <SheetDescription className="sr-only">Dashboard sections</SheetDescription>
           <SidebarContent
             view="terminal"
