@@ -1,7 +1,9 @@
 import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { Order, OrderStatus, Prisma } from '@prisma/client'
-import { sendCredentialsEmail } from '@/lib/email/account-credentials'
+import { appUrl, sendCredentialsEmail } from '@/lib/email/account-credentials'
+import { setPasswordUrl } from '@/lib/email/password-reset'
+import { hasUsablePassword, issuePasswordToken } from '@/lib/trader/accounts'
 import { isEmailConfigured } from '@/lib/email/resend'
 import {
   InvalidOrderPayloadError,
@@ -147,9 +149,13 @@ function ipnRecord(ipn: NowPaymentsIpn, paymentStatus: string) {
   }
 }
 
+const SET_PASSWORD_TTL_MS = 7 * 24 * 60 * 60_000
+const STALE_EMAIL_MS = 2 * 60_000
+
 /**
  * Marks the order PAID and provisions its trading account(s) in one transaction, then emails access details.
- * Safe to replay: provisioning is claimed via `provisionedAt`, and the email is only (re)sent until it succeeds.
+ * Safe to replay: provisioning is claimed via `provisionedAt`. The credentials email is sent by the request that
+ * provisioned, and re-sent (with a fresh set-password token) by later IPNs only after it FAILED or got stuck.
  * Returning 5xx makes NOWPayments retry the IPN, which retries whatever step failed.
  */
 async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatus: string) {
@@ -202,12 +208,17 @@ async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatu
 
   const fresh = await prisma.order.findUniqueOrThrow({
     where: { id: order.id },
-    include: { user: { select: { email: true, name: true } } },
+    include: { user: { select: { id: true, email: true, name: true, passwordHash: true } } },
   })
   const accounts = asObject(asObject(fresh.rawPayload).provisioning as Prisma.JsonValue)
   const response = { ok: true, orderId, status: 'PAID', paymentStatus, accountId: fresh.accountId }
 
-  if (!plan || !fresh.accountId || fresh.credentialsEmailStatus === 'SENT' || !isEmailConfigured()) {
+  const stuck =
+    fresh.credentialsEmailStatus === 'PENDING' &&
+    fresh.provisionedAt !== null &&
+    Date.now() - fresh.provisionedAt.getTime() > STALE_EMAIL_MS
+  const shouldSend = provisioned !== null || fresh.credentialsEmailStatus === 'FAILED' || stuck
+  if (!plan || !fresh.accountId || !shouldSend || !isEmailConfigured()) {
     return json({ ...response, credentialsEmail: fresh.credentialsEmailStatus })
   }
 
@@ -219,7 +230,12 @@ async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatu
       : null,
   ])
 
+  const access = hasUsablePassword(fresh.user.passwordHash)
+    ? { url: `${appUrl()}/login`, setPassword: false }
+    : { url: setPasswordUrl(await issuePasswordToken(fresh.user.id, SET_PASSWORD_TTL_MS)), setPassword: true }
+
   const result = await sendCredentialsEmail({
+    access,
     providerOrderId: orderId,
     email: fresh.user.email,
     fullName: fresh.user.name,

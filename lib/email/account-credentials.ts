@@ -8,14 +8,12 @@ export function appUrl() {
   return (process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL).replace(/\/+$/, '')
 }
 
-export function terminalUrl(accountId: string) {
-  return `${appUrl()}/dashboard/terminal?account=${encodeURIComponent(accountId)}`
-}
-
 export interface CredentialsEmailDetails extends ProvisionResult {
   providerOrderId: string
   email: string
   fullName: string
+  /** One-time set-password link for new traders, or the login page for traders who already have a password. */
+  access: { url: string; setPassword: boolean }
 }
 
 function escapeHtml(value: string) {
@@ -45,11 +43,13 @@ ${rows
 export function buildCredentialsEmail(details: CredentialsEmailDetails) {
   const rules = CHALLENGES[details.plan.challengeType]
   const plan = `${Math.round(details.plan.planSize / 1000)}k ${details.plan.challengeType === 'one-step' ? '1-Step' : '2-Step'} Challenge`
-  const link = terminalUrl(details.primary.id)
+  const link = details.access.url
+  const cta = details.access.setPassword ? 'Set your password' : 'Log in to your terminal'
 
   const credentials: Row[] = [
+    ['Login email', details.email],
     ['Account ID', details.primary.displayId],
-    ['Login', details.primary.mt5Login],
+    ['Account login', details.primary.mt5Login],
     ['Server', details.primary.mt5Server],
     ['Starting balance', usd(details.plan.planSize)],
     ['Leverage', '1:100'],
@@ -75,7 +75,9 @@ export function buildCredentialsEmail(details: CredentialsEmailDetails) {
     '',
     `Payment for order ${details.providerOrderId} is confirmed and your ${plan} account is live.`,
     '',
-    'Open your trading terminal:',
+    details.access.setPassword
+      ? 'Set your password (link valid for 7 days), then sign in with this email to open your terminal:'
+      : 'Sign in with your existing password to open your terminal:',
     link,
     '',
     ...credentials.map(([label, value]) => `${label}: ${value}`),
@@ -90,7 +92,7 @@ export function buildCredentialsEmail(details: CredentialsEmailDetails) {
         ]
       : []),
     '',
-    'Keep this email private: the terminal link gives direct access to your account.',
+    'Forgot your password later? Use "Forgot your password" on the login page.',
   ].join('\n')
 
   const url = escapeHtml(link)
@@ -100,8 +102,8 @@ export function buildCredentialsEmail(details: CredentialsEmailDetails) {
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#111827;border-radius:12px;">
       <tr><td style="padding:28px 28px 8px;">
         <h1 style="margin:0 0 12px;font-size:20px;color:#ffffff;">Your ${escapeHtml(plan)} account is ready</h1>
-        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">Hi ${escapeHtml(details.fullName)}, payment for order <strong>${escapeHtml(details.providerOrderId)}</strong> is confirmed. Your account is live and ready to trade.</p>
-        <p style="margin:0 0 24px;"><a href="${url}" style="display:inline-block;padding:12px 22px;background:#10b981;color:#04110b;text-decoration:none;font-weight:bold;border-radius:8px;">Open trading terminal</a></p>
+        <p style="margin:0 0 16px;font-size:14px;line-height:1.6;">Hi ${escapeHtml(details.fullName)}, payment for order <strong>${escapeHtml(details.providerOrderId)}</strong> is confirmed. Your account is live and ready to trade. ${details.access.setPassword ? 'Choose a password to sign in (the link is valid for 7 days).' : 'Sign in with your existing password.'}</p>
+        <p style="margin:0 0 24px;"><a href="${url}" style="display:inline-block;padding:12px 22px;background:#10b981;color:#04110b;text-decoration:none;font-weight:bold;border-radius:8px;">${cta}</a></p>
       </td></tr>
       <tr><td style="padding:0 28px;">
         <h2 style="margin:0 0 8px;font-size:15px;color:#ffffff;">Account access</h2>
@@ -118,7 +120,7 @@ export function buildCredentialsEmail(details: CredentialsEmailDetails) {
       </td></tr>
       <tr><td style="padding:20px 28px 28px;font-size:12px;line-height:1.6;color:#9ca3af;">
         <p style="margin:0 0 8px;">Button not working? Copy this link into your browser:<br><a href="${url}" style="color:#34d399;word-break:break-all;">${url}</a></p>
-        <p style="margin:0;">Keep this email private: the terminal link gives direct access to your account.</p>
+        <p style="margin:0;">Sign in at ${escapeHtml(`${appUrl()}/login`)} with ${escapeHtml(details.email)}. Forgot your password later? Use "Forgot your password" on the login page.</p>
       </td></tr>
     </table>
   </body>
@@ -129,11 +131,5 @@ export function buildCredentialsEmail(details: CredentialsEmailDetails) {
 
 export function sendCredentialsEmail(details: CredentialsEmailDetails): Promise<EmailResult> {
   const { subject, html, text } = buildCredentialsEmail(details)
-  return sendEmail({
-    to: details.email,
-    subject,
-    html,
-    text,
-    idempotencyKey: `account-credentials/${details.providerOrderId}`,
-  })
+  return sendEmail({ to: details.email, subject, html, text })
 }
