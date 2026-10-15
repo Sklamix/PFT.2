@@ -1,6 +1,7 @@
 'use client'
 
-import { X } from 'lucide-react'
+import { useState } from 'react'
+import { Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -24,6 +25,14 @@ export function PositionsTable() {
   const snapshot = useTerminalBook((state) => state.snapshot)
   const closePosition = useTerminalBook((state) => state.closePosition)
   const cancelPending = useTerminalBook((state) => state.cancelPending)
+  const closing = useTerminalBook((state) => state.closing)
+  const [closeError, setCloseError] = useState<string | null>(null)
+
+  async function close(id: string) {
+    setCloseError(null)
+    const result = await closePosition(id)
+    if (!result.ok) setCloseError(result.error)
+  }
 
   return (
     <section className="rounded-xl border border-border bg-card">
@@ -40,6 +49,11 @@ export function PositionsTable() {
         </div>
 
         <TabsContent value="positions" className="p-0">
+          {closeError ? (
+            <p role="alert" className="border-b border-border px-4 py-2 font-mono text-[11px] text-danger">
+              {closeError}
+            </p>
+          ) : null}
           {positions.length === 0 && pending.length === 0 ? (
             <Empty message="No open positions. Use the ticket on the right to send a market or limit order." />
           ) : (
@@ -92,8 +106,14 @@ export function PositionsTable() {
                       {formatUsd(position.floatingPnl, { signed: true })}
                     </TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon-xs" aria-label={`Close ${position.symbol} position`} onClick={() => closePosition(position.id)}>
-                        <X className="size-3.5" />
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Close ${position.symbol} position`}
+                        disabled={Boolean(closing[position.id])}
+                        onClick={() => void close(position.id)}
+                      >
+                        {closing[position.id] ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -145,18 +165,18 @@ export function PositionsTable() {
         <TabsContent value="rules" className="p-4">
           <div className="grid gap-3 md:grid-cols-2">
             <RuleCard
-              title="Daily loss vs 5% limit"
+              title={`Daily loss vs ${formatPct(snapshot.dailyLossLimitPct * 100)} of day-start equity`}
               used={snapshot.dailyLossUsed}
               limit={snapshot.dailyLossLimitUsd}
               ratio={snapshot.dailyUsedRatio}
               caption={`Buffer remaining ${formatUsd(snapshot.dailyBufferUsd)}`}
             />
             <RuleCard
-              title="Max trailing drawdown vs 10%"
+              title={`Trailing drawdown vs ${formatPct(snapshot.trailingDrawdownLimitPct * 100)} below peak`}
               used={snapshot.trailingDrawdownUsed}
               limit={snapshot.trailingDrawdownLimitUsd}
               ratio={snapshot.trailingUsedRatio}
-              caption={`Peak equity ${formatUsd(snapshot.peakEquity)}`}
+              caption={`Peak ${formatUsd(snapshot.peakEquity)} · floor ${formatUsd(snapshot.trailingFloor)}`}
             />
           </div>
         </TabsContent>
