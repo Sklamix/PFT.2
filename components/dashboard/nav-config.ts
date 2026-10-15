@@ -1,4 +1,4 @@
-import { Award, BookOpen, Layers, LayoutDashboard, Receipt, ShieldCheck } from 'lucide-react'
+import { Award, BookOpen, CandlestickChart, Layers, LayoutDashboard, Receipt, ShieldCheck } from 'lucide-react'
 
 export const DASHBOARD_VIEWS = [
   { id: 'overview', label: 'Overview / Cockpit', icon: LayoutDashboard },
@@ -10,3 +10,11 @@ export const DASHBOARD_VIEWS = [
 ] as const
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number]['id']
+export type DeskNavId = DashboardView | 'terminal'
+
+export const TERMINAL_NAV = {
+  id: 'terminal' as const,
+  label: 'Live Terminal',
+  href: '/dashboard/terminal',
+  icon: CandlestickChart,
+}

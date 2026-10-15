@@ -1,24 +1,25 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowRight, Info, ShieldCheck, RotateCcw, Zap } from 'lucide-react'
 import { CheckoutModal } from '@/components/checkout-modal'
 import { SegmentedControl } from '@/components/segmented-control'
 import { SectionHeading } from '@/components/section-heading'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
-  ACCOUNT_SIZES,
+  ACCOUNT_TIERS,
   CHALLENGES,
   LEVERAGE,
+  UNAVAILABLE_TIER_MESSAGE,
   formatCompact,
   formatCurrency,
+  formatPrice,
   getChallengeFee,
   type AccountSize,
   type ChallengeType,
   type DrawdownMode,
 } from '@/lib/challenges'
-
-const SIZE_OPTIONS = ACCOUNT_SIZES.map((size) => ({ value: size, label: formatCompact(size).replace('K', 'k') }))
+import { cn } from '@/lib/utils'
 
 const TYPE_OPTIONS = [
   { value: 'one-step', label: '1-Step Challenge' },
@@ -64,10 +65,11 @@ function MetricRow({ label, hint, value, subValue, muted }: MetricRowProps) {
 }
 
 export function ChallengeCalculator() {
-  const [size, setSize] = useState<AccountSize>(100_000)
+  const [size, setSize] = useState<AccountSize>(10_000)
   const [type, setType] = useState<ChallengeType>('two-step')
   const [drawdownMode, setDrawdownMode] = useState<DrawdownMode>('trailing')
   const [checkoutOpen, setCheckoutOpen] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
 
   const rules = CHALLENGES[type]
   const fee = getChallengeFee(type, size, drawdownMode)
@@ -76,6 +78,29 @@ export function ChallengeCalculator() {
   const dailyAmount = (size * rules.dailyDrawdown) / 100
   const overallAmount = (size * rules.overallDrawdown) / 100
   const projectedPayout = phase1Amount * 0.9
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), 4200)
+    return () => window.clearTimeout(timer)
+  }, [toast])
+
+  function handleTierSelect(nextSize: AccountSize, available: boolean) {
+    if (!available) {
+      setToast(UNAVAILABLE_TIER_MESSAGE)
+      return
+    }
+    setSize(nextSize)
+  }
+
+  function openCheckout() {
+    const selected = ACCOUNT_TIERS.find((tier) => tier.size === size)
+    if (!selected?.isAvailable) {
+      setToast(UNAVAILABLE_TIER_MESSAGE)
+      return
+    }
+    setCheckoutOpen(true)
+  }
 
   return (
     <section id="challenges" aria-labelledby="challenges-heading" className="border-b border-border py-20 sm:py-28">
@@ -93,13 +118,46 @@ export function ChallengeCalculator() {
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Account size
               </p>
-              <SegmentedControl
-                label="Account size"
-                options={SIZE_OPTIONS}
-                value={size}
-                onChange={setSize}
-                className="grid grid-cols-3 sm:flex"
-              />
+              <div
+                role="radiogroup"
+                aria-label="Account size"
+                className="grid grid-cols-2 gap-2 sm:grid-cols-4"
+              >
+                {ACCOUNT_TIERS.map((tier) => {
+                  const selected = size === tier.size
+                  const feeForTier = getChallengeFee(type, tier.size, drawdownMode)
+                  return (
+                    <button
+                      key={tier.size}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected && tier.isAvailable}
+                      aria-disabled={!tier.isAvailable}
+                      onClick={() => handleTierSelect(tier.size, tier.isAvailable)}
+                      className={cn(
+                        'relative rounded-xl border px-3 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                        tier.isAvailable
+                          ? selected
+                            ? 'border-primary/50 bg-primary/10 shadow-[inset_0_0_0_1px] shadow-primary/40'
+                            : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40'
+                          : 'cursor-not-allowed border-border bg-background/50 opacity-60',
+                      )}
+                    >
+                      {!tier.isAvailable && (
+                        <span className="absolute top-2 right-2 rounded-full border border-border bg-muted/80 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                          Unavailable
+                        </span>
+                      )}
+                      <span className="block font-mono text-sm font-semibold tabular-nums text-foreground">
+                        {formatCompact(tier.size).replace('K', 'k')}
+                      </span>
+                      <span className="mt-1 block font-mono text-xs tabular-nums text-muted-foreground">
+                        {formatPrice(feeForTier)}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Evaluation type</p>
@@ -195,7 +253,7 @@ export function ChallengeCalculator() {
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">One-time refundable fee</p>
               <p className="mt-2 flex items-baseline gap-2" aria-live="polite">
                 <span className="font-mono text-5xl font-semibold tracking-tight tabular-nums text-foreground">
-                  {formatCurrency(fee)}
+                  {formatPrice(fee)}
                 </span>
                 <span className="text-sm text-muted-foreground">USD</span>
               </p>
@@ -228,10 +286,10 @@ export function ChallengeCalculator() {
 
               <button
                 type="button"
-                onClick={() => setCheckoutOpen(true)}
+                onClick={openCheckout}
                 className="group mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-12px] shadow-primary transition-opacity hover:opacity-90 lg:mt-auto"
               >
-                Start Challenge — {formatCurrency(fee)}
+                Start Challenge — {formatPrice(fee)}
                 <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
               </button>
               <p className="mt-3 text-center text-xs text-muted-foreground">Card, Apple Pay & crypto accepted</p>
@@ -239,6 +297,16 @@ export function ChallengeCalculator() {
           </div>
         </div>
       </div>
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed right-4 bottom-4 z-[90] max-w-sm rounded-xl border border-[#1E293B] bg-[#0F172A] px-4 py-3 text-sm text-foreground shadow-[0_16px_48px_-20px_rgba(16,185,129,0.35)]"
+        >
+          {toast}
+        </div>
+      )}
 
       <CheckoutModal
         open={checkoutOpen}
