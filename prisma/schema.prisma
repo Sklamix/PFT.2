@@ -34,6 +34,9 @@ enum AccountPhase {
 
 enum AccountStatus {
   ACTIVE
+  FROZEN_STANDBY
+  BREACHED
+  PASSED
   PASSED_PHASE_1
   PASSED_PHASE_2
   FUNDED
@@ -57,6 +60,23 @@ enum TradeSide {
 enum TradeStatus {
   OPEN
   CLOSED
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum PositionStatus {
+  OPEN
+  CLOSED
+}
+
+enum CloseReason {
+  TAKE_PROFIT
+  STOP_LOSS
+  MANUAL
+  LIQUIDATION_BREACH
 }
 
 enum PayoutStatus {
@@ -116,13 +136,23 @@ model TradingAccount {
   breachReason         String?
   frozenAt             DateTime?
   lastTelemetryAt      DateTime?
+  balance              Float          @default(0)
+  equity               Float          @default(0)
+  startingBalance      Float          @default(0)
+  peakEquity           Float          @default(0)
+  maxDailyLoss         Float          @default(0.05)
+  maxTrailingDrawdown  Float          @default(0.10)
+  profitTarget         Float          @default(0.10)
+  isFrozenBackup       Boolean        @default(false)
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
-  orders Order[]
-  trades Trade[]
-  payouts Payout[]
-  auditLogs AuditLog[]
+  orders        Order[]
+  trades        Trade[]
+  payouts       Payout[]
+  auditLogs     AuditLog[]
+  positions     Position[]
+  tradeHistory  TradeHistory[]
 
   @@index([status])
   @@index([mt5Login])
@@ -169,6 +199,42 @@ model Trade {
 
   @@index([accountId, status])
   @@unique([accountId, ticket])
+}
+
+model Position {
+  id               String         @id @default(cuid())
+  tradingAccountId String
+  tradingAccount   TradingAccount @relation(fields: [tradingAccountId], references: [id], onDelete: Cascade)
+  symbol           String
+  side             OrderSide
+  sizeLots         Float
+  entryPrice       Float
+  currentPrice     Float
+  stopLoss         Float?
+  takeProfit       Float?
+  floatingPnl      Float          @default(0)
+  status           PositionStatus @default(OPEN)
+  openedAt         DateTime       @default(now())
+  closedAt         DateTime?
+
+  @@index([tradingAccountId, status])
+}
+
+model TradeHistory {
+  id               String         @id @default(cuid())
+  tradingAccountId String
+  tradingAccount   TradingAccount @relation(fields: [tradingAccountId], references: [id], onDelete: Cascade)
+  symbol           String
+  side             OrderSide
+  sizeLots         Float
+  entryPrice       Float
+  exitPrice        Float
+  pnl              Float
+  closeReason      CloseReason
+  openedAt         DateTime
+  closedAt         DateTime       @default(now())
+
+  @@index([tradingAccountId, closedAt])
 }
 
 model Payout {

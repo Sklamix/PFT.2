@@ -2,7 +2,12 @@ import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import {
   ACCOUNT_SIZES,
+  UNAVAILABLE_TIER_MESSAGE,
+  FROZEN_BACKUP_POLICY,
   getChallengeFee,
+  getCheckoutTotal,
+  getFrozenBackupPrice,
+  isAccountAvailable,
   type AccountSize,
   type ChallengeType,
   type DrawdownMode,
@@ -42,6 +47,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Select a valid account size and evaluation type.' }, { status: 400 })
     }
 
+    if (!isAccountAvailable(planSize)) {
+      return NextResponse.json({ error: UNAVAILABLE_TIER_MESSAGE }, { status: 400 })
+    }
+
+    const hasFrozenBackup = body.hasFrozenBackup === true || body.hasSecondAccount === true
+
     const traderEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
     if (!traderEmail.includes('@')) {
       return NextResponse.json({ error: 'A valid email is required to deliver MT5 credentials.' }, { status: 400 })
@@ -55,7 +66,9 @@ export async function POST(req: Request) {
     }
 
     const fee = getChallengeFee(evaluationType, planSize, drawdownMode)
-    const amount = fee.toFixed(2)
+    const frozenBackupPrice = hasFrozenBackup ? getFrozenBackupPrice(fee) : 0
+    const totalAmount = getCheckoutTotal(fee, hasFrozenBackup)
+    const amount = totalAmount.toFixed(2)
     const evaluationLabel = evaluationType === 'one-step' ? '1-Step' : '2-Step'
     const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : traderEmail.split('@')[0]
 
@@ -80,6 +93,11 @@ export async function POST(req: Request) {
         country: typeof country === 'string' ? country : undefined,
         promoCode: typeof promoCode === 'string' ? promoCode : undefined,
         drawdownMode,
+        hasFrozenBackup,
+        basePrice: fee,
+        frozenBackupPrice,
+        totalAmount,
+        frozenBackupPolicy: hasFrozenBackup ? FROZEN_BACKUP_POLICY : null,
       }),
     }
 
@@ -131,6 +149,11 @@ export async function POST(req: Request) {
                 country,
                 promoCode,
                 drawdownMode,
+                hasFrozenBackup,
+                basePrice: fee,
+                frozenBackupPrice,
+                totalAmount,
+                frozenBackupPolicy: hasFrozenBackup ? FROZEN_BACKUP_POLICY : null,
               },
             },
           })

@@ -1,12 +1,13 @@
 'use client'
 
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
   Apple,
   Bitcoin,
   Check,
   CreditCard,
+  Info,
   Loader2,
   Lock,
   Mail,
@@ -18,9 +19,14 @@ import {
   Wallet,
 } from 'lucide-react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   CHALLENGES,
+  FROZEN_BACKUP_RATE,
   formatCurrency,
+  formatPrice,
+  getCheckoutTotal,
+  getFrozenBackupPrice,
   type AccountSize,
   type ChallengeType,
   type DrawdownMode,
@@ -98,18 +104,27 @@ export function CheckoutModal({
   const [promoStatus, setPromoStatus] = useState<'idle' | 'applied' | 'invalid'>('idle')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('crypto')
   const [agreed, setAgreed] = useState(false)
+  const [hasFrozenBackup, setHasFrozenBackup] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const rules = CHALLENGES[evaluationType]
+  const basePrice = calculatedPrice
+  const frozenBackupPrice = getFrozenBackupPrice(basePrice)
+  const totalAmount = getCheckoutTotal(basePrice, hasFrozenBackup)
   const tierBadge = useMemo(
     () => `${formatCurrency(accountSize)} · ${rules.label}`,
     [accountSize, rules.label],
   )
 
+  useEffect(() => {
+    if (open) setHasFrozenBackup(false)
+  }, [open, accountSize, calculatedPrice])
+
   function resetTransient() {
     setError(null)
     setSubmitting(false)
+    setHasFrozenBackup(false)
   }
 
   function applyPromo() {
@@ -160,6 +175,8 @@ export function CheckoutModal({
           country,
           promoCode: promoCode.trim() || undefined,
           drawdownMode,
+          hasFrozenBackup,
+          totalAmount,
         }),
       })
 
@@ -209,7 +226,7 @@ export function CheckoutModal({
               <p className="text-right">
                 <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Total due</span>
                 <span className="font-mono text-2xl font-semibold tabular-nums text-foreground">
-                  {formatCurrency(calculatedPrice)}
+                  {formatPrice(totalAmount)}
                   <span className="ml-1 text-sm font-medium text-muted-foreground">USD</span>
                 </span>
               </p>
@@ -393,6 +410,62 @@ export function CheckoutModal({
               </div>
             </fieldset>
 
+            <div
+              className={cn(
+                'relative rounded-xl border p-3.5 transition-colors',
+                hasFrozenBackup
+                  ? 'border-primary/50 bg-primary/5 shadow-[0_0_24px_-16px] shadow-primary'
+                  : 'border-[#1E293B] bg-[#0F172A]/50 hover:border-primary/30',
+              )}
+            >
+              <Tooltip>
+                <TooltipTrigger
+                  type="button"
+                  aria-label="Frozen Backup Rules"
+                  className="absolute top-3 right-3 rounded-md p-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Info className="h-4 w-4 text-slate-400 hover:text-white" />
+                </TooltipTrigger>
+                <TooltipContent
+                  side="left"
+                  align="start"
+                  className="flex max-w-[280px] flex-col items-start gap-2 border border-[#1E293B] bg-[#0F172A] px-3 py-2.5 text-left text-xs text-slate-300 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.8)]"
+                >
+                  <p className="font-semibold text-white">Frozen Backup Rules</p>
+                  <ul className="space-y-1.5 leading-relaxed">
+                    <li>• Standby mode: Sits dormant while you trade your main account.</li>
+                    <li>• Auto-activation: Automatically unlocks only if your main account breaches drawdown rules.</li>
+                    <li>• Success policy: If you pass your evaluation, this backup permanently expires.</li>
+                  </ul>
+                </TooltipContent>
+              </Tooltip>
+
+              <label className="flex cursor-pointer items-start gap-3 pr-7">
+                <input
+                  type="checkbox"
+                  checked={hasFrozenBackup}
+                  onChange={(event) => setHasFrozenBackup(event.target.checked)}
+                  className="mt-0.5 size-4 accent-[var(--primary)]"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-foreground">
+                    Add Frozen Backup Account (+50% OFF)
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                    Get an instant dormant backup account. Automatically unfreezes if you fail your main account. Expires
+                    if you pass. (+{(basePrice * FROZEN_BACKUP_RATE).toFixed(2)})
+                  </span>
+                  {hasFrozenBackup && (
+                    <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+                      <span>Base {formatPrice(basePrice)}</span>
+                      <span>+ Backup {formatPrice(frozenBackupPrice)}</span>
+                      <span className="text-primary">Total {formatPrice(totalAmount)}</span>
+                    </span>
+                  )}
+                </span>
+              </label>
+            </div>
+
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#1E293B] bg-[#0F172A]/50 px-3 py-3">
               <input
                 type="checkbox"
@@ -434,7 +507,7 @@ export function CheckoutModal({
               ) : (
                 <>
                   <Lock className="size-4" aria-hidden="true" />
-                  Proceed to Payment — {formatCurrency(calculatedPrice)}
+                  Proceed to Payment — {formatPrice(totalAmount)}
                 </>
               )}
             </button>

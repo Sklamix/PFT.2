@@ -1,10 +1,12 @@
+'use client'
+
 import Link from 'next/link'
 import { LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { DASHBOARD_VIEWS, type DashboardView } from './nav-config'
+import { DASHBOARD_VIEWS, TERMINAL_NAV, type DashboardView, type DeskNavId } from './nav-config'
 
 type SidebarContentProps = {
-  view: DashboardView
+  view: DeskNavId
   onNavigate: (view: DashboardView) => void
 }
 
@@ -27,6 +29,25 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
       <nav aria-label="Dashboard" className="flex-1 overflow-y-auto px-3 py-4">
         <p className="px-2 pb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Navigation</p>
         <ul className="flex flex-col gap-0.5">
+          <li>
+            <Link
+              href={TERMINAL_NAV.href}
+              aria-current={view === 'terminal' ? 'page' : undefined}
+              className={cn(
+                'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
+                view === 'terminal'
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+              )}
+            >
+              {view === 'terminal' && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" aria-hidden="true" />}
+              <TERMINAL_NAV.icon
+                className={cn('size-4 shrink-0', view === 'terminal' ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')}
+                aria-hidden="true"
+              />
+              {TERMINAL_NAV.label}
+            </Link>
+          </li>
           {DASHBOARD_VIEWS.map((item) => {
             const active = item.id === view
             const Icon = item.icon
