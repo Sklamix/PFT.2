@@ -102,6 +102,8 @@ model User {
   id            String    @id @default(cuid())
   email         String    @unique
   passwordHash  String
+  passwordTokenHash      String?   @unique
+  passwordTokenExpiresAt DateTime?
   name          String
   role          Role      @default(TRADER)
   kycStatus     KycStatus @default(UNVERIFIED)
