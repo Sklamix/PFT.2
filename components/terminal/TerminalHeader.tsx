@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -46,7 +47,9 @@ export function TerminalHeader() {
             <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="min-w-56">
-            <DropdownMenuLabel>Forex majors</DropdownMenuLabel>
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Forex majors</DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuRadioGroup value={String(selectedSymbol)} onValueChange={setSelectedSymbol}>
               {FOREX_MAJORS.map((id) => {
