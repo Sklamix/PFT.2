@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   calculatePnlUsd,
+  FOREX_MAJORS,
   formatPrice,
   getSymbol,
   pipValueUsd,
+  requiredMarginUsd,
 } from '@/lib/constants/symbols'
 import { formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
@@ -24,6 +26,9 @@ export function OrderPanel() {
   const ask = useTradingStore((state) => state.ask)
   const placeMarket = useTerminalBook((state) => state.placeMarket)
   const placePending = useTerminalBook((state) => state.placePending)
+  const accountStatus = useTerminalBook((state) => state.account?.status)
+  const freeMargin = useTerminalBook((state) => state.snapshot.freeMargin)
+  const leverage = useTerminalBook((state) => state.account?.leverage ?? 100)
 
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market')
   const [side, setSide] = useState<OrderSide>('BUY')
@@ -32,7 +37,7 @@ export function OrderPanel() {
   const [takeProfit, setTakeProfit] = useState('')
   const [limitPrice, setLimitPrice] = useState('')
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
   const meta = getSymbol(selectedSymbol)
   const sizeLots = Number(lots)
@@ -42,6 +47,8 @@ export function OrderPanel() {
   const entry = side === 'BUY' ? ask : bid
   const validLots = Number.isFinite(sizeLots) && sizeLots > 0
   const pipValue = validLots ? pipValueUsd(selectedSymbol, sizeLots, entry) : 0
+  const margin = validLots ? requiredMarginUsd(selectedSymbol, sizeLots, entry, leverage) : 0
+  const tradable = accountStatus === 'ACTIVE' && (FOREX_MAJORS as readonly string[]).includes(selectedSymbol)
 
   const projections = useMemo(() => {
     if (!validLots) return { sl: null as number | null, tp: null as number | null }
@@ -52,6 +59,7 @@ export function OrderPanel() {
   }, [entry, selectedSymbol, side, sizeLots, sl, tp, validLots])
 
   const canSubmit =
+    tradable &&
     validLots &&
     !busy &&
     (orderType === 'market' || (limit != null && limit > 0)) &&
@@ -62,7 +70,6 @@ export function OrderPanel() {
     if (!canSubmit) return
     setBusy(true)
     setNotice(null)
-    await new Promise((resolve) => setTimeout(resolve, 280))
     try {
       if (orderType === 'limit' && limit) {
         placePending({
@@ -73,16 +80,20 @@ export function OrderPanel() {
           stopLoss: sl,
           takeProfit: tp,
         })
-        setNotice(`Limit ${side} ${sizeLots} ${meta.displayName} queued at ${formatPrice(selectedSymbol, limit)}`)
+        setNotice({ tone: 'ok', text: `Limit ${side} ${sizeLots} ${meta.displayName} queued at ${formatPrice(selectedSymbol, limit)}` })
       } else {
-        const position = placeMarket({
+        const result = await placeMarket({
           symbol: selectedSymbol,
           side,
           sizeLots,
           stopLoss: sl,
           takeProfit: tp,
         })
-        setNotice(`Filled ${side} ${sizeLots} ${meta.displayName} @ ${formatPrice(selectedSymbol, position.entryPrice)}`)
+        setNotice(
+          result.ok
+            ? { tone: 'ok', text: `Filled ${side} ${sizeLots} ${meta.displayName} @ ${formatPrice(selectedSymbol, result.position.entryPrice)}` }
+            : { tone: 'error', text: result.error },
+        )
       }
     } finally {
       setBusy(false)
@@ -172,8 +183,11 @@ export function OrderPanel() {
             ))}
           </div>
           <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
-            ~{formatUsd(pipValue)} / pip
+            ~{formatUsd(pipValue)} / pip · margin {formatUsd(margin)}
           </p>
+          {validLots && margin > freeMargin ? (
+            <p className="mt-1 font-mono text-[11px] text-danger">Exceeds free margin {formatUsd(freeMargin)}</p>
+          ) : null}
         </Field>
 
         <div className="grid grid-cols-2 gap-2">
@@ -199,7 +213,16 @@ export function OrderPanel() {
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
           {busy ? 'Working…' : orderType === 'limit' ? 'Place limit order' : 'Execute trade'}
         </Button>
-        {notice ? <p className="font-mono text-[11px] text-highlight">{notice}</p> : null}
+        {!tradable && accountStatus ? (
+          <p className="font-mono text-[11px] text-muted-foreground">
+            {accountStatus !== 'ACTIVE' ? `Account ${accountStatus.toLowerCase()} — orders disabled` : 'Symbol not tradable on this account'}
+          </p>
+        ) : null}
+        {notice ? (
+          <p role={notice.tone === 'error' ? 'alert' : 'status'} className={cn('font-mono text-[11px]', notice.tone === 'error' ? 'text-danger' : 'text-highlight')}>
+            {notice.text}
+          </p>
+        ) : null}
       </div>
     </aside>
   )
