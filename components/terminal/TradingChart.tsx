@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { FOREX_MAJORS, getSymbol } from '@/lib/constants/symbols'
 import { applyTick, generateCandleHistory, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -11,6 +12,40 @@ const TEXT = '#8a97ad'
 const UP = '#10b981'
 const DOWN = '#f43f5e'
 const CROSS = 'rgba(226, 232, 240, 0.35)'
+const CANDLES_TIMEOUT_MS = 8000
+const DAY_SECONDS = 86_400
+const VISIBLE_BARS = 140
+
+type CandlesResponse = { candles?: Candle[]; lastPrice?: number }
+
+async function fetchMarketCandles(symbol: string, timeframe: TimeframeId, signal: AbortSignal): Promise<{ candles: Candle[]; lastPrice: number } | null> {
+  if (!(FOREX_MAJORS as readonly string[]).includes(symbol)) return null
+  try {
+    const params = new URLSearchParams({ symbol, timeframe })
+    const response = await fetch(`/api/trading/candles?${params}`, { signal })
+    if (!response.ok) return null
+    const body = (await response.json()) as CandlesResponse
+    if (!body.candles?.length) return null
+    const { pipSize } = getSymbol(symbol)
+    // FX feeds report no volume; use the bar range as an activity proxy for the histogram.
+    const candles = body.candles.map((c) => ({ ...c, volume: c.volume || Math.max(1, Math.round(((c.high - c.low) / pipSize) * 10)) }))
+    const lastPrice = Number.isFinite(body.lastPrice) && body.lastPrice! > 0 ? body.lastPrice! : candles[candles.length - 1].close
+    return { candles, lastPrice }
+  } catch {
+    return null
+  }
+}
+
+function dailyStats(candles: Candle[], price: number) {
+  const since = candles[candles.length - 1].time - DAY_SECONDS
+  const window = candles.filter((c) => c.time >= since)
+  return {
+    price,
+    open24h: window[0]?.open ?? price,
+    high24h: Math.max(price, ...window.map((c) => c.high)),
+    low24h: Math.min(price, ...window.map((c) => c.low)),
+  }
+}
 
 export function TradingChart() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -30,8 +65,11 @@ export function TradingChart() {
     let disposed = false
     let chart: { remove: () => void; applyOptions: (o: object) => void } | undefined
     let resizeObserver: ResizeObserver | undefined
+    const controller = new AbortController()
+    const abortTimer = setTimeout(() => controller.abort(), CANDLES_TIMEOUT_MS)
+    const marketCandles = fetchMarketCandles(selectedSymbol, timeframe, controller.signal).finally(() => clearTimeout(abortTimer))
 
-    void import('lightweight-charts').then((lc) => {
+    void Promise.all([import('lightweight-charts'), marketCandles]).then(([lc, market]) => {
       if (disposed || !containerRef.current) return
       const instance = lc.createChart(containerRef.current, {
         autoSize: true,
@@ -62,7 +100,9 @@ export function TradingChart() {
       })
       chart = instance
 
+      const { priceDecimals } = getSymbol(selectedSymbol)
       const candleSeries = instance.addSeries(lc.CandlestickSeries, {
+        priceFormat: { type: 'price', precision: priceDecimals, minMove: 10 ** -priceDecimals },
         upColor: UP,
         downColor: DOWN,
         borderUpColor: UP,
@@ -78,8 +118,7 @@ export function TradingChart() {
         scaleMargins: { top: 0.82, bottom: 0 },
       })
 
-      const lastPrice = useTradingStore.getState().currentPrice
-      const history = generateCandleHistory(selectedSymbol, tf.seconds, lastPrice)
+      const history = market?.candles ?? generateCandleHistory(selectedSymbol, tf.seconds, useTradingStore.getState().currentPrice)
       lastCandleRef.current = history[history.length - 1] ?? null
       candleSeries.setData(history.map(toCandleBar))
       volumeSeries.setData(history.map(toVolumeBar))
@@ -87,7 +126,9 @@ export function TradingChart() {
         candle: candleSeries as never,
         volume: volumeSeries as never,
       }
-      instance.timeScale().fitContent()
+      if (history.length > VISIBLE_BARS) instance.timeScale().setVisibleLogicalRange({ from: history.length - VISIBLE_BARS, to: history.length + 2 })
+      else instance.timeScale().fitContent()
+      if (market) useTradingStore.getState().syncMarketPrice(selectedSymbol, dailyStats(market.candles, market.lastPrice))
 
       resizeObserver = new ResizeObserver(() => {
         instance.applyOptions({ width: containerRef.current?.clientWidth, height: containerRef.current?.clientHeight })
@@ -97,6 +138,8 @@ export function TradingChart() {
 
     return () => {
       disposed = true
+      controller.abort()
+      clearTimeout(abortTimer)
       seriesRef.current = null
       lastCandleRef.current = null
       resizeObserver?.disconnect()

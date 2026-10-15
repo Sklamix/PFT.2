@@ -1,0 +1,135 @@
+import { bucketStart, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
+
+export const CANDLE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY'] as const
+export type CandleSymbol = (typeof CANDLE_SYMBOLS)[number]
+
+const YAHOO_TICKERS: Record<CandleSymbol, string> = {
+  EURUSD: 'EURUSD=X',
+  GBPUSD: 'GBPUSD=X',
+  USDJPY: 'JPY=X',
+}
+
+const RANGES: Record<TimeframeId, string> = {
+  '1m': '1d',
+  '5m': '5d',
+  '15m': '5d',
+  '1h': '1mo',
+}
+
+const CACHE_TTL_MS = 20_000
+const FETCH_TIMEOUT_MS = 6_000
+const MAX_CANDLES = 500
+
+export type MarketCandles = {
+  symbol: CandleSymbol
+  timeframe: TimeframeId
+  candles: Candle[]
+  lastPrice: number
+  fetchedAt: number
+}
+
+type YahooChart = {
+  chart?: {
+    result?: {
+      meta?: { regularMarketPrice?: number }
+      timestamp?: number[]
+      indicators?: {
+        quote?: {
+          open?: (number | null)[]
+          high?: (number | null)[]
+          low?: (number | null)[]
+          close?: (number | null)[]
+          volume?: (number | null)[]
+        }[]
+      }
+    }[]
+    error?: { description?: string } | null
+  }
+}
+
+const cache = new Map<string, { value: MarketCandles; expires: number }>()
+const inflight = new Map<string, Promise<MarketCandles>>()
+
+export function isCandleSymbol(value: string): value is CandleSymbol {
+  return (CANDLE_SYMBOLS as readonly string[]).includes(value)
+}
+
+function finite(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function parseChart(symbol: CandleSymbol, timeframe: TimeframeId, payload: YahooChart): MarketCandles {
+  const result = payload.chart?.result?.[0]
+  if (!result) throw new Error(payload.chart?.error?.description || `No chart data for ${symbol}`)
+  const timestamps = result.timestamp ?? []
+  const quote = result.indicators?.quote?.[0] ?? {}
+  const seconds = TIMEFRAMES.find((item) => item.id === timeframe)?.seconds ?? 60
+  const candles: Candle[] = []
+
+  for (let i = 0; i < timestamps.length; i++) {
+    const open = quote.open?.[i]
+    const high = quote.high?.[i]
+    const low = quote.low?.[i]
+    const close = quote.close?.[i]
+    if (!finite(open) || !finite(high) || !finite(low) || !finite(close)) continue
+    // Yahoo appends the live quote with an off-grid timestamp; snap to the bar grid and merge.
+    const time = bucketStart(timestamps[i] * 1000, seconds)
+    const volume = Math.max(0, quote.volume?.[i] ?? 0)
+    const prev = candles[candles.length - 1]
+    if (prev && prev.time === time) {
+      prev.high = Math.max(prev.high, high, open, close)
+      prev.low = Math.min(prev.low, low, open, close)
+      prev.close = close
+      prev.volume += volume
+    } else if (!prev || time > prev.time) {
+      candles.push({ time, open, high: Math.max(high, open, close), low: Math.min(low, open, close), close, volume })
+    }
+  }
+
+  if (!candles.length) throw new Error(`No usable candles for ${symbol}`)
+  const trimmed = candles.slice(-MAX_CANDLES)
+  const last = trimmed[trimmed.length - 1]
+  const lastPrice = last.close
+  return { symbol, timeframe, candles: trimmed, lastPrice, fetchedAt: Date.now() }
+}
+
+async function download(symbol: CandleSymbol, timeframe: TimeframeId): Promise<MarketCandles> {
+  const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(YAHOO_TICKERS[symbol])}`)
+  url.searchParams.set('interval', timeframe === '1h' ? '60m' : timeframe)
+  url.searchParams.set('range', RANGES[timeframe])
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PFT-Terminal/1.0)', Accept: 'application/json' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  if (!response.ok) throw new Error(`Yahoo Finance responded ${response.status}`)
+  return parseChart(symbol, timeframe, (await response.json()) as YahooChart)
+}
+
+/** Real OHLC history from Yahoo Finance, memoised per symbol/timeframe for CACHE_TTL_MS. */
+export async function getMarketCandles(symbol: CandleSymbol, timeframe: TimeframeId): Promise<MarketCandles> {
+  const key = `${symbol}:${timeframe}`
+  const hit = cache.get(key)
+  if (hit && hit.expires > Date.now()) return hit.value
+
+  const pending = inflight.get(key)
+  if (pending) return pending
+
+  const request = download(symbol, timeframe)
+    .then((value) => {
+      cache.set(key, { value, expires: Date.now() + CACHE_TTL_MS })
+      return value
+    })
+    .finally(() => inflight.delete(key))
+  inflight.set(key, request)
+  return request
+}
+
+/** Last known market price for a symbol from any cached timeframe, or null if nothing is cached. */
+export function cachedReferencePrice(symbol: string): number | null {
+  let best: MarketCandles | null = null
+  for (const { value } of cache.values()) {
+    if (value.symbol === symbol && (!best || value.fetchedAt > best.fetchedAt)) best = value
+  }
+  return best?.lastPrice ?? null
+}
