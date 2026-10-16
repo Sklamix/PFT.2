@@ -13,12 +13,5 @@ export async function GET() {
   }
 }
 
-export async function POST() {
-  const { error } = await requireStaff()
-  if (error) return error
-  try {
-    return NextResponse.json(await adminRepo.syncAll())
-  } catch (err) {
-    return safeError(err)
-  }
-}
+export const dynamic = 'force-dynamic'
+

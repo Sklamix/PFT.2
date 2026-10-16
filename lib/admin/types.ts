@@ -15,6 +15,8 @@ export type AccountStatus =
 export type TraderFilter = 'all' | 'near_limit' | 'breached' | 'passing'
 export type RiskBadge = 'ACTIVE - PASSING' | 'NEAR LIMIT' | 'RULE BREACHED'
 export type PayoutStatus = 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED'
+export type OrderStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
+export type EmailDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
 export type WalletNetwork = 'USDT_TRC20' | 'USDT_ERC20'
 export type TradeSide = 'BUY' | 'SELL'
 export type TradeStatus = 'OPEN' | 'CLOSED'
@@ -90,6 +92,22 @@ export type PayoutRow = {
   requestedAt: string
   reviewedAt: string | null
   slaMinutes: number
+}
+
+export type OrderRow = {
+  id: string
+  provider: string
+  providerOrderId: string
+  userEmail: string
+  accountDisplayId: string | null
+  amount: number
+  currency: string
+  status: OrderStatus
+  paymentUrl: string | null
+  invoiceEmailStatus: EmailDeliveryStatus | null
+  credentialsEmailStatus: EmailDeliveryStatus | null
+  provisionedAt: string | null
+  createdAt: string
 }
 
 export type OverviewMetrics = {

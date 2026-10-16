@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     return jsonError('Unauthorized cron request', 401)
   }
   try {
-    return NextResponse.json(await adminRepo.syncAll())
+    return NextResponse.json(await adminRepo.telemetry())
   } catch (err) {
     return safeError(err)
   }
