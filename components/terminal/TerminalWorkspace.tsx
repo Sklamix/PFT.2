@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect } from 'react'
-import { X } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { LogOut, X } from 'lucide-react'
 import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
-import { DEFAULT_ACCOUNT_ID, useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
 import { OrderPanel } from './OrderPanel'
@@ -34,9 +34,36 @@ export function TerminalWorkspace() {
   const accountStatus = useTerminalBook((state) => state.account?.status)
   const openCount = useTerminalBook((state) => state.positions.length)
 
+  const [trader, setTrader] = useState<TraderMe | null>(null)
+  const accountId = useTerminalBook((state) => state.accountId)
+
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('account')?.trim()
-    void init(requested || DEFAULT_ACCOUNT_ID)
+    let cancelled = false
+    void (async () => {
+      const response = await fetch('/api/auth/me', { cache: 'no-store' }).catch(() => null)
+      if (response?.status === 401) return redirectToLogin()
+      const data = (await response?.json().catch(() => null)) as TraderMe | null
+      if (cancelled) return
+      if (!response?.ok || !data?.accounts) {
+        useTerminalBook.setState({ loadState: 'error', loadError: 'Unable to load your accounts' })
+        return
+      }
+      setTrader(data)
+      const requested = new URLSearchParams(window.location.search).get('account')?.trim()
+      const target =
+        data.accounts.find((account) => account.id === requested) ??
+        data.accounts.find((account) => account.status === 'ACTIVE') ??
+        data.accounts[0]
+      if (!target) {
+        useTerminalBook.setState({ loadState: 'error', loadError: 'No trading accounts on this login yet' })
+        return
+      }
+      if (target.id !== requested) switchAccount(target.id)
+      else void init(target.id)
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [init])
 
   useEffect(() => {
@@ -53,6 +80,7 @@ export function TerminalWorkspace() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {trader && <AccountBar trader={trader} accountId={accountId} />}
       <TerminalHeader />
       <NoticeBar />
       <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
@@ -62,6 +90,42 @@ export function TerminalWorkspace() {
         </div>
         <OrderPanel />
       </div>
+    </div>
+  )
+}
+
+interface TraderMe {
+  trader: { sub: string; email: string; name: string }
+  accounts: { id: string; displayId: string; status: string; planSize: number }[]
+}
+
+async function signOut() {
+  await fetch('/api/auth/logout', { method: 'POST' }).catch(() => null)
+  window.location.assign('/login')
+}
+
+function AccountBar({ trader, accountId }: { trader: TraderMe; accountId: string }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-1.5 text-xs lg:px-4">
+      <label className="flex items-center gap-2 text-muted-foreground">
+        Account
+        <select
+          value={accountId}
+          onChange={(event) => switchAccount(event.target.value)}
+          className="h-7 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground"
+        >
+          {trader.accounts.map((account) => (
+            <option key={account.id} value={account.id}>
+              {account.displayId} · {account.status.replace(/_/g, ' ').toLowerCase()}
+            </option>
+          ))}
+        </select>
+      </label>
+      <span className="ml-auto truncate text-muted-foreground">{trader.trader.email}</span>
+      <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void signOut()}>
+        <LogOut className="size-3.5" aria-hidden="true" />
+        Sign out
+      </Button>
     </div>
   )
 }
