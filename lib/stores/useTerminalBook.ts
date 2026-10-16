@@ -6,7 +6,7 @@ import { DEFAULT_LEVERAGE, DEFAULT_MAX_DAILY_LOSS, DEFAULT_MAX_TRAILING_DRAWDOWN
 import type { AccountView, BookPayload, Quote } from '@/lib/trading/types'
 import type { OrderSide, Position, TradeHistory } from '@/lib/types/terminal'
 
-export const DEFAULT_ACCOUNT_ID = process.env.NEXT_PUBLIC_TERMINAL_ACCOUNT_ID?.trim() || 'terminal-demo'
+export const DEFAULT_ACCOUNT_ID = ''
 /** Quotes older than this are not sent to the server or used to revalue positions. */
 const FRESH_QUOTE_MS = 10_000
 
@@ -181,6 +181,11 @@ function revalueAll(positions: Position[], marks: Marks) {
   return positions.map((position) => revalue(position, quotes[position.symbol]))
 }
 
+export function redirectToLogin() {
+  const next = `${window.location.pathname}${window.location.search}`
+  window.location.assign(`/login?next=${encodeURIComponent(next)}`)
+}
+
 async function call(path: string, init?: RequestInit): Promise<{ ok: boolean; body: ServerResponse }> {
   try {
     const response = await fetch(path, {
@@ -188,6 +193,7 @@ async function call(path: string, init?: RequestInit): Promise<{ ok: boolean; bo
       headers: { 'Content-Type': 'application/json', ...init?.headers },
       cache: 'no-store',
     })
+    if (response.status === 401) redirectToLogin()
     const body = (await response.json().catch(() => ({}))) as ServerResponse
     return { ok: response.ok, body }
   } catch {
