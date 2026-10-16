@@ -1,8 +1,0 @@
-{
-  "crons": [
-    {
-      "path": "/api/cron/telemetry",
-      "schedule": "0 0 * * *"
-    }
-  ]
-}
