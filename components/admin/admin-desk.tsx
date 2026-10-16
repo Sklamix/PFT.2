@@ -1,10 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { LogOut, Search, Wallet } from 'lucide-react'
+import { LogOut, ReceiptText, Search, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
 import { KpiBar } from '@/components/admin/kpi-bar'
+import { OrdersQueue } from '@/components/admin/orders-queue'
 import { PayoutQueue } from '@/components/admin/payout-queue'
 import { RiskTable } from '@/components/admin/risk-table'
 import { TelemetryController } from '@/components/admin/telemetry-controller'
@@ -15,6 +16,7 @@ import type {
   AccountStatus,
   AdminSession,
   OverviewMetrics,
+  OrderRow,
   PayoutRow,
   TelemetryState,
   TradeRow,
@@ -42,10 +44,11 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [filter, setFilter] = useState<TraderFilter>('all')
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null)
   const [rows, setRows] = useState<TraderRow[]>([])
+  const [orders, setOrders] = useState<OrderRow[]>([])
   const [payouts, setPayouts] = useState<PayoutRow[]>([])
   const [telemetry, setTelemetry] = useState<TelemetryState | null>(null)
-  const [syncing, setSyncing] = useState(false)
   const [queueOpen, setQueueOpen] = useState(false)
+  const [ordersOpen, setOrdersOpen] = useState(false)
   const [selected, setSelected] = useState<TraderRow | null>(null)
   const [trades, setTrades] = useState<TradeRow[]>([])
   const [tradesOpen, setTradesOpen] = useState(false)
@@ -58,15 +61,17 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
   const load = useCallback(async () => {
     try {
-      const [overview, traders, queue, pulse] = await Promise.all([
+      const [overview, traders, queue, orderRows, pulse] = await Promise.all([
         api<OverviewMetrics>('/api/admin/metrics/overview'),
         api<{ items: TraderRow[] }>(`/api/admin/traders?q=${encodeURIComponent(query)}&filter=${filter}`),
         api<{ items: PayoutRow[] }>('/api/admin/payouts'),
+        api<{ items: OrderRow[] }>('/api/admin/orders'),
         api<TelemetryState>('/api/admin/telemetry'),
       ])
       setMetrics(overview)
       setRows(traders.items)
       setPayouts(queue.items)
+      setOrders(orderRows.items)
       setTelemetry(pulse)
       setError(null)
     } catch (err) {
@@ -104,6 +109,10 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             Payout queue
             {metrics ? ` (${metrics.pendingPayoutsCount})` : ''}
           </Button>
+          <Button variant="outline" size="sm" onClick={() => setOrdersOpen(true)}>
+            <ReceiptText />
+            Orders &amp; payments
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => void logout()}>
             <LogOut />
             Sign out
@@ -116,21 +125,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       )}
 
       <KpiBar metrics={metrics} />
-      <TelemetryController
-        state={telemetry}
-        syncing={syncing}
-        onSync={async () => {
-          setSyncing(true)
-          try {
-            setTelemetry(await api('/api/admin/telemetry', { method: 'POST' }))
-            await load()
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Telemetry sync failed')
-          } finally {
-            setSyncing(false)
-          }
-        }}
-      />
+      <TelemetryController state={telemetry} />
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -213,6 +208,8 @@ export function AdminDesk({ user }: { user: AdminSession }) {
           }
         }}
       />
+
+      <OrdersQueue open={ordersOpen} onOpenChange={setOrdersOpen} items={orders} />
 
       <TradeHistoryModal open={tradesOpen} onOpenChange={setTradesOpen} account={selected} trades={trades} />
 

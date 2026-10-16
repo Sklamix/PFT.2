@@ -4,6 +4,8 @@ import { drawdownPressure, isBreached, isPassing, matchesTraderFilter, recompute
 import type {
   AccountStatus,
   OverviewMetrics,
+  OrderRow,
+  OrderStatus,
   PaginatedTraders,
   PayoutRow,
   PayoutStatus,
@@ -48,11 +50,11 @@ function slaMinutes(requestedAt: Date, reviewedAt: Date | null) {
 }
 
 type AccountWithRelations = Prisma.TradingAccountGetPayload<{
-  include: { user: true; trades: true }
+  include: { user: true; positions: true }
 }>
 
 function mapTrader(account: AccountWithRelations): TraderRow {
-  const open = account.trades.filter((trade) => trade.status === 'OPEN')
+  const open = account.positions.filter((position) => position.status === 'OPEN')
   const row: TraderRow = {
     id: account.id,
     displayId: account.displayId,
@@ -78,7 +80,7 @@ function mapTrader(account: AccountWithRelations): TraderRow {
     maxDrawdownLimitPct: num(account.maxDrawdownLimitPct),
     profitPct: num(account.profitPct),
     tradingDaysCount: account.tradingDaysCount,
-    openLots: open.reduce((sum, trade) => sum + num(trade.lots), 0),
+    openLots: open.reduce((sum, position) => sum + position.sizeLots, 0),
     openPositions: open.length,
     riskBadge: 'ACTIVE - PASSING',
     lastTelemetryAt: account.lastTelemetryAt?.toISOString() ?? null,
@@ -88,22 +90,41 @@ function mapTrader(account: AccountWithRelations): TraderRow {
   return row
 }
 
-function mapTrade(trade: Prisma.TradeGetPayload<object>): TradeRow {
+function mapPosition(position: Prisma.PositionGetPayload<object>): TradeRow {
+  return {
+    id: position.id,
+    ticket: position.id,
+    symbol: position.symbol,
+    lots: position.sizeLots,
+    side: position.side,
+    openPrice: position.entryPrice,
+    closePrice: null,
+    openTime: position.openedAt.toISOString(),
+    closeTime: null,
+    profit: position.floatingPnl,
+    swap: 0,
+    commission: 0,
+    status: 'OPEN',
+    markedForLiquidation: false,
+  }
+}
+
+function mapTradeHistory(trade: Prisma.TradeHistoryGetPayload<object>): TradeRow {
   return {
     id: trade.id,
-    ticket: trade.ticket,
+    ticket: trade.id,
     symbol: trade.symbol,
-    lots: num(trade.lots),
+    lots: trade.sizeLots,
     side: trade.side,
-    openPrice: num(trade.openPrice),
-    closePrice: trade.closePrice == null ? null : num(trade.closePrice),
-    openTime: trade.openTime.toISOString(),
-    closeTime: trade.closeTime?.toISOString() ?? null,
-    profit: num(trade.profit),
-    swap: num(trade.swap),
-    commission: num(trade.commission),
-    status: trade.status,
-    markedForLiquidation: trade.markedForLiquidation,
+    openPrice: trade.entryPrice,
+    closePrice: trade.exitPrice,
+    openTime: trade.openedAt.toISOString(),
+    closeTime: trade.closedAt.toISOString(),
+    profit: trade.pnl,
+    swap: 0,
+    commission: 0,
+    status: 'CLOSED',
+    markedForLiquidation: false,
   }
 }
 
@@ -125,6 +146,28 @@ function mapPayout(
     requestedAt: payout.requestedAt.toISOString(),
     reviewedAt: payout.reviewedAt?.toISOString() ?? null,
     slaMinutes: slaMinutes(payout.requestedAt, payout.reviewedAt),
+  }
+}
+
+function mapOrder(
+  order: Prisma.OrderGetPayload<{
+    include: { user: { select: { email: true } }; account: { select: { displayId: true } } }
+  }>,
+): OrderRow {
+  return {
+    id: order.id,
+    provider: order.provider,
+    providerOrderId: order.providerOrderId,
+    userEmail: order.user.email,
+    accountDisplayId: order.account?.displayId ?? null,
+    amount: num(order.amount),
+    currency: order.currency,
+    status: order.status,
+    paymentUrl: order.paymentUrl,
+    invoiceEmailStatus: order.invoiceEmailStatus,
+    credentialsEmailStatus: order.credentialsEmailStatus,
+    provisionedAt: order.provisionedAt?.toISOString() ?? null,
+    createdAt: order.createdAt.toISOString(),
   }
 }
 
@@ -174,7 +217,7 @@ export const adminRepo = {
 
     const rows = await prisma.tradingAccount.findMany({
       where,
-      include: { user: true, trades: true },
+      include: { user: true, positions: { where: { status: 'OPEN' } } },
       orderBy: { dailyDrawdownPct: 'desc' },
     })
 
@@ -198,7 +241,7 @@ export const adminRepo = {
     if (!prisma) return mockStore.overview()
 
     const [accounts, pending, closed] = await Promise.all([
-      prisma.tradingAccount.findMany({ include: { user: true, trades: true } }),
+      prisma.tradingAccount.findMany({ include: { user: true, positions: { where: { status: 'OPEN' } } } }),
       prisma.payout.findMany({ where: { status: 'PENDING' } }),
       prisma.payout.findMany({ where: { reviewedAt: { not: null } } }),
     ])
@@ -237,11 +280,37 @@ export const adminRepo = {
     return rows.map(mapPayout)
   },
 
+  async listOrders(status?: OrderStatus): Promise<OrderRow[]> {
+    const prisma = await db()
+    if (!prisma) return []
+    const rows = await prisma.order.findMany({
+      where: status ? { status } : undefined,
+      include: {
+        user: { select: { email: true } },
+        account: { select: { displayId: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    })
+    return rows.map(mapOrder)
+  },
+
   async listTrades(accountId: string) {
     const prisma = await db()
     if (!prisma) return mockStore.listTrades(accountId)
-    const rows = await prisma.trade.findMany({ where: { accountId }, orderBy: { openTime: 'desc' } })
-    return rows.map(mapTrade)
+    const [positions, history] = await Promise.all([
+      prisma.position.findMany({
+        where: { tradingAccountId: accountId, status: 'OPEN' },
+        orderBy: { openedAt: 'desc' },
+      }),
+      prisma.tradeHistory.findMany({
+        where: { tradingAccountId: accountId },
+        orderBy: { openedAt: 'desc' },
+      }),
+    ])
+    return [...positions.map(mapPosition), ...history.map(mapTradeHistory)].sort(
+      (a, b) => Date.parse(b.openTime) - Date.parse(a.openTime),
+    )
   },
 
   async getAccount(id: string) {
@@ -249,7 +318,7 @@ export const adminRepo = {
     if (!prisma) return mockStore.getAccount(id)
     const row = await prisma.tradingAccount.findUnique({
       where: { id },
-      include: { user: true, trades: true },
+      include: { user: true, positions: { where: { status: 'OPEN' } } },
     })
     return row ? mapTrader(row) : null
   },
@@ -292,22 +361,6 @@ export const adminRepo = {
   },
 
   async refreshAccount(id: string) {
-    const prisma = await db()
-    if (!prisma) return mockStore.refreshAccount(id)
-    const account = await prisma.tradingAccount.findUnique({ where: { id } })
-    if (!account) return null
-    const drift = 1 + (Math.random() - 0.48) * 0.004
-    const currentEquity = Number((num(account.currentEquity) * drift).toFixed(2))
-    const currentBalance = Number((num(account.currentBalance) * (1 + (Math.random() - 0.5) * 0.001)).toFixed(2))
-    const metrics = recomputeMetrics({
-      initialBalance: num(account.initialBalance),
-      dailyStartingEquity: num(account.dailyStartingEquity),
-      currentEquity,
-    })
-    await prisma.tradingAccount.update({
-      where: { id },
-      data: { currentEquity, currentBalance, ...metrics, lastTelemetryAt: new Date() },
-    })
     return this.getAccount(id)
   },
 
@@ -368,75 +421,4 @@ export const adminRepo = {
     }
   },
 
-  async syncAll(): Promise<TelemetryState> {
-    const prisma = await db()
-    if (!prisma) return mockStore.syncAll()
-
-    await prisma.telemetrySync.upsert({
-      where: { id: 'global' },
-      create: { id: 'global', inProgress: true },
-      update: { inProgress: true, lastError: null },
-    })
-
-    const accounts = await prisma.tradingAccount.findMany()
-    let updated = 0
-    for (const account of accounts) {
-      if (isBreached(account.status)) {
-        await prisma.tradingAccount.update({ where: { id: account.id }, data: { lastTelemetryAt: new Date() } })
-        continue
-      }
-      const drift = 1 + (Math.random() - 0.48) * 0.003
-      const currentEquity = Number((num(account.currentEquity) * drift).toFixed(2))
-      const metrics = recomputeMetrics({
-        initialBalance: num(account.initialBalance),
-        dailyStartingEquity: num(account.dailyStartingEquity),
-        currentEquity,
-      })
-      let status: AccountStatus = account.status
-      let breachReason = account.breachReason
-      let frozenAt = account.frozenAt
-      if (metrics.dailyDrawdownPct >= num(account.dailyDrawdownLimitPct)) {
-        status = 'BREACHED_DAILY'
-        breachReason = `Daily drawdown ${metrics.dailyDrawdownPct.toFixed(2)}% exceeded ${account.dailyDrawdownLimitPct}%`
-        frozenAt = new Date()
-        await prisma.trade.updateMany({
-          where: { accountId: account.id, status: 'OPEN' },
-          data: { markedForLiquidation: true },
-        })
-      } else if (metrics.maxDrawdownPct >= num(account.maxDrawdownLimitPct)) {
-        status = 'BREACHED_MAX'
-        breachReason = `Overall drawdown ${metrics.maxDrawdownPct.toFixed(2)}% exceeded ${account.maxDrawdownLimitPct}%`
-        frozenAt = new Date()
-        await prisma.trade.updateMany({
-          where: { accountId: account.id, status: 'OPEN' },
-          data: { markedForLiquidation: true },
-        })
-      }
-      await prisma.tradingAccount.update({
-        where: { id: account.id },
-        data: { currentEquity, ...metrics, status, breachReason, frozenAt, lastTelemetryAt: new Date() },
-      })
-      updated += 1
-    }
-
-    const row = await prisma.telemetrySync.update({
-      where: { id: 'global' },
-      data: {
-        inProgress: false,
-        lastSyncedAt: new Date(),
-        lastStatus: 'ok',
-        lastError: null,
-        recordsUpdated: updated,
-      },
-    })
-
-    return {
-      lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
-      lastStatus: row.lastStatus,
-      lastError: row.lastError,
-      recordsUpdated: row.recordsUpdated,
-      inProgress: row.inProgress,
-      source: 'database',
-    }
-  },
 }

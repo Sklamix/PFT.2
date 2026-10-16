@@ -94,7 +94,7 @@ export function RiskTable({
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => onTrades(row)}>View trade history</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => onRefresh(row)}>Force refresh telemetry</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onRefresh(row)}>Reload account data</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onOverride(row)}>Override status</DropdownMenuItem>
                     <DropdownMenuItem variant="destructive" onClick={() => onBreach(row)}>
                       Kill-switch / breach

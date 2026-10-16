@@ -647,7 +647,6 @@ export const mockStore = {
   refreshAccount(id: string) {
     const acc = accounts.find((item) => item.id === id)
     if (!acc) return null
-    applyJitter(acc)
     return toTraderRow(acc)
   },
 
@@ -672,42 +671,4 @@ export const mockStore = {
     return { ...telemetry }
   },
 
-  syncAll() {
-    telemetry.inProgress = true
-    let updated = 0
-    for (const acc of accounts) {
-      if (!isBreached(acc.status)) {
-        applyJitter(acc)
-        updated += 1
-      } else {
-        acc.lastTelemetryAt = now()
-      }
-    }
-    telemetry = {
-      lastSyncedAt: now(),
-      lastStatus: 'ok',
-      lastError: null,
-      recordsUpdated: updated,
-      inProgress: false,
-      source: 'mock',
-    }
-    return { ...telemetry }
-  },
-}
-
-function applyJitter(acc: MockAccount) {
-  const drift = 1 + (Math.random() - 0.48) * 0.004
-  acc.currentEquity = Number((acc.currentEquity * drift).toFixed(2))
-  acc.currentBalance = Number((acc.currentBalance * (1 + (Math.random() - 0.5) * 0.001)).toFixed(2))
-  Object.assign(acc, recomputeMetrics(acc))
-  acc.lastTelemetryAt = now()
-  if (acc.dailyDrawdownPct >= acc.dailyDrawdownLimitPct) {
-    acc.status = 'BREACHED_DAILY'
-    acc.breachReason = `Daily drawdown ${acc.dailyDrawdownPct.toFixed(2)}% exceeded ${acc.dailyDrawdownLimitPct}%`
-    acc.frozenAt = now()
-  } else if (acc.maxDrawdownPct >= acc.maxDrawdownLimitPct) {
-    acc.status = 'BREACHED_MAX'
-    acc.breachReason = `Overall drawdown ${acc.maxDrawdownPct.toFixed(2)}% exceeded ${acc.maxDrawdownLimitPct}%`
-    acc.frozenAt = now()
-  }
 }

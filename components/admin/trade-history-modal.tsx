@@ -29,7 +29,7 @@ export function TradeHistoryModal({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Ticket</TableHead>
+                <TableHead>Position / trade</TableHead>
                 <TableHead>Symbol</TableHead>
                 <TableHead>Side</TableHead>
                 <TableHead>Lots</TableHead>
@@ -43,7 +43,7 @@ export function TradeHistoryModal({
               {trades.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-muted-foreground">
-                    No synced positions.
+                    No terminal trades or positions.
                   </TableCell>
                 </TableRow>
               )}
