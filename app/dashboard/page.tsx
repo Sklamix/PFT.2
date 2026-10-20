@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { DashboardShell } from '@/components/dashboard/dashboard-shell'
+import { redirect } from 'next/navigation'
 
 export const metadata: Metadata = {
   title: 'Trader Terminal — Professional Funded Trader',
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 }
 
 export default function DashboardPage() {
-  return <DashboardShell />
+  redirect('/dashboard/terminal')
 }

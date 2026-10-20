@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { LogOut, X } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowRight, LogOut, X } from 'lucide-react'
 import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
@@ -32,11 +33,14 @@ export function TerminalWorkspace() {
   const init = useTerminalBook((state) => state.init)
   const sync = useTerminalBook((state) => state.sync)
   const accountStatus = useTerminalBook((state) => state.account?.status)
+  const loadState = useTerminalBook((state) => state.loadState)
+  const loadError = useTerminalBook((state) => state.loadError)
   const openCount = useTerminalBook((state) => state.positions.length)
   const pendingCount = useTerminalBook((state) => state.pending.length)
 
   const [trader, setTrader] = useState<TraderMe | null>(null)
   const accountId = useTerminalBook((state) => state.accountId)
+  const hasNoAccounts = loadState === 'error' && loadError === 'No trading accounts on this login yet'
 
   useEffect(() => {
     let cancelled = false
@@ -82,16 +86,44 @@ export function TerminalWorkspace() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {trader && <AccountBar trader={trader} accountId={accountId} />}
-      <TerminalHeader />
-      <NoticeBar />
-      <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-          <TradingChart />
-          <PositionsTable />
-        </div>
-        <OrderPanel />
-      </div>
+      {hasNoAccounts ? (
+        <NoAccountsState />
+      ) : (
+        <>
+          <TerminalHeader />
+          <NoticeBar />
+          <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+              <TradingChart />
+              <PositionsTable />
+            </div>
+            <OrderPanel />
+          </div>
+        </>
+      )}
     </div>
+  )
+}
+
+function NoAccountsState() {
+  return (
+    <main className="flex flex-1 items-center justify-center p-6">
+      <section className="w-full max-w-lg rounded-2xl border border-border bg-card p-8 text-center shadow-xl">
+        <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-primary">Trader workspace</p>
+        <h1 className="mt-3 text-2xl font-semibold text-foreground">No challenge accounts yet</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          No trading accounts are linked to this login yet. Choose a challenge to create your own account.
+          The accounts shown in the old dashboard were examples only and cannot be used to trade.
+        </p>
+        <Link
+          href="/#challenges"
+          className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+        >
+          Browse challenges
+          <ArrowRight className="size-4" aria-hidden="true" />
+        </Link>
+      </section>
+    </main>
   )
 }
 
@@ -108,20 +140,24 @@ async function signOut() {
 function AccountBar({ trader, accountId }: { trader: TraderMe; accountId: string }) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-1.5 text-xs lg:px-4">
-      <label className="flex items-center gap-2 text-muted-foreground">
-        Account
-        <select
-          value={accountId}
-          onChange={(event) => switchAccount(event.target.value)}
-          className="h-7 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground"
-        >
-          {trader.accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.displayId} · {account.status.replace(/_/g, ' ').toLowerCase()}
-            </option>
-          ))}
-        </select>
-      </label>
+      {trader.accounts.length > 0 ? (
+        <label className="flex items-center gap-2 text-muted-foreground">
+          Account
+          <select
+            value={accountId}
+            onChange={(event) => switchAccount(event.target.value)}
+            className="h-7 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground"
+          >
+            {trader.accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.displayId} · {account.status.replace(/_/g, ' ').toLowerCase()}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <span className="text-muted-foreground">No linked trading accounts</span>
+      )}
       <span className="ml-auto truncate text-muted-foreground">{trader.trader.email}</span>
       <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void signOut()}>
         <LogOut className="size-3.5" aria-hidden="true" />
