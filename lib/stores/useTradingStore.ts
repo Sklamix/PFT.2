@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import { getSymbol, spreadFromMid, type TerminalSymbolId } from '@/lib/constants/symbols'
 
 export type ConnectionStatus = 'CONNECTING' | 'CONNECTED' | 'DISCONNECTED' | 'ERROR'
-export type FeedMode = 'LIVE' | 'MOCK'
+export type FeedMode = 'LIVE'
 
 export type TickerData = {
   currentPrice: number
@@ -34,7 +34,7 @@ export type TradingStoreState = TickerData & {
 
 type TradingStore = TradingStoreState & {
   setSelectedSymbol: (symbol: string) => void
-  setTickerData: (data: Partial<TickerData>) => void
+  setLiveQuote: (symbol: string, bid: number, ask: number, providerTime: number) => void
   syncMarketPrice: (symbol: string, snapshot: MarketSnapshot) => void
   setConnectionStatus: (status: ConnectionStatus) => void
   setFeedMode: (feedMode: FeedMode) => void
@@ -58,7 +58,7 @@ const DEFAULT_SYMBOL: TerminalSymbolId = 'EURUSD'
 export const useTradingStore = create<TradingStore>((set) => ({
   selectedSymbol: DEFAULT_SYMBOL,
   connectionStatus: 'DISCONNECTED',
-  feedMode: 'MOCK',
+  feedMode: 'LIVE',
   ...tickerFromSymbol(DEFAULT_SYMBOL),
 
   setSelectedSymbol: (symbol) =>
@@ -68,23 +68,43 @@ export const useTradingStore = create<TradingStore>((set) => ({
       ...tickerFromSymbol(symbol),
     }),
 
-  setTickerData: (data) =>
+  setLiveQuote: (symbol, bid, ask, providerTime) =>
     set((state) => {
-      const bid = data.bid ?? state.bid
-      const ask = data.ask ?? state.ask
-      const spread = data.spread ?? ask - bid
+      if (
+        state.selectedSymbol !== symbol ||
+        !Number.isFinite(bid) ||
+        !Number.isFinite(ask) ||
+        bid <= 0 ||
+        ask < bid ||
+        !Number.isFinite(providerTime)
+      ) return state
+      const currentPrice = (bid + ask) / 2
       return {
         ...state,
-        ...data,
+        currentPrice,
         bid,
         ask,
-        spread,
+        spread: ask - bid,
+        referencePrice: currentPrice,
+        high24h: Math.max(state.high24h, currentPrice),
+        low24h: Math.min(state.low24h, currentPrice),
+        priceChangePercent24h: state.open24h > 0 ? ((currentPrice - state.open24h) / state.open24h) * 100 : 0,
       }
     }),
 
   syncMarketPrice: (symbol, { price, high24h, low24h, open24h }) =>
     set((state) => {
       if (state.selectedSymbol !== symbol || !Number.isFinite(price) || price <= 0) return state
+      if (state.connectionStatus === 'CONNECTED' && state.feedMode === 'LIVE') {
+        return {
+          ...state,
+          referencePrice: price,
+          open24h,
+          high24h: Math.max(high24h, state.currentPrice),
+          low24h: Math.min(low24h, state.currentPrice),
+          priceChangePercent24h: open24h > 0 ? ((state.currentPrice - open24h) / open24h) * 100 : 0,
+        }
+      }
       return {
         ...spreadFromMid(symbol, price),
         referencePrice: price,

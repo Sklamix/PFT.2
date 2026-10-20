@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { ArrowRight, BadgeCheck, FileText, Fingerprint, MapPin } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -210,7 +211,15 @@ export function SettingsView() {
         </ul>
       </section>
       <section aria-labelledby="prefs-title" className="rounded-xl border border-border bg-card p-5">
-        <h2 id="prefs-title" className="text-base font-semibold text-foreground">Security & notifications</h2>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="prefs-title" className="text-base font-semibold text-foreground">Security & notifications</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Manage your personal details and account preferences.</p>
+          </div>
+          <Link href="/profile/settings" className="rounded-md border border-primary/40 px-3 py-2 text-xs font-medium text-primary transition hover:bg-primary/10">
+            Edit profile
+          </Link>
+        </div>
         <ul className="mt-4 flex flex-col divide-y divide-border">
           {PREFERENCES.map((pref) => (
             <li key={pref.id} className="flex items-center justify-between gap-4 py-3">

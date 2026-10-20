@@ -20,7 +20,7 @@ const STATS = [
 
 function PayoutCard({ payout }: { payout: (typeof PAYOUTS)[number] }) {
   return (
-    <li className="flex w-72 shrink-0 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
+    <li className="home-card flex w-72 shrink-0 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
       <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 font-mono text-xs text-primary">
         {payout.country}
       </span>
@@ -40,7 +40,7 @@ function PayoutCard({ payout }: { payout: (typeof PAYOUTS)[number] }) {
 
 export function PayoutProofs() {
   return (
-    <section id="payouts" aria-labelledby="payouts-heading" className="border-b border-border bg-surface py-14">
+    <section id="payouts" data-home-reveal className="border-b border-border bg-surface py-14">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
           <div>

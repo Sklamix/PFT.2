@@ -3,10 +3,10 @@ import {
   ACCOUNT_SIZES,
   UNAVAILABLE_TIER_MESSAGE,
   FROZEN_BACKUP_POLICY,
-  getChallengeFee,
   getCheckoutTotal,
   getFrozenBackupPrice,
   isAccountAvailable,
+  STATIC_DRAWDOWN_PREMIUM,
   type AccountSize,
   type ChallengeType,
   type DrawdownMode,
@@ -76,7 +76,32 @@ export async function POST(req: Request) {
       )
     }
 
-    const fee = getChallengeFee(evaluationType, planSize, drawdownMode)
+    const dailyLossType = evaluationType === 'one-step'
+      ? 4
+      : body.dailyLossType === 3 || body.dailyLossType === 5
+        ? body.dailyLossType
+        : null
+    if (dailyLossType === null) {
+      return NextResponse.json({ error: 'Select a valid 2-Step daily loss limit.' }, { status: 400 })
+    }
+    if (!process.env.DATABASE_URL) {
+      return NextResponse.json({ error: 'Dynamic challenge pricing is temporarily unavailable.' }, { status: 503 })
+    }
+    const { prisma } = await import('@/lib/prisma')
+    const configuredPrice = await prisma.challengePricing.findUnique({
+      where: {
+        accountSize_challengeType_dailyLossType: {
+          accountSize: planSize,
+          challengeType: evaluationType === 'one-step' ? '1-STEP' : '2-STEP',
+          dailyLossType,
+        },
+      },
+      select: { price: true },
+    })
+    if (!configuredPrice) {
+      return NextResponse.json({ error: 'Pricing is not configured for this challenge.' }, { status: 503 })
+    }
+    const fee = Math.round(configuredPrice.price * (drawdownMode === 'static' ? 1 + STATIC_DRAWDOWN_PREMIUM : 1))
     const frozenBackupPrice = hasFrozenBackup ? getFrozenBackupPrice(fee) : 0
     const totalAmount = getCheckoutTotal(fee, hasFrozenBackup)
     const amount = Number(totalAmount.toFixed(2))
@@ -139,6 +164,7 @@ export async function POST(req: Request) {
 
     const persistedOrderId = await persistPendingOrder({
       ...invoiceDetails,
+      dailyLossType,
       providerInvoiceId,
       countryCode,
       promo,
@@ -155,7 +181,12 @@ export async function POST(req: Request) {
 }
 
 async function persistPendingOrder(
-  order: CheckoutInvoiceDetails & { providerInvoiceId: string | null; countryCode?: string; promo?: string },
+  order: CheckoutInvoiceDetails & {
+    dailyLossType: number | null
+    providerInvoiceId: string | null
+    countryCode?: string
+    promo?: string
+  },
 ): Promise<string | null> {
   if (!process.env.DATABASE_URL) return null
   try {
@@ -191,6 +222,7 @@ async function persistPendingOrder(
           country: order.countryCode ?? null,
           promoCode: order.promo ?? null,
           drawdownMode: order.drawdownMode,
+          dailyLossType: order.dailyLossType,
           hasFrozenBackup: order.hasFrozenBackup,
           basePrice: order.basePrice,
           frozenBackupPrice: order.frozenBackupPrice,

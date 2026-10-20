@@ -17,8 +17,6 @@ export type MarketSymbol = {
   /** Static fallback / reference price, used when no live or historical market data is available. */
   mockBasePrice: number
   category: SymbolCategory
-  /** Finnhub trade-stream identifier, e.g. OANDA:EUR_USD */
-  finnhubSymbol: string
 }
 
 export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
@@ -33,7 +31,6 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     typicalSpreadPips: 1,
     mockBasePrice: 1.122,
     category: 'forex',
-    finnhubSymbol: 'OANDA:EUR_USD',
   },
   GBPUSD: {
     id: 'GBPUSD',
@@ -46,7 +43,6 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     typicalSpreadPips: 1.2,
     mockBasePrice: 1.3257,
     category: 'forex',
-    finnhubSymbol: 'OANDA:GBP_USD',
   },
   USDJPY: {
     id: 'USDJPY',
@@ -59,7 +55,6 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     typicalSpreadPips: 1.1,
     mockBasePrice: 157.91,
     category: 'forex',
-    finnhubSymbol: 'OANDA:USD_JPY',
   },
   XAUUSD: {
     id: 'XAUUSD',
@@ -72,7 +67,6 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     typicalSpreadPips: 25,
     mockBasePrice: 4172.1,
     category: 'metal',
-    finnhubSymbol: 'OANDA:XAU_USD',
   },
   BTCUSD: {
     id: 'BTCUSD',
@@ -85,7 +79,6 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     typicalSpreadPips: 12,
     mockBasePrice: 80935,
     category: 'crypto',
-    finnhubSymbol: 'BINANCE:BTCUSDT',
   },
 }
 
@@ -97,19 +90,6 @@ export function isTerminalSymbol(value: string): value is TerminalSymbolId {
 
 export function getSymbol(symbol: string): MarketSymbol {
   return isTerminalSymbol(symbol) ? SYMBOLS[symbol] : SYMBOLS.EURUSD
-}
-
-export function toOandaSymbol(symbol: string) {
-  const meta = getSymbol(symbol)
-  if (meta.finnhubSymbol.startsWith('OANDA:')) {
-    return meta.finnhubSymbol.slice('OANDA:'.length)
-  }
-  if (symbol.length >= 6) return `${symbol.slice(0, 3)}_${symbol.slice(3)}`
-  return symbol
-}
-
-export function toFinnhubSubscribeSymbol(symbol: string) {
-  return getSymbol(symbol).finnhubSymbol
 }
 
 export function formatPrice(symbol: string, price: number) {

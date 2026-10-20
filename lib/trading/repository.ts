@@ -1,5 +1,8 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
-import type { CloseReason, OrderSide, Position, TradeHistory } from '@/lib/types/terminal'
+import { FOREX_MAJORS } from '@/lib/constants/symbols'
+import type { CloseReason, OrderSide, PendingTradeOrder, PendingTradeOrderStatus, Position, TradeHistory } from '@/lib/types/terminal'
+
+const liveWorkerSymbols = new Set<string>(FOREX_MAJORS)
 
 export type AccountRow = {
   id: string
@@ -47,13 +50,22 @@ export type CloseRequest = {
   reason: CloseReason
 }
 
+export type NewPendingOrder = Pick<
+  PendingTradeOrder,
+  'symbol' | 'side' | 'sizeLots' | 'limitPrice' | 'stopLoss' | 'takeProfit'
+>
+
 /** Operations available while holding an exclusive lock on one trading account. */
 export interface BookTx {
   account: AccountRow
   positions: Position[]
+  pendingOrders: PendingTradeOrder[]
   realizedSince(since: Date): Promise<number>
   recentHistory(limit: number): Promise<TradeHistory[]>
   createPosition(data: NewPosition): Promise<Position>
+  createPendingOrder(data: NewPendingOrder): Promise<PendingTradeOrder>
+  updatePendingOrderStatus(id: string, status: PendingTradeOrderStatus, reason?: string): Promise<boolean>
+  cancelPendingOrders(reason: string): Promise<void>
   markPositions(positions: Position[]): Promise<void>
   /** Closes the position if still open; returns null if it was already closed. */
   closePosition(request: CloseRequest): Promise<TradeHistory | null>
@@ -115,11 +127,31 @@ async function prismaClient(): Promise<PrismaClient> {
   return prisma
 }
 
-function prismaBook(tx: Tx, account: AccountRow, positions: Position[]): BookTx {
+function toPendingOrder(row: Prisma.PendingTradeOrderGetPayload<object>): PendingTradeOrder {
+  return {
+    id: row.id,
+    tradingAccountId: row.tradingAccountId,
+    symbol: row.symbol,
+    side: row.side,
+    sizeLots: row.sizeLots,
+    limitPrice: row.limitPrice,
+    stopLoss: row.stopLoss,
+    takeProfit: row.takeProfit,
+    status: row.status,
+    reason: row.reason,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    filledAt: row.filledAt,
+    cancelledAt: row.cancelledAt,
+  }
+}
+
+function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingOrders: PendingTradeOrder[]): BookTx {
   const accountId = account.id
   return {
     account,
     positions,
+    pendingOrders,
 
     async realizedSince(since) {
       const result = await tx.tradeHistory.aggregate({
@@ -141,6 +173,41 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[]): BookTx 
     async createPosition(data) {
       const row = await tx.position.create({ data: { ...data, tradingAccountId: accountId, status: 'OPEN' } })
       return toPosition(row)
+    },
+
+    async createPendingOrder(data) {
+      const row = await tx.pendingTradeOrder.create({
+        data: { ...data, tradingAccountId: accountId },
+      })
+      const order = toPendingOrder(row)
+      pendingOrders.unshift(order)
+      return order
+    },
+
+    async updatePendingOrderStatus(id, status, reason) {
+      const now = new Date()
+      const result = await tx.pendingTradeOrder.updateMany({
+        where: { id, tradingAccountId: accountId, status: 'PENDING' },
+        data: {
+          status,
+          reason: reason ?? null,
+          ...(status === 'FILLED' ? { filledAt: now } : {}),
+          ...(status === 'CANCELLED' ? { cancelledAt: now } : {}),
+        },
+      })
+      if (result.count > 0) {
+        const index = pendingOrders.findIndex((order) => order.id === id)
+        if (index >= 0) pendingOrders.splice(index, 1)
+      }
+      return result.count > 0
+    },
+
+    async cancelPendingOrders(reason) {
+      await tx.pendingTradeOrder.updateMany({
+        where: { tradingAccountId: accountId, status: 'PENDING' },
+        data: { status: 'CANCELLED', reason, cancelledAt: new Date() },
+      })
+      pendingOrders.splice(0, pendingOrders.length)
     },
 
     async markPositions(updated) {
@@ -247,6 +314,10 @@ async function withPrismaBook<T>(accountId: string, fn: (book: BookTx) => Promis
         where: { tradingAccountId: accountId, status: 'OPEN' },
         orderBy: { openedAt: 'asc' },
       })
+      const pendingRows = await tx.pendingTradeOrder.findMany({
+        where: { tradingAccountId: accountId, status: 'PENDING' },
+        orderBy: { createdAt: 'asc' },
+      })
       const account: AccountRow = {
         id: row.id,
         userId: row.userId,
@@ -261,7 +332,7 @@ async function withPrismaBook<T>(accountId: string, fn: (book: BookTx) => Promis
         maxDailyLoss: row.maxDailyLoss,
         maxTrailingDrawdown: row.maxTrailingDrawdown,
       }
-      return fn(prismaBook(tx, account, positions.map(toPosition)))
+      return fn(prismaBook(tx, account, positions.map(toPosition), pendingRows.map(toPendingOrder)))
     },
     { maxWait: 10_000, timeout: 20_000 },
   )
@@ -287,6 +358,7 @@ type MockAccount = AccountRow & {
 type MockState = {
   accounts: Map<string, MockAccount>
   positions: Map<string, Position>
+  pendingOrders: Map<string, PendingTradeOrder>
   history: TradeHistory[]
   locks: Map<string, Promise<unknown>>
 }
@@ -320,7 +392,7 @@ function mockState(): MockState {
     const accounts = new Map<string, MockAccount>()
     accounts.set('terminal-demo', mockAccount('terminal-demo', 'ACTIVE', 0))
     accounts.set('terminal-demo-standby', mockAccount('terminal-demo-standby', 'FROZEN_STANDBY', 1))
-    holder.__pftTradingMock = { accounts, positions: new Map(), history: [], locks: new Map() }
+    holder.__pftTradingMock = { accounts, positions: new Map(), pendingOrders: new Map(), history: [], locks: new Map() }
   }
   return holder.__pftTradingMock
 }
@@ -337,6 +409,10 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       .filter((position) => position.tradingAccountId === accountId && position.status === 'OPEN')
       .sort((a, b) => a.openedAt.getTime() - b.openedAt.getTime())
       .map((position) => ({ ...position })),
+    pendingOrders: [...state.pendingOrders.values()]
+      .filter((order) => order.tradingAccountId === accountId && order.status === 'PENDING')
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((order) => ({ ...order })),
 
     async realizedSince(since) {
       return state.history
@@ -359,6 +435,45 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       }
       state.positions.set(position.id, position)
       return { ...position }
+    },
+
+    async createPendingOrder(data) {
+      const now = new Date()
+      const order: PendingTradeOrder = {
+        ...data,
+        id: mockId('order'),
+        tradingAccountId: accountId,
+        status: 'PENDING',
+        reason: null,
+        createdAt: now,
+        updatedAt: now,
+        filledAt: null,
+        cancelledAt: null,
+      }
+      state.pendingOrders.set(order.id, order)
+      this.pendingOrders.unshift(order)
+      return { ...order }
+    },
+
+    async updatePendingOrderStatus(id, status, reason) {
+      const order = state.pendingOrders.get(id)
+      if (!order || order.tradingAccountId !== accountId || order.status !== 'PENDING') return false
+      Object.assign(order, {
+        status,
+        reason: reason ?? null,
+        updatedAt: new Date(),
+        ...(status === 'FILLED' ? { filledAt: new Date() } : {}),
+        ...(status === 'CANCELLED' ? { cancelledAt: new Date() } : {}),
+      })
+      const index = this.pendingOrders.findIndex((item) => item.id === id)
+      if (index >= 0) this.pendingOrders.splice(index, 1)
+      return true
+    },
+
+    async cancelPendingOrders(reason) {
+      for (const order of [...this.pendingOrders]) {
+        await this.updatePendingOrderStatus(order.id, 'CANCELLED', reason)
+      }
     },
 
     async markPositions(updated) {
@@ -448,6 +563,47 @@ export const tradingRepo = {
   async positionAccountId(positionId: string): Promise<string | null> {
     if (useMockStore()) return mockState().positions.get(positionId)?.tradingAccountId ?? null
     return prismaPositionAccount(positionId)
+  },
+
+  async activeTradingTargets(): Promise<{ accountId: string; symbol: string }[]> {
+    if (useMockStore()) {
+      const state = mockState()
+      const targets = new Set<string>()
+      for (const position of state.positions.values()) {
+        const account = state.accounts.get(position.tradingAccountId)
+        if (position.status === 'OPEN' && account?.status === 'ACTIVE' && liveWorkerSymbols.has(position.symbol)) {
+          targets.add(`${position.tradingAccountId}:${position.symbol}`)
+        }
+      }
+      for (const order of state.pendingOrders.values()) {
+        const account = state.accounts.get(order.tradingAccountId)
+        if (order.status === 'PENDING' && account?.status === 'ACTIVE' && liveWorkerSymbols.has(order.symbol)) {
+          targets.add(`${order.tradingAccountId}:${order.symbol}`)
+        }
+      }
+      return [...targets].map((target) => {
+        const [accountId, symbol] = target.split(':')
+        return { accountId, symbol }
+      })
+    }
+    const prisma = await prismaClient()
+    const [positions, orders] = await Promise.all([
+      prisma.position.findMany({
+        where: { status: 'OPEN', tradingAccount: { status: 'ACTIVE' } },
+        select: { tradingAccountId: true, symbol: true },
+        distinct: ['tradingAccountId', 'symbol'],
+      }),
+      prisma.pendingTradeOrder.findMany({
+        where: { status: 'PENDING', tradingAccount: { status: 'ACTIVE' } },
+        select: { tradingAccountId: true, symbol: true },
+        distinct: ['tradingAccountId', 'symbol'],
+      }),
+    ])
+    const targets = new Map<string, { accountId: string; symbol: string }>()
+    for (const { tradingAccountId, symbol } of [...positions, ...orders]) {
+      targets.set(`${tradingAccountId}:${symbol}`, { accountId: tradingAccountId, symbol })
+    }
+    return [...targets.values()]
   },
 
 }

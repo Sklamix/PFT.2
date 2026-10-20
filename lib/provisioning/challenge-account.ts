@@ -9,6 +9,7 @@ export interface ChallengePlan {
   planSize: number
   challengeType: PlanChallengeType
   drawdownMode: DrawdownMode
+  dailyLossType: number
   hasFrozenBackup: boolean
 }
 
@@ -43,10 +44,15 @@ export function planFromOrderPayload(payload: Prisma.JsonValue | null): Challeng
         ? 'two-step'
         : null
   if (!challengeType) throw new InvalidOrderPayloadError('Order payload has no valid evaluationType')
+  const dailyLossType =
+    challengeType === 'two-step' && (data.dailyLossType === 3 || data.dailyLossType === 5)
+      ? data.dailyLossType
+      : CHALLENGES[challengeType].dailyDrawdown
   return {
     planSize,
     challengeType,
     drawdownMode: data.drawdownMode === 'static' ? 'static' : 'trailing',
+    dailyLossType,
     hasFrozenBackup: data.hasFrozenBackup === true,
   }
 }
@@ -70,14 +76,14 @@ function accountData(userId: string, plan: ChallengePlan, standby: boolean) {
     currentEquity: size,
     dailyDrawdownPct: 0,
     maxDrawdownPct: 0,
-    dailyDrawdownLimitPct: rules.dailyDrawdown,
+    dailyDrawdownLimitPct: plan.challengeType === 'two-step' ? plan.dailyLossType : rules.dailyDrawdown,
     maxDrawdownLimitPct: rules.overallDrawdown,
     profitPct: 0,
     balance: size,
     equity: size,
     startingBalance: size,
     peakEquity: size,
-    maxDailyLoss: rules.dailyDrawdown / 100,
+    maxDailyLoss: (plan.challengeType === 'two-step' ? plan.dailyLossType : rules.dailyDrawdown) / 100,
     maxTrailingDrawdown: rules.overallDrawdown / 100,
     profitTarget: rules.phase1Target / 100,
     isFrozenBackup: standby,

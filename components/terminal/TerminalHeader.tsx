@@ -31,7 +31,6 @@ export function TerminalHeader() {
   const account = useTerminalBook((state) => state.account)
   const meta = getSymbol(selectedSymbol)
   const live = connectionStatus === 'CONNECTED' && feedMode === 'LIVE'
-  const mock = connectionStatus === 'CONNECTED' && feedMode === 'MOCK'
   const up = change >= 0
   const ddRatio = snapshot.dailyUsedRatio
 
@@ -83,16 +82,14 @@ export function TerminalHeader() {
               'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
               live
                 ? 'border-primary/30 bg-primary/10 text-primary'
-                : mock
-                  ? 'border-warning/30 bg-warning/10 text-warning'
-                  : 'border-danger/30 bg-danger/10 text-danger',
+                : 'border-danger/30 bg-danger/10 text-danger',
             )}
           >
             <span
-              className={cn('size-1.5 rounded-full', live ? 'bg-primary' : mock ? 'bg-warning' : 'bg-danger')}
+              className={cn('size-1.5 rounded-full', live ? 'bg-primary' : 'bg-danger')}
               aria-hidden="true"
             />
-            {live ? 'Live' : mock ? 'Mock feed' : connectionStatus.toLowerCase()}
+            {live ? 'Live · indicative spread' : connectionStatus.toLowerCase()}
           </span>
         </div>
       </div>

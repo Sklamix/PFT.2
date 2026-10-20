@@ -33,6 +33,7 @@ export function TerminalWorkspace() {
   const sync = useTerminalBook((state) => state.sync)
   const accountStatus = useTerminalBook((state) => state.account?.status)
   const openCount = useTerminalBook((state) => state.positions.length)
+  const pendingCount = useTerminalBook((state) => state.pending.length)
 
   const [trader, setTrader] = useState<TraderMe | null>(null)
   const accountId = useTerminalBook((state) => state.accountId)
@@ -73,10 +74,10 @@ export function TerminalWorkspace() {
   }, [ask, bid, connectionStatus, currentPrice, markMarket, selectedSymbol])
 
   useEffect(() => {
-    if (accountStatus !== 'ACTIVE' || openCount === 0) return
+    if (accountStatus !== 'ACTIVE' || (openCount === 0 && pendingCount === 0)) return
     const timer = setInterval(() => void sync(), RISK_SYNC_MS)
     return () => clearInterval(timer)
-  }, [accountStatus, openCount, sync])
+  }, [accountStatus, openCount, pendingCount, sync])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

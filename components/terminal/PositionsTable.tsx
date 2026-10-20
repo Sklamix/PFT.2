@@ -26,11 +26,18 @@ export function PositionsTable() {
   const closePosition = useTerminalBook((state) => state.closePosition)
   const cancelPending = useTerminalBook((state) => state.cancelPending)
   const closing = useTerminalBook((state) => state.closing)
+  const cancelling = useTerminalBook((state) => state.cancelling)
   const [closeError, setCloseError] = useState<string | null>(null)
 
   async function close(id: string) {
     setCloseError(null)
     const result = await closePosition(id)
+    if (!result.ok) setCloseError(result.error)
+  }
+
+  async function cancel(id: string) {
+    setCloseError(null)
+    const result = await cancelPending(id)
     if (!result.ok) setCloseError(result.error)
   }
 
@@ -85,8 +92,14 @@ export function PositionsTable() {
                     <TableCell className="tabular-nums">{order.takeProfit == null ? '—' : formatPrice(order.symbol, order.takeProfit)}</TableCell>
                     <TableCell className="text-muted-foreground">Pending</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="icon-xs" aria-label="Cancel pending order" onClick={() => cancelPending(order.id)}>
-                        <X className="size-3.5" />
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        aria-label={`Cancel ${order.symbol} pending order`}
+                        disabled={Boolean(cancelling[order.id])}
+                        onClick={() => void cancel(order.id)}
+                      >
+                        {cancelling[order.id] ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
                       </Button>
                     </TableCell>
                   </TableRow>

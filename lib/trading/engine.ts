@@ -1,4 +1,4 @@
-import type { Position, TradeHistory } from '@/lib/types/terminal'
+import type { PendingTradeOrder, Position, TradeHistory } from '@/lib/types/terminal'
 import { tradingRepo, type BookTx } from './repository'
 import {
   DEFAULT_MAX_DAILY_LOSS,
@@ -16,7 +16,7 @@ import {
   utcDayStart,
   validateProtection,
 } from './risk'
-import type { AccountView, Breach, BookPayload, CloseInput, OrderInput, Quotes, RiskMetrics } from './types'
+import type { AccountView, Breach, BookPayload, CloseInput, OrderInput, PendingOrderInput, Quotes, RiskMetrics } from './types'
 import { parseQuote } from './validation'
 
 const HISTORY_LIMIT = 50
@@ -36,7 +36,9 @@ type Working = {
   status: string
   breachReason: string | null
   positions: Position[]
+  pendingOrders: PendingTradeOrder[]
   closed: TradeHistory[]
+  orderUpdates: BookPayload['events']['orderUpdates']
   breach: Breach | null
   unfrozenAccountId: string | null
 }
@@ -59,7 +61,9 @@ function load(tx: BookTx): Working {
     status: account.status,
     breachReason: account.breachReason,
     positions: tx.positions,
+    pendingOrders: tx.pendingOrders,
     closed: [],
+    orderUpdates: [],
     breach: null,
     unfrozenAccountId: null,
   }
@@ -111,7 +115,17 @@ async function metricsFor(w: Working): Promise<RiskMetrics> {
     w.positions,
   )
   w.peakEquity = metrics.peakEquity
-  return metrics
+  const reservedPendingMargin = w.pendingOrders.reduce(
+    (total, order) =>
+      total +
+      positionMargin(
+        { symbol: order.symbol, sizeLots: order.sizeLots, entryPrice: order.limitPrice, currentPrice: order.limitPrice },
+        w.leverage,
+      ),
+    0,
+  )
+  const marginUsed = roundUsd(metrics.marginUsed + reservedPendingMargin)
+  return { ...metrics, marginUsed, freeMargin: roundUsd(metrics.equity - marginUsed) }
 }
 
 /**
@@ -129,6 +143,14 @@ async function enforceRules(w: Working) {
   w.breachReason = breach.reason
   w.breach = breach
   w.unfrozenAccountId = await w.tx.activateStandby()
+  if (w.pendingOrders.length) {
+    await w.tx.cancelPendingOrders('Account breached risk rules')
+    w.orderUpdates.push({
+      status: 'CANCELLED',
+      message: `Cancelled ${w.pendingOrders.length} pending order${w.pendingOrders.length === 1 ? '' : 's'} because the account breached risk rules`,
+    })
+    w.pendingOrders = []
+  }
 }
 
 async function persist(w: Working): Promise<BookPayload> {
@@ -168,8 +190,75 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
     asOf: Date.now(),
     account,
     positions: w.positions,
+    pendingOrders: w.pendingOrders,
     history: await w.tx.recentHistory(HISTORY_LIMIT),
-    events: { closed: w.closed, breach: w.breach, unfrozenAccountId: w.unfrozenAccountId },
+    events: { closed: w.closed, breach: w.breach, unfrozenAccountId: w.unfrozenAccountId, orderUpdates: w.orderUpdates },
+  }
+}
+
+function pendingOrderMessage(order: PendingTradeOrder, message: string) {
+  return `${order.side} ${order.sizeLots.toFixed(2)} ${order.symbol}: ${message}`
+}
+
+async function processPendingOrders(w: Working, quotes: Quotes) {
+  for (const order of [...w.pendingOrders]) {
+    const quote = quotes[order.symbol]
+    if (!quote) continue
+
+    const triggered = order.side === 'BUY' ? quote.ask <= order.limitPrice : quote.bid >= order.limitPrice
+    if (!triggered) continue
+
+    w.pendingOrders = w.pendingOrders.filter((item) => item.id !== order.id)
+    const fill = entryPrice(order.side, quote)
+    const protectionError = validateProtection(order.symbol, order.side, fill, order.stopLoss, order.takeProfit)
+    const current = exitPrice(order.side, quote)
+    const metrics = await metricsFor(w)
+    const margin = positionMargin(
+      { symbol: order.symbol, sizeLots: order.sizeLots, entryPrice: fill, currentPrice: current },
+      w.leverage,
+    )
+    const rejection =
+      protectionError ??
+      (margin > metrics.freeMargin
+        ? `insufficient free margin: requires ${margin.toFixed(2)}, available ${metrics.freeMargin.toFixed(2)}`
+        : null)
+
+    if (rejection) {
+      await w.tx.updatePendingOrderStatus(order.id, 'REJECTED', rejection)
+      w.orderUpdates.push({ status: 'REJECTED', message: pendingOrderMessage(order, `rejected (${rejection})`) })
+      continue
+    }
+
+    const claimed = await w.tx.updatePendingOrderStatus(order.id, 'FILLED')
+    if (!claimed) continue
+
+    const position = await w.tx.createPosition({
+      symbol: order.symbol,
+      side: order.side,
+      sizeLots: order.sizeLots,
+      entryPrice: fill,
+      currentPrice: current,
+      stopLoss: order.stopLoss,
+      takeProfit: order.takeProfit,
+      floatingPnl: realizedPnl(
+        {
+          symbol: order.symbol,
+          side: order.side,
+          sizeLots: order.sizeLots,
+          entryPrice: fill,
+          currentPrice: current,
+          floatingPnl: 0,
+          stopLoss: null,
+          takeProfit: null,
+        },
+        current,
+      ),
+    })
+    w.positions = [...w.positions, position]
+    w.orderUpdates.push({ status: 'FILLED', message: pendingOrderMessage(order, `filled at ${fill.toFixed(5)}`) })
+    await settleProtectiveOrders(w)
+    await enforceRules(w)
+    if (w.status !== 'ACTIVE') break
   }
 }
 
@@ -232,6 +321,77 @@ export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<
   return result ?? notFound()
 }
 
+export async function placePendingOrder(input: PendingOrderInput): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> {
+  const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> => {
+    const w = load(tx)
+    if (w.status !== 'ACTIVE') {
+      return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
+    }
+
+    await applyQuotes(w, { [input.symbol]: input.quote })
+    await settleProtectiveOrders(w)
+    await enforceRules(w)
+    if (w.status !== 'ACTIVE') {
+      return { ok: false, status: 403, error: 'Order rejected: account breached risk rules', book: await persist(w) }
+    }
+
+    const quotePrice = input.side === 'BUY' ? input.quote.ask : input.quote.bid
+    const correctSide = input.side === 'BUY' ? input.limitPrice < quotePrice : input.limitPrice > quotePrice
+    if (!correctSide) {
+      return {
+        ok: false,
+        status: 422,
+        error: `A ${input.side} limit price must be ${input.side === 'BUY' ? 'below the current ask' : 'above the current bid'}`,
+        book: await persist(w),
+      }
+    }
+
+    const protectionError = validateProtection(input.symbol, input.side, input.limitPrice, input.stopLoss, input.takeProfit)
+    if (protectionError) {
+      return { ok: false, status: 422, error: protectionError, book: await persist(w) }
+    }
+
+    const metrics = await metricsFor(w)
+    const margin = positionMargin(
+      { symbol: input.symbol, sizeLots: input.lots, entryPrice: input.limitPrice, currentPrice: input.limitPrice },
+      w.leverage,
+    )
+    if (margin > metrics.freeMargin) {
+      return {
+        ok: false,
+        status: 422,
+        error: `Insufficient free margin: requires ${margin.toFixed(2)}, available ${metrics.freeMargin.toFixed(2)}`,
+        book: await persist(w),
+      }
+    }
+
+    const pendingOrder = await tx.createPendingOrder({
+      symbol: input.symbol,
+      side: input.side,
+      sizeLots: input.lots,
+      limitPrice: input.limitPrice,
+      stopLoss: input.stopLoss,
+      takeProfit: input.takeProfit,
+    })
+    const book = await persist(w)
+    return { ok: true, pendingOrder, book }
+  })
+  return result ?? notFound()
+}
+
+export async function cancelPendingOrder(accountId: string, orderId: string): Promise<EngineResult> {
+  const result = await tradingRepo.withBook(accountId, async (tx): Promise<EngineResult> => {
+    const w = load(tx)
+    const order = w.pendingOrders.find((item) => item.id === orderId)
+    if (!order) return { ok: false, status: 404, error: 'Pending order not found', book: await snapshot(w) }
+    const cancelled = await tx.updatePendingOrderStatus(orderId, 'CANCELLED', 'Cancelled by trader')
+    if (!cancelled) return { ok: false, status: 409, error: 'Pending order is no longer active', book: await snapshot(w) }
+    w.pendingOrders = w.pendingOrders.filter((item) => item.id !== orderId)
+    return { ok: true, book: await persist(w) }
+  })
+  return result ?? notFound()
+}
+
 export async function closePositionById(input: CloseInput): Promise<EngineResult<{ trade: TradeHistory }>> {
   const accountId = await tradingRepo.positionAccountId(input.positionId)
   if (!accountId || (input.accountId && input.accountId !== accountId)) {
@@ -265,6 +425,7 @@ export async function syncAccount(accountId: string, quotes: Quotes): Promise<En
     if (w.status === 'ACTIVE') {
       await settleProtectiveOrders(w)
       await enforceRules(w)
+      if (w.status === 'ACTIVE') await processPendingOrders(w, quotes)
     }
     return { ok: true, book: await persist(w) }
   })

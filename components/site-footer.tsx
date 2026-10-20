@@ -49,7 +49,7 @@ const SOCIALS = [
 
 export function SiteFooter() {
   return (
-    <footer className="bg-background">
+    <footer data-home-reveal className="bg-background">
       <div className="mx-auto max-w-7xl px-4 pt-16 pb-10 sm:px-6 lg:px-8">
         <div className="grid gap-12 lg:grid-cols-[1.2fr_2fr]">
           <div className="flex flex-col gap-5">

@@ -7,21 +7,24 @@ import { RulesSection } from '@/components/rules-section'
 import { DashboardPreview } from '@/components/dashboard-preview'
 import { FaqSection } from '@/components/faq-section'
 import { SiteFooter } from '@/components/site-footer'
+import { HomeMotion } from '@/components/home-motion'
 
 export default function Page() {
   return (
     <>
       <SiteHeader />
-      <main>
-        <Hero />
-        <PayoutProofs />
-        <ChallengeCalculator />
-        <FeaturesBento />
-        <RulesSection />
-        <DashboardPreview />
-        <FaqSection />
-      </main>
-      <SiteFooter />
+      <HomeMotion>
+        <main>
+          <Hero />
+          <PayoutProofs />
+          <ChallengeCalculator />
+          <FeaturesBento />
+          <RulesSection />
+          <DashboardPreview />
+          <FaqSection />
+        </main>
+        <SiteFooter />
+      </HomeMotion>
     </>
   )
 }

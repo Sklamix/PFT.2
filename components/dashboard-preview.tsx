@@ -29,7 +29,7 @@ export function DashboardPreview() {
   ]
 
   return (
-    <section id="dashboard" aria-labelledby="dashboard-heading" className="relative overflow-hidden border-b border-border py-20 sm:py-28">
+    <section id="dashboard" aria-labelledby="dashboard-heading" data-home-reveal className="relative overflow-hidden border-b border-border py-20 sm:py-28">
       <div className="pointer-events-none absolute bottom-0 left-1/2 h-80 w-[800px] -translate-x-1/2 rounded-full bg-highlight/10 blur-3xl" />
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
@@ -39,7 +39,7 @@ export function DashboardPreview() {
           description="Track equity, risk buffers and payout windows from a single, distraction-free command center."
         />
 
-        <div className="mt-14 overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-black/40">
+        <div className="home-card mt-14 overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-black/40">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <div className="flex items-center gap-2" aria-hidden="true">
               <span className="size-2.5 rounded-full bg-border" />

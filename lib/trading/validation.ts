@@ -1,6 +1,6 @@
 import { FOREX_MAJORS, getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
 import { cachedReferencePrice } from '@/lib/market/yahoo'
-import type { CloseInput, OrderInput, Quote, Quotes } from './types'
+import type { CloseInput, OrderInput, PendingOrderInput, Quote, Quotes } from './types'
 
 export const TRADABLE_SYMBOLS: readonly string[] = FOREX_MAJORS
 export const MIN_LOTS = 0.01
@@ -84,6 +84,36 @@ export function parseOrderInput(raw: unknown): OrderInput {
     side,
     lots,
     orderType,
+    stopLoss: optionalPrice(body, 'stopLoss'),
+    takeProfit: optionalPrice(body, 'takeProfit'),
+    quote: parseQuote(symbol, body.quote),
+  }
+}
+
+export function parsePendingOrderInput(raw: unknown): PendingOrderInput {
+  const body = asBody(raw)
+  const accountId = requiredString(body, 'accountId')
+  const symbol = requiredString(body, 'symbol').toUpperCase()
+  if (!TRADABLE_SYMBOLS.includes(symbol)) throw new ValidationError(`symbol must be one of ${TRADABLE_SYMBOLS.join(', ')}`)
+
+  const side = body.side
+  if (side !== 'BUY' && side !== 'SELL') throw new ValidationError('side must be BUY or SELL')
+
+  const lotsRaw = typeof body.lots === 'string' ? Number(body.lots) : body.lots
+  if (typeof lotsRaw !== 'number' || !Number.isFinite(lotsRaw)) throw new ValidationError('lots must be a number')
+  const lots = Math.round(lotsRaw * 100) / 100
+  if (Math.abs(lots - lotsRaw) > 1e-9) throw new ValidationError('lots must be in steps of 0.01')
+  if (lots < MIN_LOTS || lots > MAX_LOTS) throw new ValidationError(`lots must be between ${MIN_LOTS} and ${MAX_LOTS}`)
+
+  const limitPrice = optionalPrice(body, 'limitPrice')
+  if (limitPrice == null) throw new ValidationError('limitPrice must be a positive number')
+
+  return {
+    accountId,
+    symbol,
+    side,
+    lots,
+    limitPrice,
     stopLoss: optionalPrice(body, 'stopLoss'),
     takeProfit: optionalPrice(body, 'takeProfit'),
     quote: parseQuote(symbol, body.quote),

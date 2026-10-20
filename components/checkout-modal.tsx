@@ -76,6 +76,7 @@ export type CheckoutModalProps = {
   evaluationType: ChallengeType
   calculatedPrice: number
   drawdownMode?: DrawdownMode
+  dailyLossType?: 3 | 5
 }
 
 function evaluationPayload(type: ChallengeType) {
@@ -96,6 +97,7 @@ export function CheckoutModal({
   evaluationType,
   calculatedPrice,
   drawdownMode = 'trailing',
+  dailyLossType = 3,
 }: CheckoutModalProps) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -175,6 +177,7 @@ export function CheckoutModal({
           country,
           promoCode: promoCode.trim() || undefined,
           drawdownMode,
+          dailyLossType: evaluationType === 'two-step' ? dailyLossType : undefined,
           hasFrozenBackup,
           totalAmount,
         }),

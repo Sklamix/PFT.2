@@ -7,6 +7,7 @@ export type AccountStatus = (typeof ACCOUNT_STATUSES)[number]
 export type OrderSide = (typeof ORDER_SIDES)[number]
 export type PositionStatus = (typeof POSITION_STATUSES)[number]
 export type CloseReason = (typeof CLOSE_REASONS)[number]
+export type PendingTradeOrderStatus = 'PENDING' | 'FILLED' | 'CANCELLED' | 'REJECTED'
 
 export interface TradingAccount {
   id: string
@@ -52,6 +53,23 @@ export interface TradeHistory {
   closeReason: CloseReason
   openedAt: Date
   closedAt: Date
+}
+
+export interface PendingTradeOrder {
+  id: string
+  tradingAccountId: string
+  symbol: string
+  side: OrderSide
+  sizeLots: number
+  limitPrice: number
+  stopLoss: number | null
+  takeProfit: number | null
+  status: PendingTradeOrderStatus
+  reason: string | null
+  createdAt: Date
+  updatedAt: Date
+  filledAt: Date | null
+  cancelledAt: Date | null
 }
 
 export type TradingAccountWithBooks = TradingAccount & {

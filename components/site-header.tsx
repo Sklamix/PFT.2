@@ -17,6 +17,7 @@ export function SiteHeader() {
   const [open, setOpen] = useState(false)
 
   return (
+    <>
     <header className="sticky top-0 z-50 border-b border-border/80 bg-background/80 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8">
         <BrandLogo />
@@ -38,16 +39,10 @@ export function SiteHeader() {
 
         <div className="flex items-center gap-2">
           <a
-            href="#dashboard"
-            className="hidden h-9 items-center rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:border-muted-foreground/40 hover:bg-accent sm:inline-flex"
+            href="/auth/login"
+            className="home-header-cta group inline-flex h-10 items-center gap-2 rounded-full bg-lime-300 px-5 text-sm font-bold text-[#11160b] shadow-[0_0_24px_-10px_rgba(163,230,53,0.9)] transition-colors hover:bg-lime-200"
           >
-            Client Portal
-          </a>
-          <a
-            href="#challenges"
-            className="inline-flex h-9 items-center rounded-md bg-linear-to-r from-primary to-highlight px-4 text-sm font-semibold text-primary-foreground shadow-[0_0_24px_-6px] shadow-primary/60 transition-opacity hover:opacity-90"
-          >
-            Get Funded
+            Get Started <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
           </a>
           <button
             type="button"
@@ -79,17 +74,15 @@ export function SiteHeader() {
               </a>
             </li>
           ))}
-          <li className="sm:hidden">
-            <a
-              href="#dashboard"
-              onClick={() => setOpen(false)}
-              className="mt-2 block rounded-md border border-border px-3 py-2.5 text-center text-sm font-medium text-foreground"
-            >
-              Client Portal
-            </a>
-          </li>
         </ul>
       </nav>
     </header>
+    <a
+      href="#challenges"
+      className="home-floating-cta group fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] inline-flex h-12 items-center gap-2 rounded-full bg-lime-300 px-5 text-sm font-bold text-[#11160b] shadow-[0_8px_28px_-8px_rgba(163,230,53,0.8)] transition-colors hover:bg-lime-200"
+    >
+      Get Funded <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+    </a>
+    </>
   )
 }

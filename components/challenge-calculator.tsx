@@ -14,7 +14,7 @@ import {
   formatCompact,
   formatCurrency,
   formatPrice,
-  getChallengeFee,
+  STATIC_DRAWDOWN_PREMIUM,
   type AccountSize,
   type ChallengeType,
   type DrawdownMode,
@@ -68,14 +68,51 @@ export function ChallengeCalculator() {
   const [size, setSize] = useState<AccountSize>(10_000)
   const [type, setType] = useState<ChallengeType>('two-step')
   const [drawdownMode, setDrawdownMode] = useState<DrawdownMode>('trailing')
+  const [dailyLossType, setDailyLossType] = useState<3 | 5>(3)
+  const [pricing, setPricing] = useState<Record<string, number> | null>(null)
+  const [pricingError, setPricingError] = useState<string | null>(null)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
+  useEffect(() => {
+    let active = true
+    fetch('/api/pricing', { cache: 'no-store' })
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok) throw new Error(data.error || 'Unable to load challenge prices.')
+        const current: Record<string, number> = {}
+        for (const row of data.prices as Array<{
+          accountSize: number
+          challengeType: '1-STEP' | '2-STEP'
+          dailyLossType: number
+          price: number
+        }>) {
+          if (Number.isInteger(row.price)) {
+            current[`${row.challengeType}-${row.accountSize}-${row.dailyLossType}`] = row.price
+          }
+        }
+        if (active) setPricing(current)
+      })
+      .catch((error: unknown) => {
+        if (active) setPricingError(error instanceof Error ? error.message : 'Unable to load challenge prices.')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
   const rules = CHALLENGES[type]
-  const fee = getChallengeFee(type, size, drawdownMode)
+  const pricingChallengeType = type === 'one-step' ? '1-STEP' : '2-STEP'
+  const basePrice = type === 'two-step'
+    ? pricing?.[`2-STEP-${size}-${dailyLossType}`]
+    : pricing?.[`1-STEP-${size}-4`]
+  const fee = basePrice == null
+    ? null
+    : Math.round(basePrice * (drawdownMode === 'static' ? 1 + STATIC_DRAWDOWN_PREMIUM : 1))
   const phase1Amount = (size * rules.phase1Target) / 100
   const phase2Amount = rules.phase2Target ? (size * rules.phase2Target) / 100 : null
-  const dailyAmount = (size * rules.dailyDrawdown) / 100
+  const activeDailyLoss = type === 'two-step' ? dailyLossType : rules.dailyDrawdown
+  const dailyAmount = (size * activeDailyLoss) / 100
   const overallAmount = (size * rules.overallDrawdown) / 100
   const projectedPayout = phase1Amount * 0.9
 
@@ -99,11 +136,15 @@ export function ChallengeCalculator() {
       setToast(UNAVAILABLE_TIER_MESSAGE)
       return
     }
+    if (fee == null) {
+      setToast(pricingError || 'Challenge prices are still loading. Please try again.')
+      return
+    }
     setCheckoutOpen(true)
   }
 
   return (
-    <section id="challenges" aria-labelledby="challenges-heading" className="border-b border-border py-20 sm:py-28">
+    <section id="challenges" aria-labelledby="challenges-heading" data-home-reveal className="border-b border-border py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           id="challenges-heading"
@@ -112,7 +153,7 @@ export function ChallengeCalculator() {
           description="Configure your evaluation and see every rule upfront. Your fee is fully refunded with your first payout."
         />
 
-        <div className="mt-14 overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="home-card mt-14 overflow-hidden rounded-2xl border border-border bg-card">
           <div className="grid gap-6 border-b border-border p-5 sm:p-6 lg:grid-cols-[1fr_auto]">
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -125,7 +166,11 @@ export function ChallengeCalculator() {
               >
                 {ACCOUNT_TIERS.map((tier) => {
                   const selected = size === tier.size
-                  const feeForTier = getChallengeFee(type, tier.size, drawdownMode)
+                  const selectedLoss = type === 'two-step' ? dailyLossType : 4
+                  const tierBasePrice = pricing?.[`${pricingChallengeType}-${tier.size}-${selectedLoss}`]
+                  const feeForTier = tierBasePrice == null
+                    ? null
+                    : Math.round(tierBasePrice * (drawdownMode === 'static' ? 1 + STATIC_DRAWDOWN_PREMIUM : 1))
                   return (
                     <button
                       key={tier.size}
@@ -135,7 +180,7 @@ export function ChallengeCalculator() {
                       aria-disabled={!tier.isAvailable}
                       onClick={() => handleTierSelect(tier.size, tier.isAvailable)}
                       className={cn(
-                        'relative rounded-xl border px-3 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                        'home-price-card relative rounded-xl border px-3 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                         tier.isAvailable
                           ? selected
                             ? 'border-primary/50 bg-primary/10 shadow-[inset_0_0_0_1px] shadow-primary/40'
@@ -148,11 +193,11 @@ export function ChallengeCalculator() {
                           Unavailable
                         </span>
                       )}
-                      <span className="block font-mono text-sm font-semibold tabular-nums text-foreground">
+                      <span className="home-price-value block font-mono text-sm font-semibold tabular-nums text-foreground transition-colors">
                         {formatCompact(tier.size).replace('K', 'k')}
                       </span>
                       <span className="mt-1 block font-mono text-xs tabular-nums text-muted-foreground">
-                        {formatPrice(feeForTier)}
+                        {feeForTier == null ? (tier.isAvailable ? 'Loading…' : '—') : formatPrice(feeForTier)}
                       </span>
                     </button>
                   )
@@ -184,19 +229,45 @@ export function ChallengeCalculator() {
                   value={`${rules.phase1Target}%`}
                   subValue={formatCurrency(phase1Amount)}
                 />
-                <MetricRow
-                  label="Phase 2 profit target"
-                  hint="The verification phase. Not required for the 1-Step Challenge."
-                  value={rules.phase2Target ? `${rules.phase2Target}%` : 'N/A'}
-                  subValue={phase2Amount ? formatCurrency(phase2Amount) : 'Single-phase evaluation'}
-                  muted={!rules.phase2Target}
-                />
+                {rules.phase2Target != null && (
+                  <MetricRow
+                    label="Phase 2 profit target"
+                    hint="The verification phase."
+                    value={`${rules.phase2Target}%`}
+                    subValue={phase2Amount ? formatCurrency(phase2Amount) : undefined}
+                  />
+                )}
                 <MetricRow
                   label="Max daily drawdown"
                   hint="Measured from the higher of balance or equity at 00:00 server time (CE(S)T)."
-                  value={`${rules.dailyDrawdown}%`}
+                  value={`${activeDailyLoss}%`}
                   subValue={formatCurrency(dailyAmount)}
                 />
+                {type === 'two-step' && (
+                  <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+                    <span className="text-sm text-muted-foreground">Daily loss limit · 2-Step</span>
+                    <div className="flex gap-2" role="group" aria-label="Daily loss limit">
+                      {([3, 5] as const).map((limit) => (
+                        <button
+                          key={limit}
+                          type="button"
+                          aria-pressed={dailyLossType === limit}
+                          onClick={() => setDailyLossType(limit)}
+                          className={cn(
+                            'rounded-md border px-3 py-1.5 text-sm transition-colors',
+                            dailyLossType === limit
+                              ? 'border-primary/50 bg-primary/10 text-primary'
+                              : 'border-border text-muted-foreground hover:bg-accent',
+                          )}
+                        >
+                          {limit}% ·                           {pricing?.[`2-STEP-${size}-${limit}`] == null
+                            ? '…'
+                            : formatPrice(pricing[`2-STEP-${size}-${limit}`])}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-1.5">
                     <dt className="text-sm text-muted-foreground">Max overall drawdown</dt>
@@ -253,10 +324,13 @@ export function ChallengeCalculator() {
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">One-time refundable fee</p>
               <p className="mt-2 flex items-baseline gap-2" aria-live="polite">
                 <span className="font-mono text-5xl font-semibold tracking-tight tabular-nums text-foreground">
-                  {formatPrice(fee)}
+                  {fee == null ? '—' : formatPrice(fee)}
                 </span>
                 <span className="text-sm text-muted-foreground">USD</span>
               </p>
+              {pricingError && (
+                <p role="alert" className="mt-2 text-sm text-destructive">{pricingError}</p>
+              )}
               <p className="mt-2 text-sm text-muted-foreground">
                 {drawdownMode === 'static' ? 'Includes static drawdown upgrade.' : 'Trailing drawdown — best value.'}
               </p>
@@ -287,9 +361,10 @@ export function ChallengeCalculator() {
               <button
                 type="button"
                 onClick={openCheckout}
-                className="group mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-12px] shadow-primary transition-opacity hover:opacity-90 lg:mt-auto"
+                disabled={fee == null}
+                className="home-button group mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-12px] shadow-primary transition-opacity hover:opacity-90 lg:mt-auto"
               >
-                Start Challenge — {formatPrice(fee)}
+                Start Challenge — {fee == null ? 'Loading price…' : formatPrice(fee)}
                 <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
               </button>
               <p className="mt-3 text-center text-xs text-muted-foreground">Card, Apple Pay & crypto accepted</p>
@@ -313,8 +388,9 @@ export function ChallengeCalculator() {
         onOpenChange={setCheckoutOpen}
         accountSize={size}
         evaluationType={type}
-        calculatedPrice={fee}
+        calculatedPrice={fee ?? 0}
         drawdownMode={drawdownMode}
+        dailyLossType={dailyLossType}
       />
     </section>
   )

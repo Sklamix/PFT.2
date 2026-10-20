@@ -26,7 +26,7 @@ function FeatureIcon({ icon: Icon }: { icon: typeof Activity }) {
 
 export function FeaturesBento() {
   return (
-    <section aria-labelledby="features-heading" className="border-b border-border bg-surface py-20 sm:py-28">
+    <section aria-labelledby="features-heading" data-home-reveal className="border-b border-border bg-surface py-20 sm:py-28">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <SectionHeading
           id="features-heading"
@@ -36,7 +36,7 @@ export function FeaturesBento() {
         />
 
         <div className="mt-14 grid gap-4 lg:grid-cols-3">
-          <article className="group flex flex-col gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40 lg:col-span-2">
+          <article className="home-card group flex flex-col gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40 lg:col-span-2">
             <div className="flex items-start justify-between gap-4">
               <div className="flex flex-col gap-4">
                 <FeatureIcon icon={Activity} />
@@ -74,7 +74,7 @@ export function FeaturesBento() {
             </div>
           </article>
 
-          <article className="flex flex-col justify-between gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
+          <article className="home-card flex flex-col justify-between gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
             <div className="flex flex-col gap-4">
               <FeatureIcon icon={Hourglass} />
               <div>
@@ -102,7 +102,7 @@ export function FeaturesBento() {
             </div>
           </article>
 
-          <article className="flex flex-col justify-between gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
+          <article className="home-card flex flex-col justify-between gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40">
             <div className="flex flex-col gap-4">
               <FeatureIcon icon={Wallet} />
               <div>
@@ -124,7 +124,7 @@ export function FeaturesBento() {
             </ul>
           </article>
 
-          <article className="flex flex-col gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40 lg:col-span-2">
+          <article className="home-card flex flex-col gap-6 rounded-2xl border border-border bg-card p-6 transition-colors hover:border-primary/40 lg:col-span-2">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex flex-col gap-4">
                 <div className="flex gap-2">

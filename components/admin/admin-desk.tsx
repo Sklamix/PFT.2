@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { LogOut, ReceiptText, Search, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
@@ -104,6 +105,14 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       user={user}
       actions={
         <>
+          {user.role === 'ADMIN' && (
+            <Link
+              href="/admin/pricing"
+              className="inline-flex h-7 items-center justify-center rounded-md border border-border bg-background px-2.5 text-[0.8rem] font-medium hover:bg-muted"
+            >
+              2-Step pricing
+            </Link>
+          )}
           <Button variant="outline" size="sm" onClick={() => setQueueOpen(true)}>
             <Wallet />
             Payout queue

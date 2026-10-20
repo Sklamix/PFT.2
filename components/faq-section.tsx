@@ -36,7 +36,7 @@ const FAQS = [
 
 export function FaqSection() {
   return (
-    <section id="faq" aria-labelledby="faq-heading" className="border-b border-border bg-surface py-20 sm:py-28">
+    <section id="faq" aria-labelledby="faq-heading" data-home-reveal className="border-b border-border bg-surface py-20 sm:py-28">
       <div className="mx-auto grid max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-[1fr_1.5fr] lg:px-8">
         <div>
           <SectionHeading
@@ -48,7 +48,7 @@ export function FaqSection() {
           />
           <a
             href="mailto:support@pft.trade"
-            className="mt-6 inline-flex h-10 items-center rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            className="home-button mt-6 inline-flex h-10 items-center rounded-md border border-border px-4 text-sm font-medium text-foreground transition-colors hover:bg-accent"
           >
             Contact support
           </a>

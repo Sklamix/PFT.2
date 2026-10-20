@@ -43,7 +43,7 @@ const RULES = [
 
 export function RulesSection() {
   return (
-    <section id="rules" aria-labelledby="rules-heading" className="border-b border-border py-20 sm:py-28">
+    <section id="rules" aria-labelledby="rules-heading" data-home-reveal className="border-b border-border py-20 sm:py-28">
       <div className="mx-auto grid max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:gap-16 lg:px-8">
         <div className="flex flex-col gap-10">
           <SectionHeading

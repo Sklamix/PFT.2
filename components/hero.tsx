@@ -33,7 +33,7 @@ function TrustpilotRating() {
 
 export function Hero() {
   return (
-    <section id="top" className="relative overflow-hidden border-b border-border">
+    <section id="top" data-home-reveal="delayed" className="relative overflow-hidden border-b border-border">
       <div className="bg-grid pointer-events-none absolute inset-0 mask-[radial-gradient(ellipse_70%_60%_at_50%_0%,#000_40%,transparent_100%)]" />
       <div className="pointer-events-none absolute -top-40 left-1/2 h-[480px] w-[900px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
 
@@ -41,11 +41,11 @@ export function Hero() {
         <div className="mx-auto max-w-4xl text-center">
           <a
             href="#dashboard"
-            className="inline-flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pr-3 pl-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+            className="home-button group inline-flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pr-3 pl-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
           >
             <span className="rounded-full bg-primary/15 px-2 py-0.5 font-medium text-primary">New</span>
             Trader portal v2 with real-time risk buffers
-            <ArrowRight className="size-3" />
+            <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
           </a>
 
           <h1 className="mt-6 text-balance text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
@@ -70,7 +70,7 @@ export function Hero() {
           <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <a
               href="#challenges"
-              className="group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-10px] shadow-primary transition-opacity hover:opacity-90 sm:w-auto"
+              className="home-button group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-10px] shadow-primary transition-opacity hover:opacity-90 sm:w-auto"
             >
               Choose Challenge
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
@@ -79,7 +79,7 @@ export function Hero() {
               href="https://discord.com"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card/60 px-6 text-sm font-medium text-foreground transition-colors hover:border-highlight/50 hover:bg-accent sm:w-auto"
+              className="home-button inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card/60 px-6 text-sm font-medium text-foreground transition-colors hover:border-highlight/50 hover:bg-accent sm:w-auto"
             >
               <MessageCircle className="size-4 text-highlight" />
               Join Discord Community

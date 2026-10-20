@@ -370,37 +370,233 @@ export const adminRepo = {
 
     const payout = await prisma.payout.findUnique({ where: { id } })
     if (!payout) return null
-    if (payout.status !== 'PENDING') {
+    if (payout.status !== 'PENDING' && payout.status !== 'APPROVED') {
+      const full = await prisma.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      return full ? mapPayout(full) : null
+    }
+    if (
+      (payout.providerPayoutId && payout.providerStatus !== 'FINISHED') ||
+      (payout.providerStatus && !payout.providerPayoutId) ||
+      (payout.providerPayoutId && payout.txHash && txHash !== payout.txHash)
+    ) {
+      const full = await prisma.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      return full ? mapPayout(full) : null
+    }
+    const settlementHash = payout.providerPayoutId ? payout.txHash : txHash
+    if (!settlementHash) {
       const full = await prisma.payout.findUnique({ where: { id }, include: { user: true, account: true } })
       return full ? mapPayout(full) : null
     }
 
     const amount = num(payout.amount)
     const updated = await prisma.$transaction(async (tx) => {
-      const account = await tx.tradingAccount.update({
-        where: { id: payout.accountId },
-        data: {
-          currentBalance: { decrement: amount },
-          currentEquity: { decrement: amount },
+      const changed = await tx.payout.updateMany({
+        where: {
+          id,
+          status: { in: ['PENDING', 'APPROVED'] },
+          providerStatus: payout.providerStatus,
+          providerPayoutId: payout.providerPayoutId,
         },
+        data: { status: 'DISBURSED', txHash: settlementHash, reviewedAt: new Date(), reviewedById: actorId },
       })
-      const metrics = recomputeMetrics({
-        initialBalance: num(account.initialBalance),
-        dailyStartingEquity: num(account.dailyStartingEquity),
-        currentEquity: num(account.currentEquity),
+      if (changed.count !== 1) {
+        return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      }
+
+      const before = await tx.tradingAccount.findUniqueOrThrow({ where: { id: payout.accountId } })
+      const account = payout.balanceReserved
+        ? before
+        : await tx.tradingAccount.update({
+            where: { id: payout.accountId },
+            data: {
+              currentBalance: { decrement: amount },
+              currentEquity: { decrement: amount },
+              balance: { decrement: amount },
+              equity: { decrement: amount },
+              dailyStartingEquity: { decrement: amount },
+              peakEquity: Math.max(num(before.initialBalance), before.peakEquity - amount),
+            },
+          })
+      const metrics = payout.balanceReserved
+        ? {}
+        : recomputeMetrics({
+            initialBalance: num(account.initialBalance),
+            dailyStartingEquity: num(account.dailyStartingEquity),
+            currentEquity: num(account.currentEquity),
+          })
+      const reserved = await tx.payout.aggregate({
+        where: { accountId: account.id, status: { in: ['PENDING', 'APPROVED'] } },
+        _sum: { amount: true },
       })
-      await tx.tradingAccount.update({ where: { id: account.id }, data: metrics })
-      const row = await tx.payout.update({
-        where: { id },
-        data: { status: 'DISBURSED', txHash, reviewedAt: new Date(), reviewedById: actorId },
-        include: { user: true, account: true },
+      await tx.tradingAccount.update({
+        where: { id: account.id },
+        data: { ...metrics, reservedPayoutAmount: reserved._sum.amount ?? 0 },
       })
       await tx.auditLog.create({
-        data: { actorId, accountId: payout.accountId, action: 'PAYOUT_DISBURSED', metadata: { payoutId: id, txHash } },
+        data: {
+          actorId,
+          accountId: payout.accountId,
+          action: 'PAYOUT_DISBURSED',
+          metadata: { payoutId: id, txHash: settlementHash },
+        },
       })
-      return row
+      return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
     })
-    return mapPayout(updated)
+    return updated ? mapPayout(updated) : null
+  },
+
+  async rejectPayout(id: string, reason: string, actorId: string) {
+    const prisma = await db()
+    if (!prisma) return null
+    const payout = await prisma.payout.findUnique({ where: { id } })
+    if (!payout) return null
+
+    return prisma.$transaction(async (tx) => {
+      const changed = await tx.payout.updateMany({
+        where: {
+          id,
+          status: 'PENDING',
+          providerBatchId: null,
+          providerPayoutId: null,
+          providerStatus: null,
+        },
+        data: { status: 'REJECTED', rejectReason: reason, reviewedAt: new Date(), reviewedById: actorId },
+      })
+      const row = await tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      if (changed.count !== 1 || !row) return row ? mapPayout(row) : null
+
+      const before = await tx.tradingAccount.findUniqueOrThrow({ where: { id: payout.accountId } })
+      const amount = num(payout.amount)
+      const account = payout.balanceReserved
+        ? await tx.tradingAccount.update({
+            where: { id: payout.accountId },
+            data: {
+              currentBalance: { increment: amount },
+              currentEquity: { increment: amount },
+              balance: { increment: amount },
+              equity: { increment: amount },
+              dailyStartingEquity: { increment: amount },
+              peakEquity: before.peakEquity + amount,
+            },
+          })
+        : before
+      const metrics = payout.balanceReserved
+        ? recomputeMetrics({
+            initialBalance: num(account.initialBalance),
+            dailyStartingEquity: num(account.dailyStartingEquity),
+            currentEquity: num(account.currentEquity),
+          })
+        : {}
+      const reserved = await tx.payout.aggregate({
+        where: { accountId: payout.accountId, status: { in: ['PENDING', 'APPROVED'] } },
+        _sum: { amount: true },
+      })
+      await tx.tradingAccount.update({
+        where: { id: payout.accountId },
+        data: { ...metrics, reservedPayoutAmount: reserved._sum.amount ?? 0 },
+      })
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          accountId: payout.accountId,
+          action: 'PAYOUT_REJECTED',
+          reason,
+          metadata: { payoutId: id },
+        },
+      })
+      return mapPayout(row)
+    })
+  },
+
+  async updateProviderPayoutStatus(
+    id: string,
+    actorId: string,
+    status: string,
+    txHash: string | null,
+    providerError: string | null,
+  ) {
+    const prisma = await db()
+    if (!prisma) return null
+    const payout = await prisma.payout.findUnique({ where: { id } })
+    if (!payout || !payout.providerPayoutId) return null
+    const recoverUnknownVerification =
+      payout.status === 'PENDING' && payout.providerStatus === 'VERIFICATION_UNKNOWN'
+    if (payout.status !== 'APPROVED' && !recoverUnknownVerification) {
+      const current = await prisma.payout.findUnique({
+        where: { id },
+        include: { user: true, account: true },
+      })
+      return current ? mapPayout(current) : null
+    }
+
+    const isFailure = status === 'FAILED' || status === 'REJECTED'
+    return prisma.$transaction(async (tx) => {
+      const changed = await tx.payout.updateMany({
+        where: {
+          id,
+          status: payout.status,
+          providerPayoutId: payout.providerPayoutId,
+          providerStatus: payout.providerStatus,
+        },
+        data: {
+          status: isFailure ? 'REJECTED' : 'APPROVED',
+          providerStatus: status,
+          txHash: txHash ?? undefined,
+          rejectReason: isFailure ? providerError?.slice(0, 500) || `NOWPayments status: ${status}` : undefined,
+          reviewedAt: isFailure ? new Date() : undefined,
+          reviewedById: isFailure ? actorId : undefined,
+        },
+      })
+      if (changed.count !== 1) {
+        const current = await tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+        return current ? mapPayout(current) : null
+      }
+
+      if (isFailure) {
+        const before = await tx.tradingAccount.findUniqueOrThrow({ where: { id: payout.accountId } })
+        const amount = num(payout.amount)
+        const account = payout.balanceReserved
+          ? await tx.tradingAccount.update({
+              where: { id: payout.accountId },
+              data: {
+                currentBalance: { increment: amount },
+                currentEquity: { increment: amount },
+                balance: { increment: amount },
+                equity: { increment: amount },
+                dailyStartingEquity: { increment: amount },
+                peakEquity: before.peakEquity + amount,
+              },
+            })
+          : before
+        const metrics = payout.balanceReserved
+          ? recomputeMetrics({
+              initialBalance: num(account.initialBalance),
+              dailyStartingEquity: num(account.dailyStartingEquity),
+              currentEquity: num(account.currentEquity),
+            })
+          : {}
+        const reserved = await tx.payout.aggregate({
+          where: { accountId: payout.accountId, status: { in: ['PENDING', 'APPROVED'] } },
+          _sum: { amount: true },
+        })
+        await tx.tradingAccount.update({
+          where: { id: payout.accountId },
+          data: { ...metrics, reservedPayoutAmount: reserved._sum.amount ?? 0 },
+        })
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId,
+          accountId: payout.accountId,
+          action: isFailure ? 'PAYOUT_PROVIDER_FAILED' : 'PAYOUT_PROVIDER_STATUS_SYNCED',
+          reason: isFailure ? providerError : undefined,
+          metadata: { payoutId: id, providerPayoutId: payout.providerPayoutId, status, txHash },
+        },
+      })
+      const updated = await tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      return updated ? mapPayout(updated) : null
+    })
   },
 
   async telemetry(): Promise<TelemetryState> {

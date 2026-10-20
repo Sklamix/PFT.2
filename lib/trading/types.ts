@@ -1,4 +1,4 @@
-import type { OrderSide, Position, TradeHistory } from '@/lib/types/terminal'
+import type { OrderSide, PendingTradeOrder, Position, TradeHistory } from '@/lib/types/terminal'
 
 export type Quote = { bid: number; ask: number }
 export type Quotes = Partial<Record<string, Quote>>
@@ -45,12 +45,14 @@ export type BookEvents = {
   closed: TradeHistory[]
   breach: Breach | null
   unfrozenAccountId: string | null
+  orderUpdates: { status: 'FILLED' | 'REJECTED' | 'CANCELLED'; message: string }[]
 }
 
 export type BookPayload = {
   asOf: number
   account: AccountView
   positions: Position[]
+  pendingOrders: PendingTradeOrder[]
   history: TradeHistory[]
   events: BookEvents
 }
@@ -71,4 +73,15 @@ export type CloseInput = {
   accountId: string | null
   /** Validated against the position's symbol once the position is loaded. */
   quote: unknown
+}
+
+export type PendingOrderInput = {
+  accountId: string
+  symbol: string
+  side: OrderSide
+  lots: number
+  limitPrice: number
+  stopLoss: number | null
+  takeProfit: number | null
+  quote: Quote
 }

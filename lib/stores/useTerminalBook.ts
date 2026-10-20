@@ -2,24 +2,13 @@
 
 import { create } from 'zustand'
 import { getSymbol, SYMBOL_LIST, spreadFromMid } from '@/lib/constants/symbols'
-import { DEFAULT_LEVERAGE, DEFAULT_MAX_DAILY_LOSS, DEFAULT_MAX_TRAILING_DRAWDOWN, measureRisk, revalue } from '@/lib/trading/risk'
+import { DEFAULT_LEVERAGE, DEFAULT_MAX_DAILY_LOSS, DEFAULT_MAX_TRAILING_DRAWDOWN, measureRisk, positionMargin, revalue } from '@/lib/trading/risk'
 import type { AccountView, BookPayload, Quote } from '@/lib/trading/types'
-import type { OrderSide, Position, TradeHistory } from '@/lib/types/terminal'
+import type { OrderSide, PendingTradeOrder, Position, TradeHistory } from '@/lib/types/terminal'
 
 export const DEFAULT_ACCOUNT_ID = ''
 /** Quotes older than this are not sent to the server or used to revalue positions. */
 const FRESH_QUOTE_MS = 10_000
-
-export type PendingOrder = {
-  id: string
-  symbol: string
-  side: OrderSide
-  sizeLots: number
-  limitPrice: number
-  stopLoss: number | null
-  takeProfit: number | null
-  createdAt: Date
-}
 
 export type TerminalAccountSnapshot = {
   balance: number
@@ -69,28 +58,41 @@ type TerminalBook = {
   asOf: number
   positions: Position[]
   history: TradeHistory[]
-  pending: PendingOrder[]
+  pending: PendingTradeOrder[]
   closing: Record<string, boolean>
+  cancelling: Record<string, boolean>
   marks: Marks
   snapshot: TerminalAccountSnapshot
   notice: TerminalNotice | null
   init: (accountId: string) => Promise<void>
   markMarket: (symbol: string, bid: number, ask: number, mid: number) => void
   placeMarket: (input: OrderRequest) => Promise<ActionResult<{ position: Position }>>
-  placePending: (input: OrderRequest & { limitPrice: number }) => PendingOrder
+  placePending: (input: OrderRequest & { limitPrice: number }) => Promise<ActionResult<{ pendingOrder: PendingTradeOrder }>>
   closePosition: (id: string) => Promise<ActionResult<{ trade: TradeHistory }>>
-  cancelPending: (id: string) => void
+  cancelPending: (id: string) => Promise<ActionResult<object>>
   sync: () => Promise<void>
   dismissNotice: () => void
 }
 
-type ServerBook = Omit<BookPayload, 'positions' | 'history' | 'events'> & {
+type ServerBook = Omit<BookPayload, 'positions' | 'pendingOrders' | 'history' | 'events'> & {
   positions: (Omit<Position, 'openedAt' | 'closedAt'> & { openedAt: string; closedAt: string | null })[]
+  pendingOrders: (Omit<PendingTradeOrder, 'createdAt' | 'updatedAt' | 'filledAt' | 'cancelledAt'> & {
+    createdAt: string
+    updatedAt: string
+    filledAt: string | null
+    cancelledAt: string | null
+  })[]
   history: (Omit<TradeHistory, 'openedAt' | 'closedAt'> & { openedAt: string; closedAt: string })[]
   events: Omit<BookPayload['events'], 'closed'> & { closed: ServerBook['history'] }
 }
 
-type ServerResponse = { book?: ServerBook | null; error?: string; position?: ServerBook['positions'][number]; trade?: ServerBook['history'][number] }
+type ServerResponse = {
+  book?: ServerBook | null
+  error?: string
+  position?: ServerBook['positions'][number]
+  pendingOrder?: ServerBook['pendingOrders'][number]
+  trade?: ServerBook['history'][number]
+}
 
 function seedMarks(): Marks {
   return Object.fromEntries(
@@ -141,7 +143,7 @@ function emptySnapshot(): TerminalAccountSnapshot {
 }
 
 /** Live view of the server book: server balance/limits combined with the latest local quotes. */
-function buildSnapshot(account: AccountView | null, positions: Position[]): TerminalAccountSnapshot {
+function buildSnapshot(account: AccountView | null, positions: Position[], pendingOrders: PendingTradeOrder[] = []): TerminalAccountSnapshot {
   if (!account) return emptySnapshot()
   const metrics = measureRisk(
     {
@@ -154,14 +156,24 @@ function buildSnapshot(account: AccountView | null, positions: Position[]): Term
     },
     positions,
   )
+  const reservedPendingMargin = pendingOrders.reduce(
+    (total, order) =>
+      total +
+      positionMargin(
+        { symbol: order.symbol, sizeLots: order.sizeLots, entryPrice: order.limitPrice, currentPrice: order.limitPrice },
+        account.leverage || DEFAULT_LEVERAGE,
+      ),
+    0,
+  )
+  const marginUsed = metrics.marginUsed + reservedPendingMargin
   return {
     balance: metrics.balance,
     equity: metrics.equity,
     startingBalance: account.startingBalance,
     peakEquity: metrics.peakEquity,
     dayStartEquity: metrics.dayStartEquity,
-    marginUsed: metrics.marginUsed,
-    freeMargin: metrics.freeMargin,
+    marginUsed,
+    freeMargin: metrics.equity - marginUsed,
     floatingPnl: metrics.floatingPnl,
     dailyLossUsed: metrics.dailyLossUsd,
     dailyLossLimitUsd: metrics.dailyLossLimitUsd,
@@ -201,10 +213,6 @@ async function call(path: string, init?: RequestInit): Promise<{ ok: boolean; bo
   }
 }
 
-function newId(prefix: string) {
-  return `${prefix}_${crypto.randomUUID().slice(0, 8)}`
-}
-
 function describeEvents(book: ServerBook): TerminalNotice | null {
   const { breach, unfrozenAccountId, closed } = book.events
   if (breach) {
@@ -216,7 +224,23 @@ function describeEvents(book: ServerBook): TerminalNotice | null {
     const parts = triggered.map((trade) => `${getSymbol(trade.symbol).displayName} ${trade.closeReason === 'STOP_LOSS' ? 'stop loss' : 'take profit'} hit (${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)})`)
     return { tone: 'info', message: parts.join(' · ') }
   }
+  if (book.events.orderUpdates.length) {
+    return {
+      tone: book.events.orderUpdates.some((event) => event.status === 'REJECTED') ? 'danger' : 'success',
+      message: book.events.orderUpdates.map((event) => event.message).join(' · '),
+    }
+  }
   return null
+}
+
+function toPendingOrder(row: ServerBook['pendingOrders'][number]): PendingTradeOrder {
+  return {
+    ...row,
+    createdAt: new Date(row.createdAt),
+    updatedAt: new Date(row.updatedAt),
+    filledAt: row.filledAt ? new Date(row.filledAt) : null,
+    cancelledAt: row.cancelledAt ? new Date(row.cancelledAt) : null,
+  }
 }
 
 let syncInFlight = false
@@ -227,12 +251,14 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
     const state = get()
     if (book.account.id !== state.accountId || book.asOf < state.asOf) return
     const positions = revalueAll(book.positions.map(toPosition), state.marks)
+    const pending = book.pendingOrders.map(toPendingOrder)
     set({
       account: book.account,
       asOf: book.asOf,
       positions,
+      pending,
       history: book.history.map(toTrade),
-      snapshot: buildSnapshot(book.account, positions),
+      snapshot: buildSnapshot(book.account, positions, pending),
       loadState: 'ready',
       loadError: null,
       notice: describeEvents(book) ?? state.notice,
@@ -249,12 +275,13 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
     history: [],
     pending: [],
     closing: {},
+    cancelling: {},
     marks: seedMarks(),
     snapshot: emptySnapshot(),
     notice: null,
 
     init: async (accountId) => {
-      set({ accountId, loadState: 'loading', loadError: null, account: null, asOf: 0, positions: [], history: [], pending: [], closing: {}, snapshot: emptySnapshot(), notice: null })
+      set({ accountId, loadState: 'loading', loadError: null, account: null, asOf: 0, positions: [], history: [], pending: [], closing: {}, cancelling: {}, snapshot: emptySnapshot(), notice: null })
       const { ok, body } = await call(`/api/trading/account?accountId=${encodeURIComponent(accountId)}`)
       if (get().accountId !== accountId) return
       if (!ok || !body.book) {
@@ -269,27 +296,7 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       const marks = { ...state.marks, [symbol]: { bid, ask, mid, at: Date.now() } }
       const positions = revalueAll(state.positions, marks)
 
-      const filled: PendingOrder[] = []
-      const pending = state.pending.filter((order) => {
-        if (order.symbol !== symbol) return true
-        const hit = order.side === 'BUY' ? ask <= order.limitPrice : bid >= order.limitPrice
-        if (hit) filled.push(order)
-        return !hit
-      })
-
-      set({ marks, positions, pending, snapshot: buildSnapshot(state.account, positions) })
-
-      for (const order of filled) {
-        void get()
-          .placeMarket(order)
-          .then((result) =>
-            set({
-              notice: result.ok
-                ? { tone: 'success', message: `Limit ${order.side} ${order.sizeLots} ${getSymbol(order.symbol).displayName} filled` }
-                : { tone: 'danger', message: `Limit order rejected: ${result.error}` },
-            }),
-          )
-      }
+      set({ marks, positions, snapshot: buildSnapshot(state.account, positions, state.pending) })
     },
 
     placeMarket: async (input) => {
@@ -313,19 +320,25 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       return { ok: true, position: toPosition(body.position) }
     },
 
-    placePending: (input) => {
-      const order: PendingOrder = {
-        id: newId('pend'),
-        symbol: input.symbol,
-        side: input.side,
-        sizeLots: input.sizeLots,
-        limitPrice: input.limitPrice,
-        stopLoss: input.stopLoss ?? null,
-        takeProfit: input.takeProfit ?? null,
-        createdAt: new Date(),
-      }
-      set({ pending: [order, ...get().pending] })
-      return order
+    placePending: async (input) => {
+      const state = get()
+      const mark = state.marks[input.symbol]
+      const { ok, body } = await call('/api/trading/pending', {
+        method: 'POST',
+        body: JSON.stringify({
+          accountId: state.accountId,
+          symbol: input.symbol,
+          side: input.side,
+          lots: input.sizeLots,
+          limitPrice: input.limitPrice,
+          stopLoss: input.stopLoss ?? null,
+          takeProfit: input.takeProfit ?? null,
+          quote: mark ? { bid: mark.bid, ask: mark.ask } : null,
+        }),
+      })
+      applyBook(body.book)
+      if (!ok || !body.pendingOrder) return { ok: false, error: body.error ?? 'Pending order rejected' }
+      return { ok: true, pendingOrder: toPendingOrder(body.pendingOrder) }
     },
 
     closePosition: async (id) => {
@@ -345,7 +358,18 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       return { ok: true, trade: toTrade(body.trade) }
     },
 
-    cancelPending: (id) => set({ pending: get().pending.filter((order) => order.id !== id) }),
+    cancelPending: async (id) => {
+      const state = get()
+      set({ cancelling: { ...state.cancelling, [id]: true } })
+      const { ok, body } = await call('/api/trading/pending', {
+        method: 'DELETE',
+        body: JSON.stringify({ accountId: state.accountId, pendingOrderId: id }),
+      })
+      const { [id]: _done, ...cancelling } = get().cancelling
+      set({ cancelling })
+      applyBook(body.book)
+      return ok ? { ok: true } : { ok: false, error: body.error ?? 'Unable to cancel pending order' }
+    },
 
     sync: async () => {
       if (syncInFlight) return

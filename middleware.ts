@@ -13,10 +13,10 @@ export function middleware(request: NextRequest) {
     }
   }
   // Cookie presence gates the pages; the session itself is verified by every /api/trading/* and /api/auth/me call.
-  if (pathname === '/dashboard' || pathname.startsWith('/dashboard/')) {
+  if (pathname === '/dashboard' || pathname.startsWith('/dashboard/') || pathname.startsWith('/profile/')) {
     if (!request.cookies.get(TRADER_COOKIE)?.value) {
       const url = request.nextUrl.clone()
-      url.pathname = '/login'
+      url.pathname = '/auth/login'
       url.search = `?next=${encodeURIComponent(pathname + search)}`
       return NextResponse.redirect(url)
     }
@@ -25,5 +25,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/dashboard', '/dashboard/:path*'],
+  matcher: ['/admin/:path*', '/dashboard', '/dashboard/:path*', '/profile/:path*'],
 }

@@ -24,6 +24,7 @@ export function OrderPanel() {
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
   const bid = useTradingStore((state) => state.bid)
   const ask = useTradingStore((state) => state.ask)
+  const connectionStatus = useTradingStore((state) => state.connectionStatus)
   const placeMarket = useTerminalBook((state) => state.placeMarket)
   const placePending = useTerminalBook((state) => state.placePending)
   const accountStatus = useTerminalBook((state) => state.account?.status)
@@ -60,6 +61,7 @@ export function OrderPanel() {
 
   const canSubmit =
     tradable &&
+    connectionStatus === 'CONNECTED' &&
     validLots &&
     !busy &&
     (orderType === 'market' || (limit != null && limit > 0)) &&
@@ -72,7 +74,7 @@ export function OrderPanel() {
     setNotice(null)
     try {
       if (orderType === 'limit' && limit) {
-        placePending({
+        const result = await placePending({
           symbol: selectedSymbol,
           side,
           sizeLots,
@@ -80,7 +82,11 @@ export function OrderPanel() {
           stopLoss: sl,
           takeProfit: tp,
         })
-        setNotice({ tone: 'ok', text: `Limit ${side} ${sizeLots} ${meta.displayName} queued at ${formatPrice(selectedSymbol, limit)}` })
+        setNotice(
+          result.ok
+            ? { tone: 'ok', text: `Limit ${side} ${sizeLots} ${meta.displayName} queued at ${formatPrice(selectedSymbol, limit)}` }
+            : { tone: 'error', text: result.error },
+        )
       } else {
         const result = await placeMarket({
           symbol: selectedSymbol,
@@ -114,7 +120,7 @@ export function OrderPanel() {
             <TabsTrigger value="limit">Pending / Limit</TabsTrigger>
           </TabsList>
           <TabsContent value="market" className="mt-3 text-xs text-muted-foreground">
-            Immediate fill at the live bid or ask.
+            Live Twelve Data price with an indicative spread; not executable broker bid/ask.
           </TabsContent>
           <TabsContent value="limit" className="mt-3 space-y-2">
             <Field label="Limit price">
@@ -217,6 +223,9 @@ export function OrderPanel() {
           <p className="font-mono text-[11px] text-muted-foreground">
             {accountStatus !== 'ACTIVE' ? `Account ${accountStatus.toLowerCase()} — orders disabled` : 'Symbol not tradable on this account'}
           </p>
+        ) : null}
+        {tradable && connectionStatus !== 'CONNECTED' ? (
+          <p className="font-mono text-[11px] text-warning">Waiting for a fresh OANDA quote — orders disabled</p>
         ) : null}
         {notice ? (
           <p role={notice.tone === 'error' ? 'alert' : 'status'} className={cn('font-mono text-[11px]', notice.tone === 'error' ? 'text-danger' : 'text-highlight')}>

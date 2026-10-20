@@ -2,179 +2,87 @@
 
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { getSymbol, spreadFromMid, toOandaSymbol } from '@/lib/constants/symbols'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 
-const FINNHUB_WS = 'wss://ws.finnhub.io'
-const MOCK_INTERVAL_MS = 500
-const LIVE_STALE_MS = 4000
+const QUOTE_POLL_INTERVAL_MS = 250
+const MAX_QUOTE_AGE_MS = 15_000
 
-type FinnhubTrade = {
-  p?: number
-  s?: string
-  t?: number
-  v?: number
+type LiveQuote = {
+  symbol: string
+  bid: number
+  ask: number
+  providerTime: string
 }
 
-type FinnhubMessage = {
-  type?: string
-  data?: FinnhubTrade[]
-}
-
-function finnhubToken() {
-  return process.env.NEXT_PUBLIC_FINNHUB_API_KEY?.trim() ?? ''
-}
-
-function subscribeSymbolFor(symbol: string) {
-  const meta = getSymbol(symbol)
-  if (meta.category === 'crypto') return meta.finnhubSymbol
-  return `OANDA:${toOandaSymbol(symbol)}`
-}
-
-function nextMockPrice(symbol: string, last: number, anchor: number) {
-  const { pipSize } = getSymbol(symbol)
-  const meanRevert = (anchor - last) * 0.012
-  const noise = (Math.random() - 0.5) * pipSize * 2.4
-  const spike = Math.random() < 0.03 ? (Math.random() - 0.5) * pipSize * 6 : 0
-  const next = last + meanRevert + noise + spike
-  return next > 0 ? next : last
-}
+type QuotesResponse = { quotes?: LiveQuote[] }
 
 export function useMarketData() {
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
-  const setTickerData = useTradingStore((state) => state.setTickerData)
+  const setLiveQuote = useTradingStore((state) => state.setLiveQuote)
   const setConnectionStatus = useTradingStore((state) => state.setConnectionStatus)
   const setFeedMode = useTradingStore((state) => state.setFeedMode)
 
   useEffect(() => {
     let disposed = false
-    let socket: WebSocket | null = null
-    let mockTimer: ReturnType<typeof setInterval> | undefined
-    let staleTimer: ReturnType<typeof setTimeout> | undefined
-    const streamSymbol = subscribeSymbolFor(selectedSymbol)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let controller: AbortController | undefined
+    let hasLoggedError = false
 
-    function applyMid(mid: number) {
-      if (!Number.isFinite(mid) || mid <= 0) return
-      const { high24h, low24h, open24h } = useTradingStore.getState()
-      setTickerData({
-        ...spreadFromMid(selectedSymbol, mid),
-        high24h: high24h > 0 ? Math.max(high24h, mid) : mid,
-        low24h: low24h > 0 ? Math.min(low24h, mid) : mid,
-        priceChangePercent24h: open24h > 0 ? ((mid - open24h) / open24h) * 100 : 0,
-      })
-    }
+    const poll = async () => {
+      if (disposed) return
+      if (document.visibilityState === 'hidden') {
+        timer = setTimeout(poll, 1_000)
+        return
+      }
 
-    function stopMock() {
-      if (!mockTimer) return
-      clearInterval(mockTimer)
-      mockTimer = undefined
-    }
+      controller = new AbortController()
+      try {
+        const response = await fetch('/api/trading/quotes', {
+          cache: 'no-store',
+          signal: controller.signal,
+        })
+        if (!response.ok) throw new Error(`Live quotes endpoint returned ${response.status}`)
+        const data = (await response.json()) as QuotesResponse
+        const quote = data.quotes?.find((item) => item.symbol === selectedSymbol)
+        const providerTime = quote ? Date.parse(quote.providerTime) : NaN
+        const age = Date.now() - providerTime
 
-    function startMock() {
-      if (disposed || mockTimer) return
-      setFeedMode('MOCK')
-      setConnectionStatus('CONNECTED')
-      mockTimer = setInterval(() => {
-        if (disposed) return
-        const { currentPrice, referencePrice } = useTradingStore.getState()
-        applyMid(nextMockPrice(selectedSymbol, currentPrice, referencePrice))
-      }, MOCK_INTERVAL_MS)
-    }
-
-    function clearStaleWatch() {
-      if (!staleTimer) return
-      clearTimeout(staleTimer)
-      staleTimer = undefined
-    }
-
-    function send(target: WebSocket, type: 'subscribe' | 'unsubscribe', symbol: string) {
-      if (target.readyState !== WebSocket.OPEN) return
-      target.send(JSON.stringify({ type, symbol }))
-    }
-
-    const token = finnhubToken()
-    if (!token) {
-      startMock()
-      return () => {
-        disposed = true
-        stopMock()
+        if (
+          quote &&
+          Number.isFinite(quote.bid) &&
+          Number.isFinite(quote.ask) &&
+          quote.bid > 0 &&
+          quote.ask >= quote.bid &&
+          Number.isFinite(providerTime) &&
+          age >= -5_000 &&
+          age <= MAX_QUOTE_AGE_MS
+        ) {
+          setLiveQuote(selectedSymbol, quote.bid, quote.ask, providerTime)
+          setConnectionStatus('CONNECTED')
+          setFeedMode('LIVE')
+        } else {
+          setConnectionStatus('DISCONNECTED')
+        }
+        hasLoggedError = false
+      } catch (error) {
+        if (disposed || (error instanceof Error && error.name === 'AbortError')) return
+        if (!hasLoggedError) console.error('[pft market quotes] Poll failed', error)
+        hasLoggedError = true
+        setConnectionStatus('ERROR')
+      } finally {
+        if (!disposed) timer = setTimeout(poll, QUOTE_POLL_INTERVAL_MS)
       }
     }
 
     setConnectionStatus('CONNECTING')
-
-    try {
-      socket = new WebSocket(`${FINNHUB_WS}?token=${encodeURIComponent(token)}`)
-    } catch {
-      setConnectionStatus('ERROR')
-      startMock()
-      return () => {
-        disposed = true
-        stopMock()
-      }
-    }
-
-    socket.addEventListener('open', () => {
-      if (disposed || !socket) return
-      setConnectionStatus('CONNECTED')
-      setFeedMode('LIVE')
-      send(socket, 'subscribe', streamSymbol)
-      staleTimer = setTimeout(() => {
-        if (!disposed) startMock()
-      }, LIVE_STALE_MS)
-    })
-
-    socket.addEventListener('message', (event) => {
-      if (disposed) return
-
-      let payload: FinnhubMessage
-      try {
-        payload = JSON.parse(String(event.data)) as FinnhubMessage
-      } catch {
-        return
-      }
-
-      if (payload.type === 'ping') {
-        socket?.send(JSON.stringify({ type: 'pong' }))
-        return
-      }
-
-      if (payload.type !== 'trade' || !payload.data?.length) return
-
-      const price = Number(payload.data[payload.data.length - 1]?.p)
-      if (!Number.isFinite(price)) return
-
-      clearStaleWatch()
-      stopMock()
-      setFeedMode('LIVE')
-      if (useTradingStore.getState().connectionStatus !== 'CONNECTED') {
-        setConnectionStatus('CONNECTED')
-      }
-      applyMid(price)
-    })
-
-    socket.addEventListener('error', () => {
-      if (disposed) return
-      setConnectionStatus('ERROR')
-      startMock()
-    })
-
-    socket.addEventListener('close', () => {
-      if (disposed) return
-      startMock()
-    })
+    void poll()
 
     return () => {
       disposed = true
-      clearStaleWatch()
-      stopMock()
-      if (socket) {
-        send(socket, 'unsubscribe', streamSymbol)
-        socket.close()
-        socket = null
-      }
+      if (timer) clearTimeout(timer)
+      controller?.abort()
     }
-  }, [selectedSymbol, setConnectionStatus, setFeedMode, setTickerData])
+  }, [selectedSymbol, setConnectionStatus, setFeedMode, setLiveQuote])
 
   return useTradingStore(
     useShallow((state) => ({
