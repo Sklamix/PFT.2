@@ -6,11 +6,12 @@ import { sendEmail } from '@/lib/email/resend'
 const CODE_TTL_MS = 10 * 60_000
 const RESEND_INTERVAL_MS = 60_000
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+type EmailCodePurpose = 'REGISTER' | 'LOGIN'
 
-function codeHash(email: string, code: string) {
+function codeHash(email: string, code: string, purpose: EmailCodePurpose) {
   const secret = process.env.TRADER_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET
   if (!secret || secret.length < 16) throw new Error('A session secret is required to issue email login codes')
-  return createHmac('sha256', secret).update(`${email}:${code}`).digest('hex')
+  return createHmac('sha256', secret).update(`${purpose}:${email}:${code}`).digest('hex')
 }
 
 function escapeHtml(value: string) {
@@ -37,8 +38,12 @@ export async function POST(request: Request) {
 
     const existingUser = await prisma.user.findUnique({ where: { email }, select: { role: true } })
     if (existingUser && existingUser.role !== 'TRADER') {
-      return NextResponse.json({ ok: true, message: 'If this email can sign in, a code will arrive shortly.' })
+      return NextResponse.json(
+        { error: 'This email is already registered for a staff account. Use the staff sign-in page.' },
+        { status: 409 },
+      )
     }
+    const purpose: EmailCodePurpose = existingUser ? 'LOGIN' : 'REGISTER'
 
     const now = new Date()
     const existingCode = await prisma.emailLoginCode.findUnique({ where: { email } })
@@ -50,7 +55,7 @@ export async function POST(request: Request) {
     }
 
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
-    const hashedCode = codeHash(email, code)
+    const hashedCode = codeHash(email, code, purpose)
     await prisma.emailLoginCode.upsert({
       where: { email },
       create: { email, codeHash: hashedCode, expiresAt: new Date(now.getTime() + CODE_TTL_MS), sentAt: now, attempts: 0 },
@@ -58,20 +63,32 @@ export async function POST(request: Request) {
     })
 
     const safeEmail = escapeHtml(email)
+    const isRegistration = purpose === 'REGISTER'
+    const subject = isRegistration ? 'Your PFT account registration code' : 'Your PFT sign-in code'
+    const action = isRegistration ? 'complete your PFT account registration' : 'sign in to your PFT account'
+    const message = isRegistration
+      ? 'Your PFT account registration code'
+      : 'Your PFT sign-in code'
     const result = await sendEmail({
       to: email,
-      subject: 'Your PFT sign-in code',
-      text: `Your PFT sign-in code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
-      html: `<div style="font-family:Arial,sans-serif;background:#090D16;color:#f8fafc;padding:32px"><p>Use this code to sign in to Professional Funded Trader:</p><p style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#a3e635">${code}</p><p>This code expires in 10 minutes and was requested for ${safeEmail}.</p></div>`,
-      idempotencyKey: `pft-login-code-${hashedCode}`,
+      subject,
+      text: `${message}: ${code}. Use it to ${action}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
+      html: `<div style="font-family:Arial,sans-serif;background:#090D16;color:#f8fafc;padding:32px"><p>Use this code to ${action} with Professional Funded Trader:</p><p style="font-size:32px;font-weight:bold;letter-spacing:8px;color:#a3e635">${code}</p><p>This code expires in 10 minutes and was requested for ${safeEmail}.</p></div>`,
+      idempotencyKey: `pft-${purpose.toLowerCase()}-code-${hashedCode}`,
     })
     if (result.status !== 'SENT') {
       await prisma.emailLoginCode.deleteMany({ where: { email, codeHash: hashedCode } })
       console.error('Email login code was not sent', result.error)
-      return NextResponse.json({ error: 'Unable to send a sign-in code right now.' }, { status: 503 })
+      return NextResponse.json({ error: 'Unable to send an email code right now.' }, { status: 503 })
     }
 
-    return NextResponse.json({ ok: true, message: 'If this email can sign in, a code will arrive shortly.' })
+    return NextResponse.json({
+      ok: true,
+      purpose: purpose.toLowerCase(),
+      message: isRegistration
+        ? 'A registration code has been sent to your email.'
+        : 'This email is already registered. A sign-in code has been sent.',
+    })
   } catch (error) {
     console.error('Email login code request failed', error)
     return NextResponse.json({ error: 'Unable to request a sign-in code right now.' }, { status: 500 })
