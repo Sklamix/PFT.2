@@ -13,6 +13,8 @@ import {
 } from '@/lib/challenges'
 import { isEmailConfigured } from '@/lib/email/resend'
 import { sendCheckoutInvoiceEmail, type CheckoutInvoiceDetails } from '@/lib/email/checkout-invoice'
+import { appUrl } from '@/lib/email/account-credentials'
+import { getTraderSession } from '@/lib/trader/auth'
 
 const PAY_CURRENCY = 'usdttrc20'
 const PAY_CURRENCY_LABEL = 'USDT (TRC20)'
@@ -68,6 +70,10 @@ export async function POST(req: Request) {
     if (!traderEmail.includes('@')) {
       return NextResponse.json({ error: 'A valid email is required to deliver MT5 credentials.' }, { status: 400 })
     }
+    const traderSession = await getTraderSession()
+    if (traderSession && traderSession.email.toLowerCase() !== traderEmail) {
+      return NextResponse.json({ error: 'Challenge purchases must use the email address on your signed-in account.' }, { status: 403 })
+    }
 
     if (paymentMethod && paymentMethod !== 'crypto') {
       return NextResponse.json(
@@ -111,6 +117,7 @@ export async function POST(req: Request) {
     const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : traderEmail.split('@')[0]
 
     const orderId = `PFT-${Date.now()}`
+    const baseUrl = appUrl()
     const apiKey = process.env.NOWPAYMENTS_API_KEY
     if (!apiKey) {
       console.error('Checkout misconfigured: NOWPAYMENTS_API_KEY is not set')
@@ -123,9 +130,9 @@ export async function POST(req: Request) {
       pay_currency: PAY_CURRENCY,
       order_id: orderId,
       order_description: `PFT Challenge ${planSize / 1000}k (${evaluationLabel})`,
-      ipn_callback_url: 'https://nimbus-nine-orpin.vercel.app/api/webhooks/payment-success',
-      success_url: 'https://nimbus-nine-orpin.vercel.app/dashboard',
-      cancel_url: 'https://nimbus-nine-orpin.vercel.app/dashboard',
+      ipn_callback_url: `${baseUrl}/api/webhooks/payment-success`,
+      success_url: `${baseUrl}/dashboard/terminal`,
+      cancel_url: `${baseUrl}/dashboard/terminal`,
       customer_email: traderEmail,
     }
 

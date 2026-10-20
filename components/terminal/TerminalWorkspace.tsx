@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
-import { ArrowRight, LogOut, X } from 'lucide-react'
+import { LogOut, Plus, X } from 'lucide-react'
+import { ChallengeCalculator } from '@/components/challenge-calculator'
 import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -39,6 +40,7 @@ export function TerminalWorkspace() {
   const pendingCount = useTerminalBook((state) => state.pending.length)
 
   const [trader, setTrader] = useState<TraderMe | null>(null)
+  const [challengeDialogOpen, setChallengeDialogOpen] = useState(false)
   const accountId = useTerminalBook((state) => state.accountId)
   const hasNoAccounts = loadState === 'error' && loadError === 'No trading accounts on this login yet'
 
@@ -85,9 +87,15 @@ export function TerminalWorkspace() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {trader && <AccountBar trader={trader} accountId={accountId} />}
+      {trader && (
+        <AccountBar
+          trader={trader}
+          accountId={accountId}
+          onNewChallenge={() => setChallengeDialogOpen(true)}
+        />
+      )}
       {hasNoAccounts ? (
-        <NoAccountsState />
+        <NoAccountsState onNewChallenge={() => setChallengeDialogOpen(true)} />
       ) : (
         <>
           <TerminalHeader />
@@ -101,11 +109,30 @@ export function TerminalWorkspace() {
           </div>
         </>
       )}
+      {trader && (
+        <Dialog open={challengeDialogOpen} onOpenChange={setChallengeDialogOpen}>
+          <DialogContent
+            overlayClassName="z-[70] bg-background/80 backdrop-blur-sm"
+            className="z-[70] max-h-[92dvh] w-[calc(100%-1rem)] max-w-6xl gap-0 overflow-y-auto border-border bg-background p-3 sm:w-[calc(100%-2rem)] sm:p-5"
+          >
+            <div className="mb-3 pr-9">
+              <DialogTitle className="text-lg font-semibold">Choose a new challenge</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-muted-foreground">
+                Select your account size and rules. Your purchase will be linked to {trader.trader.email}.
+              </DialogDescription>
+            </div>
+            <ChallengeCalculator
+              presentation="dialog"
+              customer={{ email: trader.trader.email, name: trader.trader.name }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
 
-function NoAccountsState() {
+function NoAccountsState({ onNewChallenge }: { onNewChallenge: () => void }) {
   return (
     <main className="flex flex-1 items-center justify-center p-6">
       <section className="w-full max-w-lg rounded-2xl border border-border bg-card p-8 text-center shadow-xl">
@@ -115,13 +142,14 @@ function NoAccountsState() {
           No trading accounts are linked to this login yet. Choose a challenge to create your own account.
           The accounts shown in the old dashboard were examples only and cannot be used to trade.
         </p>
-        <Link
-          href="/#challenges"
-          className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+        <button
+          type="button"
+          onClick={onNewChallenge}
+          className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
-          Browse challenges
-          <ArrowRight className="size-4" aria-hidden="true" />
-        </Link>
+          <Plus className="size-4" aria-hidden="true" />
+          New Challenge
+        </button>
       </section>
     </main>
   )
@@ -137,7 +165,15 @@ async function signOut() {
   window.location.assign('/login')
 }
 
-function AccountBar({ trader, accountId }: { trader: TraderMe; accountId: string }) {
+function AccountBar({
+  trader,
+  accountId,
+  onNewChallenge,
+}: {
+  trader: TraderMe
+  accountId: string
+  onNewChallenge: () => void
+}) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-1.5 text-xs lg:px-4">
       {trader.accounts.length > 0 ? (
@@ -159,6 +195,14 @@ function AccountBar({ trader, accountId }: { trader: TraderMe; accountId: string
         <span className="text-muted-foreground">No linked trading accounts</span>
       )}
       <span className="ml-auto truncate text-muted-foreground">{trader.trader.email}</span>
+      <button
+        type="button"
+        onClick={onNewChallenge}
+        className="group inline-flex h-8 items-center gap-1.5 rounded-md bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-3 text-xs font-semibold text-primary-foreground shadow-[0_0_20px_-10px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_28px_-8px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      >
+        <Plus className="size-3.5 transition-transform group-hover:rotate-90" aria-hidden="true" />
+        New Challenge
+      </button>
       <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void signOut()}>
         <LogOut className="size-3.5" aria-hidden="true" />
         Sign out

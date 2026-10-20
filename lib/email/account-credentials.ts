@@ -2,7 +2,7 @@ import { CHALLENGES } from '@/lib/challenges'
 import { sendEmail, type EmailResult } from '@/lib/email/resend'
 import type { ProvisionResult } from '@/lib/provisioning/challenge-account'
 
-const DEFAULT_APP_URL = 'https://nimbus-nine-orpin.vercel.app'
+const DEFAULT_APP_URL = 'https://pft-app-prod.vercel.app'
 
 export function appUrl() {
   return (process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL).replace(/\/+$/, '')

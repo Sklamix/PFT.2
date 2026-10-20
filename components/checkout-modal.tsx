@@ -77,6 +77,7 @@ export type CheckoutModalProps = {
   calculatedPrice: number
   drawdownMode?: DrawdownMode
   dailyLossType?: 3 | 5
+  customer?: { email: string; name?: string }
 }
 
 function evaluationPayload(type: ChallengeType) {
@@ -98,6 +99,7 @@ export function CheckoutModal({
   calculatedPrice,
   drawdownMode = 'trailing',
   dailyLossType = 3,
+  customer,
 }: CheckoutModalProps) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -122,6 +124,12 @@ export function CheckoutModal({
   useEffect(() => {
     if (open) setHasFrozenBackup(false)
   }, [open, accountSize, calculatedPrice])
+
+  useEffect(() => {
+    if (!open || !customer) return
+    setEmail(customer.email)
+    if (customer.name) setFullName(customer.name)
+  }, [open, customer?.email, customer?.name])
 
   function resetTransient() {
     setError(null)
@@ -278,10 +286,13 @@ export function CheckoutModal({
                   autoComplete="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
+                  readOnly={Boolean(customer)}
                   placeholder="trader@example.com"
-                  className={fieldClass}
+                  className={cn(fieldClass, customer && 'cursor-not-allowed opacity-70')}
                 />
-                <span className="mt-1.5 block text-xs text-muted-foreground">Used to deliver your MT5 login credentials.</span>
+                <span className="mt-1.5 block text-xs text-muted-foreground">
+                  {customer ? 'This challenge will be added to your signed-in account.' : 'Used to deliver your MT5 login credentials.'}
+                </span>
               </label>
 
               <label className="block">

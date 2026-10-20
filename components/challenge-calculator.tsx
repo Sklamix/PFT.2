@@ -64,7 +64,13 @@ function MetricRow({ label, hint, value, subValue, muted }: MetricRowProps) {
   )
 }
 
-export function ChallengeCalculator() {
+export function ChallengeCalculator({
+  presentation = 'page',
+  customer,
+}: {
+  presentation?: 'page' | 'dialog'
+  customer?: { email: string; name?: string }
+}) {
   const [size, setSize] = useState<AccountSize>(10_000)
   const [type, setType] = useState<ChallengeType>('two-step')
   const [drawdownMode, setDrawdownMode] = useState<DrawdownMode>('trailing')
@@ -144,16 +150,23 @@ export function ChallengeCalculator() {
   }
 
   return (
-    <section id="challenges" aria-labelledby="challenges-heading" data-home-reveal className="border-b border-border py-20 sm:py-28">
+    <section
+      id={presentation === 'page' ? 'challenges' : undefined}
+      aria-labelledby={presentation === 'page' ? 'challenges-heading' : undefined}
+      data-home-reveal={presentation === 'page' ? true : undefined}
+      className={presentation === 'page' ? 'border-b border-border py-20 sm:py-28' : 'w-full py-3'}
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <SectionHeading
-          id="challenges-heading"
-          eyebrow="Challenge matrix"
-          title="Pick your capital. Pick your path."
-          description="Configure your evaluation and see every rule upfront. Your fee is fully refunded with your first payout."
-        />
+        {presentation === 'page' && (
+          <SectionHeading
+            id="challenges-heading"
+            eyebrow="Challenge matrix"
+            title="Pick your capital. Pick your path."
+            description="Configure your evaluation and see every rule upfront. Your fee is fully refunded with your first payout."
+          />
+        )}
 
-        <div className="home-card mt-14 overflow-hidden rounded-2xl border border-border bg-card">
+        <div className={cn('home-card overflow-hidden rounded-2xl border border-border bg-card', presentation === 'page' && 'mt-14')}>
           <div className="grid gap-6 border-b border-border p-5 sm:p-6 lg:grid-cols-[1fr_auto]">
             <div>
               <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -391,6 +404,7 @@ export function ChallengeCalculator() {
         calculatedPrice={fee ?? 0}
         drawdownMode={drawdownMode}
         dailyLossType={dailyLossType}
+        customer={customer}
       />
     </section>
   )
