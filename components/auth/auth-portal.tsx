@@ -5,6 +5,7 @@ import { signIn } from 'next-auth/react'
 import { ArrowRight, LoaderCircle, ShieldCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { BrandLogo } from '@/components/brand-logo'
+import { KineticOrbit } from '@/components/auth/kinetic-orbit'
 
 const INPUT_CLASS =
   'mt-2 h-12 w-full rounded-lg border border-lime-300/20 bg-[#0a0d12] px-4 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-lime-300 focus:ring-2 focus:ring-lime-300/25 focus:shadow-[0_0_18px_-8px_rgba(163,230,53,0.8)]'
@@ -75,13 +76,6 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
 
   return (
     <main className="min-h-dvh bg-[#080b0f] text-white">
-      <a
-        href="#auth-form"
-        className="fixed top-5 right-5 z-20 inline-flex h-10 items-center gap-2 rounded-full bg-lime-300 px-5 text-sm font-bold text-[#11160b] shadow-[0_0_24px_-10px_rgba(163,230,53,0.9)] transition-colors hover:bg-lime-200 sm:top-7 sm:right-8"
-      >
-        Get Started <ArrowRight className="size-4" />
-      </a>
-
       <div className="grid min-h-dvh lg:grid-cols-[minmax(430px,0.92fr)_1.08fr]">
         <section id="auth-form" className="relative flex min-h-dvh items-center justify-center px-6 py-24 sm:px-12">
           <div className="w-full max-w-md">
@@ -198,8 +192,9 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
               <span className="h-px w-10 bg-lime-300/60" /> Professional Funded Trader
             </div>
           </div>
-          <div className="absolute top-[18%] right-[15%] size-56 rounded-full border border-lime-300/10 shadow-[0_0_120px_rgba(163,230,53,.07)] xl:size-80" />
-          <div className="absolute top-[24%] right-[21%] size-40 rounded-full border border-lime-300/10 xl:size-60" />
+          <div className="absolute top-[12%] right-[12%] size-72 xl:size-[26rem]">
+            <KineticOrbit />
+          </div>
         </aside>
       </div>
     </main>

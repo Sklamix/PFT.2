@@ -68,7 +68,7 @@ export function ChallengeCalculator({
   presentation = 'page',
   customer,
 }: {
-  presentation?: 'page' | 'dialog'
+  presentation?: 'page' | 'embedded'
   customer?: { email: string; name?: string }
 }) {
   const [size, setSize] = useState<AccountSize>(10_000)
@@ -147,6 +147,24 @@ export function ChallengeCalculator({
       return
     }
     setCheckoutOpen(true)
+  }
+
+  if (presentation === 'embedded' && checkoutOpen && fee != null) {
+    return (
+      <section className="mx-auto w-full max-w-5xl py-4">
+        <CheckoutModal
+          open={checkoutOpen}
+          onOpenChange={setCheckoutOpen}
+          accountSize={size}
+          evaluationType={type}
+          calculatedPrice={fee}
+          drawdownMode={drawdownMode}
+          dailyLossType={dailyLossType}
+          customer={customer}
+          presentation="inline"
+        />
+      </section>
+    )
   }
 
   return (
@@ -396,16 +414,18 @@ export function ChallengeCalculator({
         </div>
       )}
 
-      <CheckoutModal
-        open={checkoutOpen}
-        onOpenChange={setCheckoutOpen}
-        accountSize={size}
-        evaluationType={type}
-        calculatedPrice={fee ?? 0}
-        drawdownMode={drawdownMode}
-        dailyLossType={dailyLossType}
-        customer={customer}
-      />
+      {presentation === 'page' && (
+        <CheckoutModal
+          open={checkoutOpen}
+          onOpenChange={setCheckoutOpen}
+          accountSize={size}
+          evaluationType={type}
+          calculatedPrice={fee ?? 0}
+          drawdownMode={drawdownMode}
+          dailyLossType={dailyLossType}
+          customer={customer}
+        />
+      )}
     </section>
   )
 }

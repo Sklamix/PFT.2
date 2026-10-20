@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  ArrowLeft,
   Apple,
   Bitcoin,
   Check,
@@ -78,6 +79,7 @@ export type CheckoutModalProps = {
   drawdownMode?: DrawdownMode
   dailyLossType?: 3 | 5
   customer?: { email: string; name?: string }
+  presentation?: 'dialog' | 'inline'
 }
 
 function evaluationPayload(type: ChallengeType) {
@@ -100,6 +102,7 @@ export function CheckoutModal({
   drawdownMode = 'trailing',
   dailyLossType = 3,
   customer,
+  presentation = 'dialog',
 }: CheckoutModalProps) {
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -208,17 +211,20 @@ export function CheckoutModal({
 
   return (
     <Dialog
-      open={open}
+      open={presentation === 'dialog' && open}
       onOpenChange={(next) => {
         if (!next) resetTransient()
         onOpenChange(next)
       }}
     >
       <DialogContent
+        inline={presentation === 'inline'}
         overlayClassName="z-[80] bg-[#0B0F19]/70 backdrop-blur-md supports-backdrop-filter:backdrop-blur-md duration-200"
-        className="z-[80] max-h-[min(92vh,880px)] w-full gap-0 overflow-hidden border-[#1E293B] bg-[#0B0F19] p-0 text-foreground shadow-[0_24px_80px_-24px_rgba(16,185,129,0.25)] duration-200 sm:max-w-lg"
+        className={presentation === 'inline'
+          ? 'overflow-hidden rounded-2xl border border-border bg-card text-foreground'
+          : 'z-[80] max-h-[min(92vh,880px)] w-full gap-0 overflow-hidden border-[#1E293B] bg-[#0B0F19] p-0 text-foreground shadow-[0_24px_80px_-24px_rgba(16,185,129,0.25)] duration-200 sm:max-w-lg'}
       >
-        <form onSubmit={handleSubmit} className="flex max-h-[min(92vh,880px)] flex-col">
+        <form onSubmit={handleSubmit} className={presentation === 'inline' ? 'flex flex-col' : 'flex max-h-[min(92vh,880px)] flex-col'}>
           <DialogHeader className="border-b border-[#1E293B] px-5 pt-5 pb-4 sm:px-6">
             <div className="flex items-start justify-between gap-3 pr-8">
               <div>
@@ -227,6 +233,16 @@ export function CheckoutModal({
                 <DialogDescription className="mt-1 text-sm text-muted-foreground">
                   Credentials are emailed the moment payment confirms.
                 </DialogDescription>
+                {presentation === 'inline' && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenChange(false)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary transition-colors hover:text-primary/80"
+                  >
+                    <ArrowLeft className="size-3.5" aria-hidden="true" />
+                    Back to challenge options
+                  </button>
+                )}
               </div>
             </div>
             <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
@@ -244,7 +260,9 @@ export function CheckoutModal({
             </div>
           </DialogHeader>
 
-          <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+          <div className={presentation === 'inline'
+            ? 'grid gap-5 px-5 py-5 sm:px-6 lg:grid-cols-2'
+            : 'flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6'}>
             {error && (
               <p
                 role="alert"

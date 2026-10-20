@@ -44,11 +44,21 @@ function DialogContent({
   overlayClassName,
   children,
   showCloseButton = true,
+  inline = false,
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
+  inline?: boolean
   overlayClassName?: string
 }) {
+  if (inline) {
+    return (
+      <div data-slot="dialog-content" className={cn("w-full", className)}>
+        {children}
+      </div>
+    )
+  }
+
   return (
     <DialogPortal>
       <DialogOverlay className={overlayClassName} />

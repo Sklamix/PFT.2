@@ -1,11 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { LogOut, Plus, X } from 'lucide-react'
+import { ArrowLeft, LogOut, Plus, X } from 'lucide-react'
 import { ChallengeCalculator } from '@/components/challenge-calculator'
 import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -40,7 +39,7 @@ export function TerminalWorkspace() {
   const pendingCount = useTerminalBook((state) => state.pending.length)
 
   const [trader, setTrader] = useState<TraderMe | null>(null)
-  const [challengeDialogOpen, setChallengeDialogOpen] = useState(false)
+  const [challengeViewOpen, setChallengeViewOpen] = useState(false)
   const accountId = useTerminalBook((state) => state.accountId)
   const hasNoAccounts = loadState === 'error' && loadError === 'No trading accounts on this login yet'
 
@@ -91,11 +90,29 @@ export function TerminalWorkspace() {
         <AccountBar
           trader={trader}
           accountId={accountId}
-          onNewChallenge={() => setChallengeDialogOpen(true)}
+          challengeViewOpen={challengeViewOpen}
+          onNewChallenge={() => setChallengeViewOpen(true)}
+          onBackToTerminal={() => setChallengeViewOpen(false)}
         />
       )}
-      {hasNoAccounts ? (
-        <NoAccountsState onNewChallenge={() => setChallengeDialogOpen(true)} />
+      {challengeViewOpen && trader ? (
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto flex min-h-full max-w-[1600px] flex-col justify-center px-3 py-5 sm:px-6 lg:px-8">
+            <header className="mx-auto mb-3 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
+              <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-primary">Trader workspace</p>
+              <h1 className="mt-2 text-2xl font-semibold text-foreground">Choose your next challenge</h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Configure your account and complete checkout here. The new account will be linked to {trader.trader.email}.
+              </p>
+            </header>
+            <ChallengeCalculator
+              presentation="embedded"
+              customer={{ email: trader.trader.email, name: trader.trader.name }}
+            />
+          </div>
+        </main>
+      ) : hasNoAccounts ? (
+        <NoAccountsState onNewChallenge={() => setChallengeViewOpen(true)} />
       ) : (
         <>
           <TerminalHeader />
@@ -108,25 +125,6 @@ export function TerminalWorkspace() {
             <OrderPanel />
           </div>
         </>
-      )}
-      {trader && (
-        <Dialog open={challengeDialogOpen} onOpenChange={setChallengeDialogOpen}>
-          <DialogContent
-            overlayClassName="z-[70] bg-background/80 backdrop-blur-sm"
-            className="z-[70] max-h-[92dvh] w-[calc(100%-1rem)] max-w-6xl gap-0 overflow-y-auto border-border bg-background p-3 sm:w-[calc(100%-2rem)] sm:p-5"
-          >
-            <div className="mb-3 pr-9">
-              <DialogTitle className="text-lg font-semibold">Choose a new challenge</DialogTitle>
-              <DialogDescription className="mt-1 text-sm text-muted-foreground">
-                Select your account size and rules. Your purchase will be linked to {trader.trader.email}.
-              </DialogDescription>
-            </div>
-            <ChallengeCalculator
-              presentation="dialog"
-              customer={{ email: trader.trader.email, name: trader.trader.name }}
-            />
-          </DialogContent>
-        </Dialog>
       )}
     </div>
   )
@@ -168,11 +166,15 @@ async function signOut() {
 function AccountBar({
   trader,
   accountId,
+  challengeViewOpen,
   onNewChallenge,
+  onBackToTerminal,
 }: {
   trader: TraderMe
   accountId: string
+  challengeViewOpen: boolean
   onNewChallenge: () => void
+  onBackToTerminal: () => void
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-1.5 text-xs lg:px-4">
@@ -197,11 +199,13 @@ function AccountBar({
       <span className="ml-auto truncate text-muted-foreground">{trader.trader.email}</span>
       <button
         type="button"
-        onClick={onNewChallenge}
+        onClick={challengeViewOpen ? onBackToTerminal : onNewChallenge}
         className="group inline-flex h-8 items-center gap-1.5 rounded-md bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-3 text-xs font-semibold text-primary-foreground shadow-[0_0_20px_-10px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_28px_-8px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       >
-        <Plus className="size-3.5 transition-transform group-hover:rotate-90" aria-hidden="true" />
-        New Challenge
+        {challengeViewOpen
+          ? <ArrowLeft className="size-3.5" aria-hidden="true" />
+          : <Plus className="size-3.5 transition-transform group-hover:rotate-90" aria-hidden="true" />}
+        {challengeViewOpen ? 'Back to terminal' : 'New Challenge'}
       </button>
       <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void signOut()}>
         <LogOut className="size-3.5" aria-hidden="true" />
