@@ -23,6 +23,7 @@ type TwelveDataMessage = {
   timestamp?: string | number
   code?: number
   message?: string
+  fails?: Array<{ symbol?: string; code?: number; message?: string }>
 }
 
 function timestampDate(value: unknown): Date | null {
@@ -43,7 +44,17 @@ export function parseTwelveDataPriceMessage(line: string, now = Date.now()): Twe
   }
 
   if (message.event === 'subscribe-status') {
-    if (message.status !== 'ok') throw new Error('Twelve Data subscription was rejected')
+    if (message.status !== 'ok') {
+      const failures = message.fails
+        ?.map(({ symbol, code, message: reason }) =>
+          [symbol, code && `code ${code}`, reason].filter(Boolean).join(': '),
+        )
+        .filter(Boolean)
+      const details = failures?.length
+        ? failures.join('; ')
+        : [message.code && `code ${message.code}`, message.message].filter(Boolean).join(': ')
+      throw new Error(`Twelve Data subscription was rejected${details ? `: ${details}` : ''}`)
+    }
     return null
   }
   if (message.event === 'error') {
