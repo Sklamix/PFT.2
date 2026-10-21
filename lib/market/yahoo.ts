@@ -1,12 +1,14 @@
 import { bucketStart, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
 
-export const CANDLE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY'] as const
+export const CANDLE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'] as const
 export type CandleSymbol = (typeof CANDLE_SYMBOLS)[number]
 
 const YAHOO_TICKERS: Record<CandleSymbol, string> = {
   EURUSD: 'EURUSD=X',
   GBPUSD: 'GBPUSD=X',
   USDJPY: 'JPY=X',
+  XAUUSD: 'GC=F',
+  BTCUSD: 'BTC-USD',
 }
 
 const RANGES: Record<TimeframeId, string> = {
@@ -132,4 +134,66 @@ export function cachedReferencePrice(symbol: string): number | null {
     if (value.symbol === symbol && (!best || value.fetchedAt > best.fetchedAt)) best = value
   }
   return best?.lastPrice ?? null
+}
+
+const QUOTE_TTL_MS = 1_000
+const QUOTE_TIMEOUT_MS = 4_000
+
+export type MarketQuote = {
+  symbol: CandleSymbol
+  mid: number
+  fetchedAt: number
+}
+
+type YahooQuotePayload = {
+  chart?: {
+    result?: { meta?: { regularMarketPrice?: number } }[]
+    error?: { description?: string } | null
+  }
+}
+
+const quoteCache = new Map<string, { value: MarketQuote; expires: number }>()
+const quoteInflight = new Map<string, Promise<MarketQuote>>()
+
+async function downloadQuote(symbol: CandleSymbol): Promise<MarketQuote> {
+  // The daily-range chart is tiny (~1.2 KB) but its meta carries the current market price.
+  const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(YAHOO_TICKERS[symbol])}`)
+  url.searchParams.set('interval', '1d')
+  url.searchParams.set('range', '1d')
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PFT-Terminal/1.0)', Accept: 'application/json' },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(QUOTE_TIMEOUT_MS),
+  })
+  if (!response.ok) throw new Error(`Yahoo quote responded ${response.status} for ${symbol}`)
+  const payload = (await response.json()) as YahooQuotePayload
+  const price = payload.chart?.result?.[0]?.meta?.regularMarketPrice
+  if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+    throw new Error(payload.chart?.error?.description || `No live quote for ${symbol}`)
+  }
+  return { symbol, mid: price, fetchedAt: Date.now() }
+}
+
+/** Server-side Yahoo quote, memoised for one second so every terminal can poll without hammering the provider. */
+export async function getMarketQuote(symbol: CandleSymbol): Promise<MarketQuote> {
+  const hit = quoteCache.get(symbol)
+  if (hit && hit.expires > Date.now()) return hit.value
+
+  const pending = quoteInflight.get(symbol)
+  if (pending) return pending
+
+  const request = downloadQuote(symbol)
+    .then((value) => {
+      quoteCache.set(symbol, { value, expires: Date.now() + QUOTE_TTL_MS })
+      return value
+    })
+    .finally(() => quoteInflight.delete(symbol))
+  quoteInflight.set(symbol, request)
+  return request
+}
+
+/** Fetches every symbol independently; a single provider failure must not blank the whole board. */
+export async function getMarketQuotes(symbols: readonly CandleSymbol[]): Promise<MarketQuote[]> {
+  const settled = await Promise.allSettled(symbols.map((symbol) => getMarketQuote(symbol)))
+  return settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
 }

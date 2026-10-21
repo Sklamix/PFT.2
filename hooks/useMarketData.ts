@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 
-const QUOTE_POLL_INTERVAL_MS = 250
+const QUOTE_POLL_INTERVAL_MS = 1_000
 const MAX_QUOTE_AGE_MS = 15_000
 
 type LiveQuote = {

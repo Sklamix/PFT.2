@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
+import { getQuoteSnapshots } from '@/lib/trading/market-quotes'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,21 +9,17 @@ export async function GET() {
   if (error) return error
 
   try {
-    const rows = await prisma.marketQuote.findMany({
-      orderBy: { symbol: 'asc' },
-      select: { symbol: true, mid: true, bid: true, ask: true, spreadType: true, source: true, providerTime: true, updatedAt: true },
-    })
+    const quotes = await getQuoteSnapshots()
     return NextResponse.json(
       {
-        quotes: rows.map((quote) => ({
+        quotes: quotes.map((quote) => ({
           symbol: quote.symbol,
-          mid: Number(quote.mid),
-          bid: Number(quote.bid),
-          ask: Number(quote.ask),
-          spreadType: quote.spreadType,
+          mid: quote.mid,
+          bid: quote.bid,
+          ask: quote.ask,
           source: quote.source,
-          providerTime: quote.providerTime.toISOString(),
-          updatedAt: quote.updatedAt.toISOString(),
+          providerTime: new Date(quote.providerTime).toISOString(),
+          updatedAt: new Date(quote.updatedAt).toISOString(),
         })),
         asOf: Date.now(),
       },

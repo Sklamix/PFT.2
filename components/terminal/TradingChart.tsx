@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { FOREX_MAJORS, getSymbol } from '@/lib/constants/symbols'
+import { getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
 import { applyTick, generateCandleHistory, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -19,7 +19,7 @@ const VISIBLE_BARS = 140
 type CandlesResponse = { candles?: Candle[]; lastPrice?: number }
 
 async function fetchMarketCandles(symbol: string, timeframe: TimeframeId, signal: AbortSignal): Promise<{ candles: Candle[]; lastPrice: number } | null> {
-  if (!(FOREX_MAJORS as readonly string[]).includes(symbol)) return null
+  if (!isTerminalSymbol(symbol)) return null
   try {
     const params = new URLSearchParams({ symbol, timeframe })
     const response = await fetch(`/api/trading/candles?${params}`, { signal })

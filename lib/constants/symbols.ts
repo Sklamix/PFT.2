@@ -5,6 +5,17 @@ export const TERMINAL_SYMBOLS = [...FOREX_MAJORS, ...SECONDARY_SYMBOLS] as const
 export type TerminalSymbolId = (typeof TERMINAL_SYMBOLS)[number]
 export type SymbolCategory = 'forex' | 'metal' | 'crypto'
 
+/** UI grouping for the symbol selector. Order here is the display order. */
+export const SYMBOL_GROUPS = [
+  { id: 'forex', label: 'Forex', symbols: FOREX_MAJORS },
+  { id: 'metal', label: 'Metals', symbols: ['XAUUSD'] },
+  { id: 'crypto', label: 'Crypto', symbols: ['BTCUSD'] },
+] as const satisfies readonly {
+  id: SymbolCategory
+  label: string
+  symbols: readonly TerminalSymbolId[]
+}[]
+
 export type MarketSymbol = {
   id: TerminalSymbolId
   symbol: TerminalSymbolId

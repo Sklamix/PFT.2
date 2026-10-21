@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { FOREX_MAJORS, formatPrice, formatSpreadPips, getSymbol } from '@/lib/constants/symbols'
+import { SYMBOL_GROUPS, formatPrice, formatSpreadPips, getSymbol } from '@/lib/constants/symbols'
 import { formatPct, formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
@@ -46,22 +46,24 @@ export function TerminalHeader() {
             <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
           </DropdownMenuTrigger>
           <DropdownMenuContent className="min-w-56">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Forex majors</DropdownMenuLabel>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
             <DropdownMenuRadioGroup value={String(selectedSymbol)} onValueChange={setSelectedSymbol}>
-              {FOREX_MAJORS.map((id) => {
-                const item = getSymbol(id)
-                return (
-                  <DropdownMenuRadioItem key={id} value={id} className="font-mono">
-                    <span className="flex w-full items-center justify-between gap-4">
-                      <span>{item.displayName}</span>
-                      <span className="text-[10px] text-muted-foreground">{item.name}</span>
-                    </span>
-                  </DropdownMenuRadioItem>
-                )
-              })}
+              {SYMBOL_GROUPS.map((group, index) => (
+                <DropdownMenuGroup key={group.id}>
+                  {index > 0 && <DropdownMenuSeparator />}
+                  <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                  {group.symbols.map((id) => {
+                    const item = getSymbol(id)
+                    return (
+                      <DropdownMenuRadioItem key={id} value={id} className="font-mono">
+                        <span className="flex w-full items-center justify-between gap-4">
+                          <span>{item.displayName}</span>
+                          <span className="text-[10px] text-muted-foreground">{item.name}</span>
+                        </span>
+                      </DropdownMenuRadioItem>
+                    )
+                  })}
+                </DropdownMenuGroup>
+              ))}
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
