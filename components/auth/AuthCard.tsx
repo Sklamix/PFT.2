@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { BrandLogo } from '@/components/brand-logo'
+import { resolveSafeNextPath } from '@/lib/auth/safe-next-path'
 
 export function AuthCard({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
   return (
@@ -40,6 +41,7 @@ export function AuthField(props: {
 
 /** Only same-origin relative paths are allowed as post-login redirects. */
 export function safeNextPath(fallback = '/dashboard/terminal') {
+  if (typeof window === 'undefined') return fallback
   const next = new URLSearchParams(window.location.search).get('next')
-  return next && next.startsWith('/') && !next.startsWith('//') ? next : fallback
+  return resolveSafeNextPath(next, window.location.origin, fallback)
 }
