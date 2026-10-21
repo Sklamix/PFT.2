@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { CANDLE_SYMBOLS, getMarketCandles, isCandleSymbol } from '@/lib/market/yahoo'
+import { getGoldCandles } from '@/lib/market/gold-candles'
+import { CANDLE_SYMBOLS, getMarketCandles, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
 import { TIMEFRAMES, type TimeframeId } from '@/lib/terminal/candles'
 
 export const dynamic = 'force-dynamic'
@@ -23,10 +24,30 @@ export async function GET(request: Request) {
   }
 
   try {
-    const data = await getMarketCandles(symbol, timeframe)
+    if (symbol === 'XAUUSD') {
+      try {
+        const gold = await getGoldCandles(timeframe as TimeframeId)
+        return NextResponse.json(
+          {
+            symbol,
+            timeframe,
+            source: 'swissquote',
+            lastPrice: gold.lastPrice,
+            fetchedAt: gold.fetchedAt,
+            candles: gold.candles,
+            collecting: gold.collecting,
+          },
+          { headers: { 'Cache-Control': 'private, no-store, max-age=0' } },
+        )
+      } catch (error) {
+        console.warn('[pft candles] Own XAU/USD candles unavailable, falling back to Yahoo', error)
+      }
+    }
+
+    const data = await getMarketCandles(symbol as CandleSymbol, timeframe as TimeframeId)
     return NextResponse.json(
-      { symbol, timeframe, source: 'yahoo', lastPrice: data.lastPrice, fetchedAt: data.fetchedAt, candles: data.candles },
-      { headers: { 'Cache-Control': 'public, s-maxage=20, stale-while-revalidate=10' } },
+      { symbol, timeframe, source: 'yahoo', lastPrice: data.lastPrice, fetchedAt: data.fetchedAt, candles: data.candles, collecting: false },
+      { headers: { 'Cache-Control': 'public, s-maxage=5, stale-while-revalidate=10' } },
     )
   } catch (error) {
     console.error('[pft candles]', error)

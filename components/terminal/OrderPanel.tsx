@@ -225,7 +225,7 @@ export function OrderPanel() {
           </p>
         ) : null}
         {tradable && connectionStatus !== 'CONNECTED' ? (
-          <p className="font-mono text-[11px] text-warning">Waiting for a fresh OANDA quote — orders disabled</p>
+          <p className="font-mono text-[11px] text-warning">Waiting for a fresh market quote — orders disabled</p>
         ) : null}
         {notice ? (
           <p role={notice.tone === 'error' ? 'alert' : 'status'} className={cn('font-mono text-[11px]', notice.tone === 'error' ? 'text-danger' : 'text-highlight')}>

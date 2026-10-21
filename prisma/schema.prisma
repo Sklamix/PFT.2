@@ -375,3 +375,20 @@ model ChallengePricing {
 
   @@unique([accountSize, challengeType, dailyLossType])
 }
+
+/// Aggregated from live spot ticks recorded by the server. One row per minute per symbol;
+/// 5m/15m/1h candles are built by aggregating these rows at read time.
+model GoldCandle {
+  id        String   @id @default(cuid())
+  symbol    String   @default("XAUUSD")
+  minute    DateTime @db.Timestamptz(3)
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  samples   Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  @@unique([symbol, minute])
+  @@index([symbol, minute])
+}

@@ -1,11 +1,13 @@
 import { prisma } from '@/lib/prisma'
 import { spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { recordGoldTick } from '@/lib/market/gold-candles'
+import { getGoldSpotQuote } from '@/lib/market/gold-spot'
 import { getMarketQuotes, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
 import type { Quote, Quotes } from './types'
 
 export const MAX_MARKET_QUOTE_AGE_MS = 15_000
 
-export type QuoteSource = 'YAHOO' | 'TWELVE_DATA'
+export type QuoteSource = 'SWISSQUOTE' | 'GOLD_API' | 'YAHOO' | 'TWELVE_DATA'
 
 export type QuoteSnapshot = {
   symbol: TerminalSymbolId
@@ -32,7 +34,31 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
   )
   const snapshots = new Map<string, QuoteSnapshot>()
 
-  const candleSymbols = wanted.filter((symbol): symbol is CandleSymbol => isCandleSymbol(symbol))
+  // Gold spot does not exist on Yahoo (only the delayed GC=F future). Exact spot comes from the
+  // free Swissquote/gold-api feed; every tick also feeds our own one-minute candle history.
+  if (wanted.includes('XAUUSD')) {
+    try {
+      const gold = await getGoldSpotQuote()
+      snapshots.set('XAUUSD', {
+        symbol: 'XAUUSD',
+        mid: gold.mid,
+        bid: gold.bid,
+        ask: gold.ask,
+        source: gold.source,
+        providerTime: gold.providerTime,
+        updatedAt: gold.providerTime,
+      })
+      void recordGoldTick(gold.mid).catch((error) => {
+        console.warn('[pft gold candles] Failed to record spot tick', error)
+      })
+    } catch (error) {
+      console.warn('[pft market quotes] Gold spot failed, falling back to Yahoo GC=F', error)
+    }
+  }
+
+  const candleSymbols = wanted.filter(
+    (symbol): symbol is CandleSymbol => isCandleSymbol(symbol) && !snapshots.has(symbol),
+  )
   if (candleSymbols.length) {
     try {
       const quotes = await getMarketQuotes(candleSymbols)

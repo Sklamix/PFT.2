@@ -16,21 +16,25 @@ const CANDLES_TIMEOUT_MS = 8000
 const DAY_SECONDS = 86_400
 const VISIBLE_BARS = 140
 
-type CandlesResponse = { candles?: Candle[]; lastPrice?: number }
+type CandlesResponse = { candles?: Candle[]; lastPrice?: number; collecting?: boolean }
 
-async function fetchMarketCandles(symbol: string, timeframe: TimeframeId, signal: AbortSignal): Promise<{ candles: Candle[]; lastPrice: number } | null> {
+type MarketData = { candles: Candle[]; lastPrice: number; collecting: boolean }
+
+async function fetchMarketCandles(symbol: string, timeframe: TimeframeId, signal: AbortSignal): Promise<MarketData | null> {
   if (!isTerminalSymbol(symbol)) return null
   try {
     const params = new URLSearchParams({ symbol, timeframe })
     const response = await fetch(`/api/trading/candles?${params}`, { signal })
     if (!response.ok) return null
     const body = (await response.json()) as CandlesResponse
-    if (!body.candles?.length) return null
+    if (body.collecting || !body.candles?.length) {
+      return { candles: [], lastPrice: 0, collecting: body.collecting === true }
+    }
     const { pipSize } = getSymbol(symbol)
     // FX feeds report no volume; use the bar range as an activity proxy for the histogram.
     const candles = body.candles.map((c) => ({ ...c, volume: c.volume || Math.max(1, Math.round(((c.high - c.low) / pipSize) * 10)) }))
     const lastPrice = Number.isFinite(body.lastPrice) && body.lastPrice! > 0 ? body.lastPrice! : candles[candles.length - 1].close
-    return { candles, lastPrice }
+    return { candles, lastPrice, collecting: false }
   } catch {
     return null
   }
@@ -52,6 +56,8 @@ export function TradingChart() {
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
   const currentPrice = useTradingStore((state) => state.currentPrice)
   const [timeframe, setTimeframe] = useState<TimeframeId>('5m')
+  const [collecting, setCollecting] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const tf = TIMEFRAMES.find((item) => item.id === timeframe) ?? TIMEFRAMES[1]
   const seriesRef = useRef<{
     candle: { setData: (d: unknown[]) => void; update: (d: unknown) => void }
@@ -71,6 +77,11 @@ export function TradingChart() {
 
     void Promise.all([import('lightweight-charts'), marketCandles]).then(([lc, market]) => {
       if (disposed || !containerRef.current) return
+      if (market?.collecting) {
+        setCollecting(true)
+        return
+      }
+      setCollecting(false)
       const instance = lc.createChart(containerRef.current, {
         autoSize: true,
         layout: {
@@ -145,7 +156,14 @@ export function TradingChart() {
       resizeObserver?.disconnect()
       chart?.remove()
     }
-  }, [selectedSymbol, timeframe, tf.seconds])
+  }, [selectedSymbol, timeframe, tf.seconds, reloadKey])
+
+  // The gold chart is built from ticks recorded by our server; retry until history exists.
+  useEffect(() => {
+    if (!collecting) return
+    const timer = window.setInterval(() => setReloadKey((value) => value + 1), 15_000)
+    return () => window.clearInterval(timer)
+  }, [collecting])
 
   useEffect(() => {
     const series = seriesRef.current
@@ -179,7 +197,20 @@ export function TradingChart() {
           ))}
         </div>
       </div>
-      <div ref={containerRef} className="min-h-[240px] flex-1" />
+      <div className="relative min-h-[240px] flex-1">
+        <div ref={containerRef} className="absolute inset-0" />
+        {collecting && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b111d]/90 p-6 text-center">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-widest text-primary">Collecting live XAU/USD ticks</p>
+              <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                The spot chart is built from ticks recorded by our server. History fills in automatically; this
+                usually takes a few minutes.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
     </section>
   )
 }
