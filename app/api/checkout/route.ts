@@ -169,13 +169,17 @@ export async function POST(req: Request) {
       payCurrencyLabel: PAY_CURRENCY_LABEL,
     }
 
-    const persistedOrderId = await persistPendingOrder({
-      ...invoiceDetails,
-      dailyLossType,
-      providerInvoiceId,
-      countryCode,
-      promo,
-    })
+    const persistedOrderId = await persistPendingOrder(
+      {
+        ...invoiceDetails,
+        dailyLossType,
+        providerInvoiceId,
+        countryCode,
+        promo,
+      },
+      // Only a signed-in owner may update the stored profile name; guest checkouts may not rename accounts by email.
+      Boolean(traderSession),
+    )
 
     // Runs after the response is sent so a slow or failing email provider never blocks the redirect.
     after(() => deliverInvoiceEmail(invoiceDetails, persistedOrderId))
@@ -194,6 +198,7 @@ async function persistPendingOrder(
     countryCode?: string
     promo?: string
   },
+  allowProfileUpdate: boolean,
 ): Promise<string | null> {
   if (!process.env.DATABASE_URL) return null
   try {
@@ -206,7 +211,7 @@ async function persistPendingOrder(
         name: order.fullName,
         role: 'TRADER',
       },
-      update: { name: order.fullName },
+      update: allowProfileUpdate ? { name: order.fullName } : {},
     })
     const created = await prisma.order.create({
       data: {

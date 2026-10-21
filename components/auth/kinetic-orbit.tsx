@@ -57,6 +57,13 @@ export function KineticOrbit() {
       canvas.width = Math.round(width * pixelRatio)
       canvas.height = Math.round(height * pixelRatio)
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0)
+      // Recover motion state if an earlier zero-size layout division produced NaN.
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        x = 0
+        y = 0
+        vx = 34
+        vy = 22
+      }
       draw()
     }
 
@@ -133,6 +140,13 @@ export function KineticOrbit() {
       const outerRadius = Math.min(width, height) * 0.215
       const innerRadius = outerRadius * 0.34
       const maxDistance = outerRadius - innerRadius
+
+      // Hidden/zero-size layout (e.g. the aside is `hidden` below lg) has no room to bounce.
+      // Skip physics instead of dividing by zero, otherwise x/y become NaN forever.
+      if (!(maxDistance > 0)) {
+        frame = window.requestAnimationFrame(animate)
+        return
+      }
 
       vx += (Math.sin(elapsed * 0.57) * 12 + Math.sin(elapsed * 0.19 + 1.7) * 8) * delta
       vy += (Math.cos(elapsed * 0.43 + 0.8) * 12 + Math.sin(elapsed * 0.23) * 8) * delta

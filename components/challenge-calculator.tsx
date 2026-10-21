@@ -151,7 +151,7 @@ export function ChallengeCalculator({
 
   if (presentation === 'embedded' && checkoutOpen && fee != null) {
     return (
-      <section className="mx-auto w-full max-w-5xl py-4">
+      <section className="animate-step-in mx-auto w-full max-w-5xl py-4">
         <CheckoutModal
           open={checkoutOpen}
           onOpenChange={setCheckoutOpen}
@@ -221,7 +221,7 @@ export function ChallengeCalculator({
                     >
                       {!tier.isAvailable && (
                         <span className="absolute top-2 right-2 rounded-full border border-border bg-muted/80 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Unavailable
+                          Coming soon
                         </span>
                       )}
                       <span className="home-price-value block font-mono text-sm font-semibold tabular-nums text-foreground transition-colors">

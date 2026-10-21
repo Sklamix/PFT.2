@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { ArrowLeft, LogOut, Plus, X } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowLeft, Loader2, LogOut, Plus, RefreshCw, X } from 'lucide-react'
 import { ChallengeCalculator } from '@/components/challenge-calculator'
 import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
+import { formatPrice } from '@/lib/challenges'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -14,6 +15,16 @@ import { TerminalHeader } from './TerminalHeader'
 import { TradingChart } from './TradingChart'
 
 const RISK_SYNC_MS = 2000
+const ORDER_POLL_MS = 10_000
+
+type CheckoutOrder = {
+  id: string
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
+  amount: number
+  createdAt: string
+  planSize: number | null
+  evaluationLabel: string | null
+}
 
 function switchAccount(accountId: string) {
   const url = new URL(window.location.href)
@@ -39,38 +50,71 @@ export function TerminalWorkspace() {
   const pendingCount = useTerminalBook((state) => state.pending.length)
 
   const [trader, setTrader] = useState<TraderMe | null>(null)
+  const [orders, setOrders] = useState<CheckoutOrder[] | null>(null)
+  const [activatedAccount, setActivatedAccount] = useState<{ id: string; displayId: string } | null>(null)
+  const knownAccountIds = useRef<string[] | null>(null)
   const [challengeViewOpen, setChallengeViewOpen] = useState(false)
   const accountId = useTerminalBook((state) => state.accountId)
   const hasNoAccounts = loadState === 'error' && loadError === 'No trading accounts on this login yet'
 
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const response = await fetch('/api/auth/me', { cache: 'no-store' }).catch(() => null)
-      if (response?.status === 401) return redirectToLogin()
-      const data = (await response?.json().catch(() => null)) as TraderMe | null
-      if (cancelled) return
-      if (!response?.ok || !data?.accounts) {
-        useTerminalBook.setState({ loadState: 'error', loadError: 'Unable to load your accounts' })
-        return
-      }
-      setTrader(data)
-      const requested = new URLSearchParams(window.location.search).get('account')?.trim()
-      const target =
-        data.accounts.find((account) => account.id === requested) ??
-        data.accounts.find((account) => account.status === 'ACTIVE') ??
-        data.accounts[0]
-      if (!target) {
-        useTerminalBook.setState({ loadState: 'error', loadError: 'No trading accounts on this login yet' })
-        return
-      }
-      if (target.id !== requested) switchAccount(target.id)
-      else void init(target.id)
-    })()
-    return () => {
-      cancelled = true
+  const loadOrders = useCallback(async () => {
+    const response = await fetch('/api/checkout/pending', { cache: 'no-store' }).catch(() => null)
+    if (!response?.ok) return
+    const data = (await response.json().catch(() => null)) as { orders?: CheckoutOrder[] } | null
+    if (Array.isArray(data?.orders)) setOrders(data!.orders)
+  }, [])
+
+  const loadTrader = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    const response = await fetch('/api/auth/me', { cache: 'no-store' }).catch(() => null)
+    if (response?.status === 401) return redirectToLogin()
+    const data = (await response?.json().catch(() => null)) as TraderMe | null
+    if (!response?.ok || !data?.accounts) {
+      useTerminalBook.setState({ loadState: 'error', loadError: 'Unable to load your accounts' })
+      return
     }
+    setTrader(data)
+    // A background refresh must never re-init an account the trader is actively using.
+    const activeId = useTerminalBook.getState().accountId
+    if (mode === 'refresh' && activeId && data.accounts.some((account) => account.id === activeId)) return
+    const requested = new URLSearchParams(window.location.search).get('account')?.trim()
+    const target =
+      data.accounts.find((account) => account.id === requested) ??
+      data.accounts.find((account) => account.status === 'ACTIVE') ??
+      data.accounts[0]
+    if (!target) {
+      useTerminalBook.setState({ loadState: 'error', loadError: 'No trading accounts on this login yet' })
+      return
+    }
+    if (target.id !== requested) switchAccount(target.id)
+    else void init(target.id)
   }, [init])
+
+  useEffect(() => {
+    void loadTrader().then(loadOrders)
+  }, [loadTrader, loadOrders])
+
+  const pendingOrders = (orders ?? []).filter((order) => order.status === 'PENDING' || order.status === 'PAID')
+  const failedOrders = (orders ?? []).filter((order) => order.status === 'FAILED' || order.status === 'EXPIRED')
+
+  // Keep polling while a payment is confirming — even when the trader already has other accounts.
+  useEffect(() => {
+    if (!hasNoAccounts && pendingOrders.length === 0) return
+    const timer = setInterval(() => {
+      void loadTrader('refresh').then(loadOrders)
+    }, ORDER_POLL_MS)
+    return () => clearInterval(timer)
+  }, [hasNoAccounts, pendingOrders.length, loadTrader, loadOrders])
+
+  // Announce an account that appeared while the trader already had others (no forced switch).
+  useEffect(() => {
+    const accounts = trader?.accounts
+    if (!accounts) return
+    const previous = knownAccountIds.current
+    knownAccountIds.current = accounts.map((account) => account.id)
+    if (!previous || previous.length === 0) return
+    const added = accounts.find((account) => !previous.includes(account.id))
+    if (added) setActivatedAccount({ id: added.id, displayId: added.displayId })
+  }, [trader])
 
   useEffect(() => {
     if (connectionStatus !== 'CONNECTED') return
@@ -97,7 +141,7 @@ export function TerminalWorkspace() {
       )}
       {challengeViewOpen && trader ? (
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto flex min-h-full max-w-[1600px] flex-col justify-center px-3 py-5 sm:px-6 lg:px-8">
+          <div className="mx-auto flex min-h-full max-w-[1600px] animate-step-in flex-col justify-center px-3 py-5 sm:px-6 lg:px-8">
             <header className="mx-auto mb-3 w-full max-w-7xl px-4 sm:px-6 lg:px-8">
               <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-primary">Trader workspace</p>
               <h1 className="mt-2 text-2xl font-semibold text-foreground">Choose your next challenge</h1>
@@ -111,12 +155,41 @@ export function TerminalWorkspace() {
             />
           </div>
         </main>
+      ) : hasNoAccounts && pendingOrders.length > 0 ? (
+        <PaymentProcessingState orders={pendingOrders} onRefresh={() => void loadOrders()} />
+      ) : hasNoAccounts && failedOrders.length > 0 ? (
+        <PaymentFailedState orders={failedOrders} onNewChallenge={() => setChallengeViewOpen(true)} />
       ) : hasNoAccounts ? (
         <NoAccountsState onNewChallenge={() => setChallengeViewOpen(true)} />
       ) : (
         <>
           <TerminalHeader />
           <NoticeBar />
+          {pendingOrders.length > 0 && (
+            <Banner
+              tone="info"
+              message="New challenge is processing — the account will appear in the selector automatically once the payment confirms."
+            />
+          )}
+          {activatedAccount && (
+            <Banner
+              tone="success"
+              message={`Account ${activatedAccount.displayId} is ready.`}
+              onDismiss={() => setActivatedAccount(null)}
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    switchAccount(activatedAccount.id)
+                    setActivatedAccount(null)
+                  }}
+                >
+                  Open account
+                </Button>
+              }
+            />
+          )}
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
               <TradingChart />
@@ -151,6 +224,90 @@ function NoAccountsState({ onNewChallenge }: { onNewChallenge: () => void }) {
       </section>
     </main>
   )
+}
+
+function PaymentProcessingState({ orders, onRefresh }: { orders: CheckoutOrder[]; onRefresh: () => void }) {
+  const latest = orders[0]
+  const latestOrderDate = formatDate(new Date(latest.createdAt))
+
+  return (
+    <main className="flex flex-1 items-center justify-center p-6">
+      <section className="animate-step-in w-full max-w-lg rounded-2xl border border-border bg-card p-8 text-center shadow-xl">
+        <div className="flex justify-center" aria-hidden="true">
+          <span className="relative flex size-12 items-center justify-center">
+            <span className="absolute inset-0 rounded-full border border-primary/30" />
+            <span className="absolute inset-0 motion-safe:animate-ping rounded-full bg-primary/10" />
+            <Loader2 className="size-6 motion-safe:animate-spin text-primary" />
+          </span>
+        </div>
+        <p className="mt-4 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-primary">Payment processing</p>
+        <h1 className="mt-3 text-2xl font-semibold text-foreground">Your challenge is being set up</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          We are confirming your payment and provisioning the account. Your MT5 credentials are emailed the moment it
+          completes — the account will appear in this workspace automatically.
+        </p>
+        <dl className="mt-5 space-y-2 rounded-xl border border-border bg-background/60 px-4 py-3 text-left text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Plan</dt>
+            <dd className="font-mono text-foreground">
+              {latest?.planSize ? `${Math.round(latest.planSize / 1000)}k` : '—'}
+              {latest?.evaluationLabel ? ` · ${latest.evaluationLabel}` : ''}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">Total</dt>
+            <dd className="font-mono text-foreground">{latest ? `${formatPrice(latest.amount)} USD` : '—'}</dd>
+          </div>
+          {latest && (
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-muted-foreground">Order</dt>
+              <dd className="font-mono text-foreground">{latestOrderDate}</dd>
+            </div>
+          )}
+        </dl>
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-5 gap-1.5"
+          onClick={onRefresh}
+          aria-label="Check payment status now"
+        >
+          <RefreshCw className="size-3.5" aria-hidden="true" />
+          Check status now
+        </Button>
+        <p className="mt-3 text-xs text-muted-foreground">Status refreshes automatically every 10 seconds.</p>
+      </section>
+    </main>
+  )
+}
+
+function PaymentFailedState({ orders, onNewChallenge }: { orders: CheckoutOrder[]; onNewChallenge: () => void }) {
+  const latest = orders[0]
+  return (
+    <main className="flex flex-1 items-center justify-center p-6">
+      <section className="animate-step-in w-full max-w-lg rounded-2xl border border-danger/40 bg-card p-8 text-center shadow-xl">
+        <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-danger">Checkout incomplete</p>
+        <h1 className="mt-3 text-2xl font-semibold text-foreground">Your payment was not completed</h1>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          Your last order{latest?.planSize ? `, ${Math.round(latest.planSize / 1000)}k ${latest?.evaluationLabel ?? ''},` : ''}{' '}
+          expired or failed before the transfer confirmed — you were not charged for a challenge account. Start a new
+          checkout to try again.
+        </p>
+        <button
+          type="button"
+          onClick={onNewChallenge}
+          className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <Plus className="size-4" aria-hidden="true" />
+          New Challenge
+        </button>
+      </section>
+    </main>
+  )
+}
+
+function formatDate(value: Date) {
+  return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(value)
 }
 
 interface TraderMe {
