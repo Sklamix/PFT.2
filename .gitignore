@@ -17,3 +17,8 @@ node_modules
 .DS_Store
 .vercel
 .env*
+*.tsbuildinfo
+
+# Local agent skills (installed per-machine, not versioned)
+.agents/
+skills-lock.json
