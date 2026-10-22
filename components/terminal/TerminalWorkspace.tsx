@@ -7,6 +7,7 @@ import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/challenges'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { loadStoredFavorites } from '@/lib/stores/useFavoritesStore'
 import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -60,6 +61,7 @@ export function TerminalWorkspace() {
 
   useEffect(() => {
     loadStoredTimeZone()
+    loadStoredFavorites()
   }, [])
 
   const loadOrders = useCallback(async () => {

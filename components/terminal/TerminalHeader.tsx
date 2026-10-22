@@ -1,20 +1,23 @@
 'use client'
 
-import { ChevronDown, Clock } from 'lucide-react'
+import { useState } from 'react'
+import { Check, ChevronDown, Clock, Search, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SYMBOL_GROUPS, formatPrice, formatSpreadValue, getSymbol } from '@/lib/constants/symbols'
+import { SYMBOL_GROUPS, formatPrice, formatSpreadValue, getSymbol, type TerminalSymbolId } from '@/lib/constants/symbols'
 import { formatPct, formatUsd } from '@/lib/dashboard-data'
 import { useNow } from '@/hooks/use-now'
+import { useFavoritesStore } from '@/lib/stores/useFavoritesStore'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { TIMEZONE_OPTIONS, timeZoneOffsetLabel, useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
@@ -31,7 +34,6 @@ export function TerminalHeader() {
   const feedMode = useTradingStore((state) => state.feedMode)
   const snapshot = useTerminalBook((state) => state.snapshot)
   const account = useTerminalBook((state) => state.account)
-  const meta = getSymbol(selectedSymbol)
   const live = connectionStatus === 'CONNECTED' && feedMode === 'LIVE'
   const up = change >= 0
   const ddRatio = snapshot.dailyUsedRatio
@@ -39,36 +41,7 @@ export function TerminalHeader() {
   return (
     <header className="flex flex-col gap-3 border-b border-border bg-card/80 px-3 py-2.5 backdrop-blur-md lg:flex-row lg:items-center lg:gap-4 lg:px-4">
       <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="outline" className="h-9 min-w-40 justify-between gap-2 font-mono" />}>
-            <span className="flex flex-col items-start leading-none">
-              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</span>
-              <span className="mt-0.5 text-sm text-foreground">{meta.displayName}</span>
-            </span>
-            <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="min-w-56">
-            <DropdownMenuRadioGroup value={String(selectedSymbol)} onValueChange={setSelectedSymbol}>
-              {SYMBOL_GROUPS.map((group, index) => (
-                <DropdownMenuGroup key={group.id}>
-                  {index > 0 && <DropdownMenuSeparator />}
-                  <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
-                  {group.symbols.map((id) => {
-                    const item = getSymbol(id)
-                    return (
-                      <DropdownMenuRadioItem key={id} value={id} className="font-mono">
-                        <span className="flex w-full items-center justify-between gap-4">
-                          <span>{item.displayName}</span>
-                          <span className="text-[10px] text-muted-foreground">{item.name}</span>
-                        </span>
-                      </DropdownMenuRadioItem>
-                    )
-                  })}
-                </DropdownMenuGroup>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <SymbolPicker selectedSymbol={selectedSymbol} onSelect={setSelectedSymbol} />
 
         <div className="flex min-w-0 items-center gap-3 font-mono">
           <QuoteStack label="Bid" value={formatPrice(selectedSymbol, bid)} tone="danger" />
@@ -134,6 +107,155 @@ export function TerminalHeader() {
 
       <TimezoneClock />
     </header>
+  )
+}
+
+function SymbolPicker({
+  selectedSymbol,
+  onSelect,
+}: {
+  selectedSymbol: TerminalSymbolId | string
+  onSelect: (symbol: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const favorites = useFavoritesStore((state) => state.favorites)
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
+  const normalized = query.trim().toLowerCase()
+  const matches = (id: TerminalSymbolId) => {
+    if (!normalized) return true
+    const item = getSymbol(id)
+    return (
+      id.toLowerCase().includes(normalized) ||
+      item.displayName.toLowerCase().includes(normalized) ||
+      item.name.toLowerCase().includes(normalized)
+    )
+  }
+
+  const favoriteSymbols = favorites.filter(matches)
+  const groups = SYMBOL_GROUPS.map((group) => ({ ...group, symbols: group.symbols.filter(matches) })).filter(
+    (group) => group.symbols.length > 0,
+  )
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="outline" className="h-9 min-w-40 justify-between gap-2 font-mono" />}>
+        <span className="flex flex-col items-start leading-none">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</span>
+          <span className="mt-0.5 text-sm text-foreground">{getSymbol(selectedSymbol).displayName}</span>
+        </span>
+        <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-80 p-0">
+        <div className="border-b border-border p-2">
+          <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5">
+            <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') event.stopPropagation()
+              }}
+              placeholder="Search symbol or asset…"
+              aria-label="Search symbols"
+              className="h-8 w-full bg-transparent font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/70"
+            />
+          </label>
+        </div>
+
+        <div className="max-h-80 overflow-y-auto p-1">
+          {favoriteSymbols.length > 0 && (
+            <>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-highlight">
+                  Favorites
+                </DropdownMenuLabel>
+                {favoriteSymbols.map((id) => (
+                  <SymbolRow
+                    key={`favorite-${id}`}
+                    id={id}
+                    selected={selectedSymbol === id}
+                    favorite
+                    onSelect={onSelect}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                ))}
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+            </>
+          )}
+
+          {groups.map((group, index) => (
+            <DropdownMenuGroup key={group.id}>
+              <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                {group.label}
+              </DropdownMenuLabel>
+              {group.symbols.map((id) => (
+                <SymbolRow
+                  key={id}
+                  id={id}
+                  selected={selectedSymbol === id}
+                  favorite={favorites.includes(id)}
+                  onSelect={onSelect}
+                  onToggleFavorite={toggleFavorite}
+                />
+              ))}
+              {index < groups.length - 1 && <DropdownMenuSeparator />}
+            </DropdownMenuGroup>
+          ))}
+
+          {favoriteSymbols.length === 0 && groups.length === 0 && (
+            <p className="px-3 py-6 text-center text-xs text-muted-foreground">No assets match “{query.trim()}”.</p>
+          )}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function SymbolRow({
+  id,
+  selected,
+  favorite,
+  onSelect,
+  onToggleFavorite,
+}: {
+  id: TerminalSymbolId
+  selected: boolean
+  favorite: boolean
+  onSelect: (symbol: string) => void
+  onToggleFavorite: (symbol: TerminalSymbolId) => void
+}) {
+  const item = getSymbol(id)
+  return (
+    <DropdownMenuItem
+      onClick={() => onSelect(id)}
+      className={cn(
+        'flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 font-mono',
+        selected && 'bg-primary/10',
+      )}
+    >
+      <span className="flex min-w-0 flex-col">
+        <span className="text-sm text-foreground">{item.displayName}</span>
+        <span className="truncate text-[10px] text-muted-foreground">{item.name}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1">
+        {selected && <Check className="size-3.5 text-primary" aria-hidden="true" />}
+        <button
+          type="button"
+          aria-label={favorite ? `Remove ${item.displayName} from favorites` : `Add ${item.displayName} to favorites`}
+          aria-pressed={favorite}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            onToggleFavorite(id)
+          }}
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-highlight focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        >
+          <Star className={cn('size-3.5', favorite && 'fill-highlight text-highlight')} aria-hidden="true" />
+        </button>
+      </span>
+    </DropdownMenuItem>
   )
 }
 
