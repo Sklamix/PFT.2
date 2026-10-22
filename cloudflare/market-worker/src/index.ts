@@ -20,6 +20,8 @@ const FETCH_TIMEOUT_MS = 5_000
 
 interface Env {
   DATABASE_URL: string
+  PFT_APP_URL?: string
+  CRON_SECRET?: string
 }
 
 type Tick = { symbol: string; mid: number }
@@ -127,6 +129,21 @@ async function collect(sql: NeonQueryFunction<false, false>) {
   console.info('[pft market worker] stored', ticks.map((tick) => `${tick.symbol}:${tick.mid}`).join(' '))
 }
 
+async function processTrading(env: Env) {
+  if (!env.PFT_APP_URL || !env.CRON_SECRET) return
+  const url = `${env.PFT_APP_URL.replace(/\/+$/, '')}/api/cron/trading`
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
+      signal: AbortSignal.timeout(25_000),
+    })
+    if (!response.ok) console.error('[pft market worker] Trading cron failed', response.status, await response.text())
+  } catch (error) {
+    console.error('[pft market worker] Trading cron request failed', error)
+  }
+}
+
 async function run(env: Env) {
   if (!env.DATABASE_URL) throw new Error('DATABASE_URL secret is not configured')
   const sql = neon(env.DATABASE_URL)
@@ -140,9 +157,12 @@ async function run(env: Env) {
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
-      run(env).catch((error) => {
-        console.error('[pft market worker] Scheduled run failed', error)
-      }),
+      Promise.allSettled([
+        run(env).catch((error) => {
+          console.error('[pft market worker] Scheduled run failed', error)
+        }),
+        processTrading(env),
+      ]),
     )
   },
 

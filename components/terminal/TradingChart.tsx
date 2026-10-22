@@ -9,6 +9,15 @@ import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import { loadStoredTimeframes, useTimeframeStore } from '@/lib/stores/useTimeframeStore'
 import { TimeframePicker } from '@/components/terminal/TimeframePicker'
+import { ChartDrawingToolbar } from '@/components/terminal/ChartDrawingToolbar'
+import {
+  DRAWING_COLORS,
+  loadStoredChartLayout,
+  useChartLayoutStore,
+  type ChartDrawing,
+  type ChartPoint,
+  type DrawingTool,
+} from '@/lib/stores/useChartLayoutStore'
 import type { PendingTradeOrder, Position } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +34,7 @@ const PENDING_LIMIT_COLOR = '#3b82f6'
 const PENDING_STOP_COLOR = '#f59e0b'
 const STOP_LOSS_COLOR = '#fb923c'
 const TAKE_PROFIT_COLOR = '#22c55e'
+const EMPTY_CHART_DRAWINGS: ChartDrawing[] = []
 
 type CandlesResponse = { candles?: Candle[]; lastPrice?: number; collecting?: boolean }
 
@@ -54,6 +64,18 @@ type CandleSeriesApi = {
   removePriceLine: (line: PriceLineApi) => void
   priceToCoordinate: (price: number) => number | null
   coordinateToPrice: (coordinate: number) => number | null
+}
+
+type ChartTimeScaleApi = {
+  timeToCoordinate: (time: number) => number | null
+  coordinateToTime: (coordinate: number) => number | null
+}
+
+type ChartApi = {
+  timeScale: () => ChartTimeScaleApi & {
+    subscribeVisibleLogicalRangeChange: (handler: () => void) => void
+    unsubscribeVisibleLogicalRangeChange: (handler: () => void) => void
+  }
 }
 
 type DragState = {
@@ -171,6 +193,99 @@ function signedPoints(points: number) {
   return `${rounded > 0 ? '+' : ''}${rounded}`
 }
 
+type DrawingShapeProps = {
+  symbol: string
+  drawing: ChartDrawing
+  timeScale: ChartTimeScaleApi
+  series: CandleSeriesApi
+  width: number
+  height: number
+  draft?: boolean
+}
+
+function DrawingShape({ symbol, drawing, timeScale, series, width, height, draft = false }: DrawingShapeProps) {
+  const first = drawing.points[0]
+  if (!first) return null
+  const y1 = series.priceToCoordinate(first.price)
+  const x1 = timeScale.timeToCoordinate(first.time)
+  if (y1 == null) return null
+
+  if (drawing.type === 'horizontal') {
+    if (y1 < -1 || y1 > height + 1) return null
+    return (
+      <g opacity={draft ? 0.7 : 1}>
+        <line x1={0} x2={width} y1={y1} y2={y1} stroke={drawing.color} strokeWidth={1.2} strokeDasharray={draft ? '4 4' : undefined} />
+        <text x={width - 8} y={y1 - 4} textAnchor="end" fill={drawing.color} fontSize={9} fontFamily="ui-monospace, monospace">
+          {formatPrice(symbol, first.price)}
+        </text>
+      </g>
+    )
+  }
+
+  const second = drawing.points[1]
+  if (!second || x1 == null) return null
+  const y2 = series.priceToCoordinate(second.price)
+  const x2 = timeScale.timeToCoordinate(second.time)
+  if (y2 == null || x2 == null) return null
+
+  if (drawing.type === 'trend') {
+    return (
+      <g opacity={draft ? 0.7 : 1}>
+        <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={drawing.color} strokeWidth={1.5} strokeDasharray={draft ? '5 4' : undefined} />
+        <circle cx={x1} cy={y1} r={2.5} fill={drawing.color} />
+        <circle cx={x2} cy={y2} r={2.5} fill={drawing.color} />
+      </g>
+    )
+  }
+
+  if (drawing.type === 'rectangle') {
+    return (
+      <g opacity={draft ? 0.75 : 1}>
+        <rect
+          x={Math.min(x1, x2)}
+          y={Math.min(y1, y2)}
+          width={Math.abs(x2 - x1)}
+          height={Math.abs(y2 - y1)}
+          fill={drawing.color}
+          fillOpacity={0.1}
+          stroke={drawing.color}
+          strokeWidth={1.2}
+          strokeDasharray={draft ? '5 4' : undefined}
+        />
+      </g>
+    )
+  }
+
+  const levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1]
+  const left = Math.min(x1, x2)
+  return (
+    <g opacity={draft ? 0.75 : 1}>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={drawing.color} strokeWidth={1} strokeDasharray="4 4" opacity={0.8} />
+      {levels.map((ratio) => {
+        const y = y1 + (y2 - y1) * ratio
+        const price = first.price + (second.price - first.price) * ratio
+        return (
+          <g key={ratio}>
+            <line
+              x1={left}
+              x2={width}
+              y1={y}
+              y2={y}
+              stroke={drawing.color}
+              strokeWidth={ratio === 0 || ratio === 0.5 || ratio === 1 ? 1.3 : 0.8}
+              strokeDasharray={ratio === 0.5 ? undefined : '5 4'}
+              opacity={ratio === 0.5 ? 1 : 0.75}
+            />
+            <text x={Math.max(left, 4) + 4} y={y - 3} fill={drawing.color} fontSize={8.5} fontFamily="ui-monospace, monospace">
+              {ratio.toFixed(3)} · {formatPrice(symbol, price)}
+            </text>
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
 function levelBadge(level: ChartLevel, price: number) {
   if (level.position && (level.kind === 'sl' || level.kind === 'tp')) {
     const position = level.position
@@ -254,6 +369,13 @@ export function TradingChart() {
     () => buildChartLevels(selectedSymbol, pendingOrders, openPositions),
     [selectedSymbol, pendingOrders, openPositions],
   )
+  const drawingTool = useChartLayoutStore((state) => state.tool)
+  const drawings = useChartLayoutStore((state) => state.drawingsBySymbol[selectedSymbol] ?? EMPTY_CHART_DRAWINGS)
+  const addDrawing = useChartLayoutStore((state) => state.addDrawing)
+  const setDrawingTool = useChartLayoutStore((state) => state.setTool)
+  const [draft, setDraft] = useState<ChartDrawing | null>(null)
+  const draftRef = useRef<ChartDrawing | null>(null)
+  const chartRef = useRef<ChartApi | null>(null)
 
   useEffect(() => {
     try {
@@ -289,6 +411,7 @@ export function TradingChart() {
 
   useEffect(() => {
     loadStoredTimeframes()
+    loadStoredChartLayout()
   }, [])
   const seriesRef = useRef<{
     candle: CandleSeriesApi
@@ -354,6 +477,12 @@ export function TradingChart() {
         },
       })
       chart = instance
+      chartRef.current = {
+        timeScale: () => instance.timeScale() as unknown as ChartTimeScaleApi & {
+          subscribeVisibleLogicalRangeChange: (handler: () => void) => void
+          unsubscribeVisibleLogicalRangeChange: (handler: () => void) => void
+        },
+      }
       lineStylesRef.current = { solid: lc.LineStyle.Solid, dashed: lc.LineStyle.Dashed }
       const overlayTick = () => setOverlayRevision((value) => value + 1)
       const timeScale = instance.timeScale()
@@ -404,6 +533,7 @@ export function TradingChart() {
       clearTimeout(abortTimer)
       detachChart?.()
       seriesRef.current = null
+      chartRef.current = null
       priceLinesRef.current.clear()
       lastCandleRef.current = null
       chart?.remove()
@@ -468,6 +598,28 @@ export function TradingChart() {
     })
   }, [levels, dragPreview, overlayRevision, chartReady, selectedSymbol])
 
+  const drawingShapes = useMemo(() => {
+    const series = seriesRef.current
+    const chart = chartRef.current
+    const node = containerRef.current
+    if (!series || !chart || !node) return []
+    const width = node.clientWidth
+    const height = node.clientHeight
+    const all = draft ? [...drawings, draft] : drawings
+    return all.map((drawing) => (
+      <DrawingShape
+        key={drawing.id}
+        symbol={selectedSymbol}
+        drawing={drawing}
+        timeScale={chart.timeScale()}
+        series={series.candle}
+        width={width}
+        height={height}
+        draft={drawing.id.startsWith('draft-')}
+      />
+    ))
+  }, [drawings, draft, overlayRevision, chartReady, selectedSymbol])
+
   function clampDragPrice(level: ChartLevel, rawPrice: number) {
     const meta = getSymbol(selectedSymbol)
     const step = 10 ** -meta.priceDecimals
@@ -497,6 +649,96 @@ export function TradingChart() {
 
     return roundToTick(price, meta.priceDecimals)
   }
+
+  const drawingStartRef = useRef<{ x: number; y: number } | null>(null)
+
+  function pointFromDrawingEvent(event: React.PointerEvent<HTMLDivElement>): ChartPoint | null {
+    const node = containerRef.current
+    const series = seriesRef.current
+    const chart = chartRef.current
+    if (!node || !series || !chart) return null
+    const rect = node.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+    const time = chart.timeScale().coordinateToTime(x)
+    const price = series.candle.coordinateToPrice(y)
+    if (typeof time !== 'number' || price == null) return null
+    return { time, price: roundToTick(price, getSymbol(selectedSymbol).priceDecimals) }
+  }
+
+  function setDraftDrawing(value: ChartDrawing | null) {
+    draftRef.current = value
+    setDraft(value)
+  }
+
+  function startDrawing(event: React.PointerEvent<HTMLDivElement>) {
+    if (drawingTool === 'cursor') return
+    const point = pointFromDrawingEvent(event)
+    if (!point) return
+    event.preventDefault()
+    event.stopPropagation()
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId)
+    } catch {
+      // Synthetic pointers may not support capture.
+    }
+    drawingStartRef.current = { x: event.clientX, y: event.clientY }
+    setDraftDrawing({
+      id: `draft-${Date.now()}`,
+      type: drawingTool,
+      points: drawingTool === 'horizontal' ? [point] : [point, point],
+      color: DRAWING_COLORS[drawingTool as DrawingTool],
+      createdAt: Date.now(),
+    })
+  }
+
+  function moveDrawing(event: React.PointerEvent<HTMLDivElement>) {
+    const current = draftRef.current
+    if (!current) return
+    const point = pointFromDrawingEvent(event)
+    if (!point) return
+    event.preventDefault()
+    const next =
+      current.type === 'horizontal'
+        ? { ...current, points: [point] }
+        : { ...current, points: [current.points[0], point] }
+    setDraftDrawing(next)
+  }
+
+  function finishDrawing(event: React.PointerEvent<HTMLDivElement>) {
+    const current = draftRef.current
+    if (!current) return
+    const start = drawingStartRef.current
+    drawingStartRef.current = null
+    setDraftDrawing(null)
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {
+      // Capture may already be released.
+    }
+    const moved = start ? Math.abs(event.clientX - start.x) + Math.abs(event.clientY - start.y) > 4 : false
+    if (current.type !== 'horizontal' && !moved) {
+      setDrawingTool('cursor')
+      return
+    }
+    addDrawing(selectedSymbol, { ...current, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}` })
+    setDrawingTool('cursor')
+  }
+
+  function cancelDrawing() {
+    if (!draftRef.current && drawingTool === 'cursor') return
+    drawingStartRef.current = null
+    setDraftDrawing(null)
+    setDrawingTool('cursor')
+  }
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') cancelDrawing()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  })
 
   function startDrag(event: React.PointerEvent<HTMLDivElement>, level: ChartLevel) {
     if (event.button !== 0) return
@@ -674,6 +916,18 @@ export function TradingChart() {
             {levelNotice.text}
           </div>
         ) : null}
+        <svg className="pointer-events-none absolute inset-0 z-[5] h-full w-full" aria-hidden="true">
+          {drawingShapes}
+        </svg>
+        {drawingTool !== 'cursor' ? (
+          <div
+            className="absolute inset-0 z-[12] cursor-crosshair touch-none bg-primary/[0.015]"
+            onPointerDown={startDrawing}
+            onPointerMove={moveDrawing}
+            onPointerUp={finishDrawing}
+            onPointerCancel={cancelDrawing}
+          />
+        ) : null}
         <div className="pointer-events-none absolute inset-0 z-10">
           {renderedLevels.map(({ level, price, y, badge }) => (
             <div
@@ -710,6 +964,7 @@ export function TradingChart() {
             </div>
           ))}
         </div>
+        <ChartDrawingToolbar />
         {collecting && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b111d]/90 p-6 text-center">
             <div>

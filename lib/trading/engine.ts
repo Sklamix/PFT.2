@@ -1,3 +1,4 @@
+import { getSymbol } from '@/lib/constants/symbols'
 import type { PendingTradeOrder, Position, TradeHistory } from '@/lib/types/terminal'
 import { tradingRepo, type BookTx } from './repository'
 import {
@@ -343,6 +344,10 @@ export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<
       ),
     })
     w.positions = [...w.positions, position]
+    w.orderUpdates.push({
+      status: 'FILLED',
+      message: `${input.side} ${input.lots.toFixed(2)} ${input.symbol}: market order filled at ${entry.toFixed(getSymbol(input.symbol).priceDecimals)}`,
+    })
     await enforceRules(w)
     return { ok: true, position, book: await persist(w) }
   })
@@ -499,6 +504,38 @@ export async function modifyPositionProtection(input: PositionProtectionInput): 
     await settleProtectiveOrders(w)
     await enforceRules(w)
     return { ok: true, book: await persist(w) }
+  })
+  return result ?? notFound()
+}
+
+export async function cancelAllPendingOrders(accountId: string): Promise<EngineResult<{ cancelled: number }>> {
+  const result = await tradingRepo.withBook(accountId, async (tx): Promise<EngineResult<{ cancelled: number }>> => {
+    const w = load(tx)
+    const cancelled = w.pendingOrders.length
+    if (cancelled > 0) {
+      await tx.cancelPendingOrders('Cancelled by trader (cancel all)')
+      w.pendingOrders = []
+    }
+    return { ok: true, cancelled, book: await persist(w) }
+  })
+  return result ?? notFound()
+}
+
+export async function closeAllPositions(accountId: string, quotes: Quotes): Promise<EngineResult<{ closed: number }>> {
+  const result = await tradingRepo.withBook(accountId, async (tx): Promise<EngineResult<{ closed: number }>> => {
+    const w = load(tx)
+    if (w.status !== 'ACTIVE') {
+      return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
+    }
+
+    await applyQuotes(w, quotes)
+    await settleProtectiveOrders(w)
+    const remaining = [...w.positions]
+    for (const position of remaining) {
+      await closeOne(w, w.positions.find((item) => item.id === position.id) ?? position, 'MANUAL')
+    }
+    await enforceRules(w)
+    return { ok: true, closed: remaining.length, book: await persist(w) }
   })
   return result ?? notFound()
 }

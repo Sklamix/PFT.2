@@ -15,8 +15,14 @@ cd cloudflare/market-worker
 npm install
 npx wrangler login
 npx wrangler secret put DATABASE_URL   # paste the production Neon connection string
+npx wrangler secret put CRON_SECRET    # same value as CRON_SECRET on Vercel
+npx wrangler secret put PFT_APP_URL    # e.g. https://your-production-domain.vercel.app
 npm run deploy
 ```
+
+`PFT_APP_URL` + `CRON_SECRET` are optional but required for email alerts while the terminal is
+closed: each scheduled run calls `POST /api/cron/trading` so pending orders and SL/TP are processed
+server-side every minute.
 
 ## Local check
 
@@ -49,4 +55,6 @@ Expected:
 ```
 
 Cron runs once per minute and stores ~4 samples per symbol per minute. The terminal keeps writing
-ticks while someone is using it; this worker fills the gaps when nobody is online.
+ticks while someone is using it; this worker fills the gaps when nobody is online. With
+`PFT_APP_URL` and `CRON_SECRET` configured, it also runs the server-side trading loop for pending
+orders, stop loss and take profit notifications.

@@ -26,10 +26,13 @@ export function PositionsTable() {
   const snapshot = useTerminalBook((state) => state.snapshot)
   const closePosition = useTerminalBook((state) => state.closePosition)
   const cancelPending = useTerminalBook((state) => state.cancelPending)
+  const closeAll = useTerminalBook((state) => state.closeAll)
+  const cancelAll = useTerminalBook((state) => state.cancelAll)
   const closing = useTerminalBook((state) => state.closing)
   const cancelling = useTerminalBook((state) => state.cancelling)
   const timeZone = useTimezoneStore((state) => state.timeZone)
   const [closeError, setCloseError] = useState<string | null>(null)
+  const [bulkBusy, setBulkBusy] = useState<'close' | 'cancel' | null>(null)
 
   async function close(id: string) {
     setCloseError(null)
@@ -43,6 +46,30 @@ export function PositionsTable() {
     if (!result.ok) setCloseError(result.error)
   }
 
+  async function handleCloseAll() {
+    if (!positions.length || !window.confirm(`Close all ${positions.length} open position${positions.length === 1 ? '' : 's'} at market?`)) return
+    setBulkBusy('close')
+    setCloseError(null)
+    try {
+      const result = await closeAll()
+      if (!result.ok) setCloseError(result.error)
+    } finally {
+      setBulkBusy(null)
+    }
+  }
+
+  async function handleCancelAll() {
+    if (!pending.length || !window.confirm(`Cancel all ${pending.length} working order${pending.length === 1 ? '' : 's'}?`)) return
+    setBulkBusy('cancel')
+    setCloseError(null)
+    try {
+      const result = await cancelAll()
+      if (!result.ok) setCloseError(result.error)
+    } finally {
+      setBulkBusy(null)
+    }
+  }
+
   return (
     <section className="rounded-xl border border-border bg-card">
       <Tabs defaultValue="positions">
@@ -52,9 +79,31 @@ export function PositionsTable() {
             <TabsTrigger value="history">Trade history</TabsTrigger>
             <TabsTrigger value="rules">Rules monitor</TabsTrigger>
           </TabsList>
-          <p className="hidden font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:block">
-            {positions.length} open · {pending.length} working
-          </p>
+          <div className="flex items-center gap-1.5">
+            <p className="hidden font-mono text-[10px] uppercase tracking-widest text-muted-foreground sm:block">
+              {positions.length} open · {pending.length} working
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 px-2 text-[10px]"
+              disabled={positions.length === 0 || bulkBusy !== null}
+              onClick={() => void handleCloseAll()}
+            >
+              {bulkBusy === 'close' ? <Loader2 className="size-3 animate-spin" /> : null}
+              Close all
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 gap-1 px-2 text-[10px]"
+              disabled={pending.length === 0 || bulkBusy !== null}
+              onClick={() => void handleCancelAll()}
+            >
+              {bulkBusy === 'cancel' ? <Loader2 className="size-3 animate-spin" /> : null}
+              Cancel all
+            </Button>
+          </div>
         </div>
 
         <TabsContent value="positions" className="p-0">

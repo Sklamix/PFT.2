@@ -80,6 +80,8 @@ type TerminalBook = {
   ) => Promise<ActionResult<object>>
   closePosition: (id: string) => Promise<ActionResult<{ trade: TradeHistory }>>
   cancelPending: (id: string) => Promise<ActionResult<object>>
+  closeAll: () => Promise<ActionResult<{ closed: number }>>
+  cancelAll: () => Promise<ActionResult<{ cancelled: number }>>
   sync: () => Promise<void>
   dismissNotice: () => void
 }
@@ -103,6 +105,8 @@ type ServerResponse = {
   position?: ServerBook['positions'][number]
   pendingOrder?: ServerBook['pendingOrders'][number]
   trade?: ServerBook['history'][number]
+  closed?: number
+  cancelled?: number
 }
 
 function seedMarks(): Marks {
@@ -392,6 +396,26 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       applyBook(body.book)
       if (!ok) return { ok: false, error: body.error ?? 'Protection update rejected' }
       return { ok: true }
+    },
+
+    closeAll: async () => {
+      const { ok, body } = await call('/api/trading/close-all', {
+        method: 'POST',
+        body: JSON.stringify({ accountId: get().accountId }),
+      })
+      applyBook(body.book)
+      if (!ok) return { ok: false, error: body.error ?? 'Close all failed' }
+      return { ok: true, closed: Number(body.closed ?? 0) }
+    },
+
+    cancelAll: async () => {
+      const { ok, body } = await call('/api/trading/cancel-all', {
+        method: 'POST',
+        body: JSON.stringify({ accountId: get().accountId }),
+      })
+      applyBook(body.book)
+      if (!ok) return { ok: false, error: body.error ?? 'Cancel all failed' }
+      return { ok: true, cancelled: Number(body.cancelled ?? 0) }
     },
 
     closePosition: async (id) => {
