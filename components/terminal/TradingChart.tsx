@@ -69,8 +69,7 @@ export function TradingChart() {
     const node = containerRef.current
     if (!node) return
     let disposed = false
-    let chart: { remove: () => void; applyOptions: (o: object) => void } | undefined
-    let resizeObserver: ResizeObserver | undefined
+    let chart: { remove: () => void } | undefined
     const controller = new AbortController()
     const abortTimer = setTimeout(() => controller.abort(), CANDLES_TIMEOUT_MS)
     const marketCandles = fetchMarketCandles(selectedSymbol, timeframe, controller.signal).finally(() => clearTimeout(abortTimer))
@@ -140,11 +139,6 @@ export function TradingChart() {
       if (history.length > VISIBLE_BARS) instance.timeScale().setVisibleLogicalRange({ from: history.length - VISIBLE_BARS, to: history.length + 2 })
       else instance.timeScale().fitContent()
       if (market) useTradingStore.getState().syncMarketPrice(selectedSymbol, dailyStats(market.candles, market.lastPrice))
-
-      resizeObserver = new ResizeObserver(() => {
-        instance.applyOptions({ width: containerRef.current?.clientWidth, height: containerRef.current?.clientHeight })
-      })
-      resizeObserver.observe(containerRef.current)
     })
 
     return () => {
@@ -153,7 +147,6 @@ export function TradingChart() {
       clearTimeout(abortTimer)
       seriesRef.current = null
       lastCandleRef.current = null
-      resizeObserver?.disconnect()
       chart?.remove()
     }
   }, [selectedSymbol, timeframe, tf.seconds, reloadKey])

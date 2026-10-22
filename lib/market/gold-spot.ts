@@ -48,10 +48,15 @@ function parseSwissquote(payload: SwissquoteEntry[]): GoldSpotQuote {
     }
   }
   if (!best) throw new Error('Swissquote returned no usable XAU/USD price')
+  // Swissquote's public feed is indicative and wide. Use its mid as the reference and apply the
+  // platform's own indicative spread (same approach as FX and crypto quotes) so execution stays
+  // consistent and does not reject otherwise valid orders.
+  const mid = (best.bid + best.ask) / 2
+  const spread = spreadFromMid('XAUUSD', mid)
   return {
-    mid: (best.bid + best.ask) / 2,
-    bid: best.bid,
-    ask: best.ask,
+    mid,
+    bid: spread.bid,
+    ask: spread.ask,
     providerTime: best.at,
     source: 'SWISSQUOTE',
   }

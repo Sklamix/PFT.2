@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     if (error) return error
     const quotes = await getFreshMarketQuotes()
     if (Object.keys(quotes).length === 0) {
-      return NextResponse.json({ error: 'No fresh Twelve Data quotes are available' }, { status: 503 })
+      return NextResponse.json({ error: 'No fresh market quotes are available' }, { status: 503 })
     }
     return respond(await syncAccount(accountId, quotes))
   } catch (error) {

@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SYMBOL_GROUPS, formatPrice, formatSpreadPips, getSymbol } from '@/lib/constants/symbols'
+import { SYMBOL_GROUPS, formatPrice, formatSpreadValue, getSymbol } from '@/lib/constants/symbols'
 import { formatPct, formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
@@ -73,7 +73,7 @@ export function TerminalHeader() {
           <QuoteStack label="Ask" value={formatPrice(selectedSymbol, ask)} tone="primary" />
           <div className="hidden sm:block">
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Spread</p>
-            <p className="text-sm tabular-nums text-foreground">{formatSpreadPips(selectedSymbol, spread)} pips</p>
+            <p className="text-sm tabular-nums text-foreground">{formatSpreadValue(selectedSymbol, spread)}</p>
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">24h</p>

@@ -120,7 +120,7 @@ export function OrderPanel() {
             <TabsTrigger value="limit">Pending / Limit</TabsTrigger>
           </TabsList>
           <TabsContent value="market" className="mt-3 text-xs text-muted-foreground">
-            Live Twelve Data price with an indicative spread; not executable broker bid/ask.
+            Live reference price with an indicative spread; not an executable broker bid/ask.
           </TabsContent>
           <TabsContent value="limit" className="mt-3 space-y-2">
             <Field label="Limit price">

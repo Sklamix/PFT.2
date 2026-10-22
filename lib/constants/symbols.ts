@@ -134,6 +134,13 @@ export function formatSpreadPips(symbol: string, spread: number) {
   return (spread / pipSize).toFixed(1)
 }
 
+/** FX reads naturally in pips; metals and crypto are quoted in USD. */
+export function formatSpreadValue(symbol: string, spread: number) {
+  const meta = getSymbol(symbol)
+  if (meta.category === 'forex') return `${formatSpreadPips(symbol, spread)} pips`
+  return `$${spread.toFixed(2)}`
+}
+
 /** USD notional for a position size at `price`. */
 export function notionalUsd(symbol: string, lots: number, price: number) {
   const meta = getSymbol(symbol)

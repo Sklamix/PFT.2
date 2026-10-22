@@ -309,15 +309,17 @@ async function withPrismaBook<T>(accountId: string, fn: (book: BookTx) => Promis
       // Serialize every order/close/risk pass for an account behind a row lock.
       const locked = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "TradingAccount" WHERE "id" = ${accountId} FOR UPDATE`
       if (locked.length === 0) return null
-      const row = await tx.tradingAccount.findUniqueOrThrow({ where: { id: accountId } })
-      const positions = await tx.position.findMany({
-        where: { tradingAccountId: accountId, status: 'OPEN' },
-        orderBy: { openedAt: 'asc' },
+      // One query for the account plus its open positions and pending orders keeps the
+      // serialized risk pass to a single round trip instead of three on high-latency databases.
+      const row = await tx.tradingAccount.findUniqueOrThrow({
+        where: { id: accountId },
+        include: {
+          positions: { where: { status: 'OPEN' }, orderBy: { openedAt: 'asc' } },
+          pendingTradeOrders: { where: { status: 'PENDING' }, orderBy: { createdAt: 'asc' } },
+        },
       })
-      const pendingRows = await tx.pendingTradeOrder.findMany({
-        where: { tradingAccountId: accountId, status: 'PENDING' },
-        orderBy: { createdAt: 'asc' },
-      })
+      const positions = row.positions
+      const pendingRows = row.pendingTradeOrders
       const account: AccountRow = {
         id: row.id,
         userId: row.userId,

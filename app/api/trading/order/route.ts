@@ -13,7 +13,7 @@ export async function POST(request: Request) {
     const { error } = await authorizeAccount(input.accountId)
     if (error) return error
     const quote = (await getFreshMarketQuotes())[input.symbol]
-    if (!quote) return NextResponse.json({ error: 'A fresh Twelve Data quote is not available' }, { status: 503 })
+    if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
     return respond(await placeMarketOrder({ ...input, quote }))
   } catch (error) {
     return handleError(error)
