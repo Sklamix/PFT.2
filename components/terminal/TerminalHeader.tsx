@@ -229,14 +229,25 @@ function SymbolRow({
   const item = getSymbol(id)
   return (
     <DropdownMenuItem
-      onClick={() => onSelect(id)}
+      aria-disabled={!item.available}
+      onClick={() => {
+        if (item.available) onSelect(id)
+      }}
       className={cn(
         'flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 font-mono',
         selected && 'bg-primary/10',
+        !item.available && 'cursor-not-allowed opacity-60',
       )}
     >
       <span className="flex min-w-0 flex-col">
-        <span className="text-sm text-foreground">{item.displayName}</span>
+        <span className="flex items-center gap-2 text-sm text-foreground">
+          {item.displayName}
+          {!item.available && (
+            <span className="rounded-full border border-border bg-muted/70 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wide text-muted-foreground">
+              Soon
+            </span>
+          )}
+        </span>
         <span className="truncate text-[10px] text-muted-foreground">{item.name}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1">

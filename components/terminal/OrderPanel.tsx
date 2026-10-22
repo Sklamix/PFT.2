@@ -10,7 +10,6 @@ import {
   getSymbol,
   pipValueUsd,
   requiredMarginUsd,
-  TERMINAL_SYMBOLS,
 } from '@/lib/constants/symbols'
 import { formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
@@ -49,7 +48,7 @@ export function OrderPanel() {
   const validLots = Number.isFinite(sizeLots) && sizeLots > 0
   const pipValue = validLots ? pipValueUsd(selectedSymbol, sizeLots, entry) : 0
   const margin = validLots ? requiredMarginUsd(selectedSymbol, sizeLots, entry, leverage) : 0
-  const tradable = accountStatus === 'ACTIVE' && (TERMINAL_SYMBOLS as readonly string[]).includes(selectedSymbol)
+  const tradable = accountStatus === 'ACTIVE' && getSymbol(selectedSymbol).available
 
   const projections = useMemo(() => {
     if (!validLots) return { sl: null as number | null, tp: null as number | null }

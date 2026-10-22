@@ -1,8 +1,8 @@
-import { TERMINAL_SYMBOLS, getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
+import { AVAILABLE_SYMBOLS, getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
 import { cachedReferencePrice } from '@/lib/market/yahoo'
 import type { CloseInput, OrderInput, PendingOrderInput, Quote, Quotes } from './types'
 
-export const TRADABLE_SYMBOLS: readonly string[] = TERMINAL_SYMBOLS
+export const TRADABLE_SYMBOLS: readonly string[] = AVAILABLE_SYMBOLS
 export const MIN_LOTS = 0.01
 export const MAX_LOTS = 50
 const MAX_SPREAD_PIPS = 50
