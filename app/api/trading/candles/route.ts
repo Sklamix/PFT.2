@@ -6,7 +6,14 @@ import { TIMEFRAMES, type TimeframeId } from '@/lib/terminal/candles'
 export const dynamic = 'force-dynamic'
 
 const TIMEFRAME_IDS = TIMEFRAMES.map((item) => item.id) as readonly string[]
-const TICK_CANDLE_SYMBOLS = new Set(['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'XAUUSD'])
+const TICK_CANDLE_SYMBOLS = new Set([
+  'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
+  'EURGBP', 'EURJPY', 'EURCHF', 'EURAUD', 'EURCAD', 'EURNZD',
+  'GBPJPY', 'GBPCHF', 'GBPAUD', 'GBPCAD', 'GBPNZD',
+  'AUDJPY', 'AUDCHF', 'AUDCAD', 'AUDNZD', 'NZDJPY', 'NZDCHF', 'NZDCAD',
+  'CADJPY', 'CHFJPY', 'CADCHF',
+  'XAUUSD',
+])
 
 function isTimeframe(value: string): value is TimeframeId {
   return TIMEFRAME_IDS.includes(value)

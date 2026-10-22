@@ -3,7 +3,14 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
 const FXCM_URL = 'https://rates.fxcm.com/RatesXML'
 const SWISSQUOTE_URL = 'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD'
 const GOLD_API_URL = 'https://api.gold-api.com/price/XAU'
-const FXCM_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD', 'BTCUSD'] as const
+const FXCM_SYMBOLS = [
+  'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
+  'EURGBP', 'EURJPY', 'EURCHF', 'EURAUD', 'EURCAD', 'EURNZD',
+  'GBPJPY', 'GBPCHF', 'GBPAUD', 'GBPCAD', 'GBPNZD',
+  'AUDJPY', 'AUDCHF', 'AUDCAD', 'AUDNZD', 'NZDJPY', 'NZDCHF', 'NZDCAD',
+  'CADJPY', 'CHFJPY', 'CADCHF',
+  'BTCUSD',
+] as const
 const CYCLES = 4
 const CYCLE_DELAY_MS = 5_000
 const FETCH_TIMEOUT_MS = 5_000

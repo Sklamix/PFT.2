@@ -4,6 +4,8 @@ import { bucketStart, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/te
 
 const CANDLES_TTL_MS = 5_000
 const MAX_QUERY_ROWS = 40_000
+/** Sampling cadence for tick-built candles; high/low still come from real FXCM/Swissquote ticks. */
+const RECORD_INTERVAL_MS = 5_000
 
 export type MarketCandlesResult = {
   candles: Candle[]
@@ -12,19 +14,18 @@ export type MarketCandlesResult = {
   collecting: boolean
 }
 
-const lastRecordedSecond = new Map<string, number>()
+const lastRecordedAt = new Map<string, number>()
 
 /**
  * Upserts the current one-minute candle from a live tick for any symbol. Called from the
- * server-side quote path at most once per second per symbol per process; the database
+ * server-side quote path at most once per five seconds per symbol per process; the database
  * aggregates high/low/close atomically.
  */
 export async function recordMarketTick(symbol: string, mid: number, at = Date.now()): Promise<void> {
   if (!process.env.DATABASE_URL) return
   if (!Number.isFinite(mid) || mid <= 0) return
-  const second = Math.floor(at / 1_000)
-  if (lastRecordedSecond.get(symbol) === second) return
-  lastRecordedSecond.set(symbol, second)
+  if (at - (lastRecordedAt.get(symbol) ?? 0) < RECORD_INTERVAL_MS) return
+  lastRecordedAt.set(symbol, at)
 
   const minute = new Date(bucketStart(at, 60) * 1_000)
   await prisma.$executeRaw`
