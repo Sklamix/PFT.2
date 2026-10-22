@@ -72,11 +72,17 @@ const YAHOO_TICKERS: Record<CandleSymbol, string> = {
   BTCUSD: 'BTC-USD',
 }
 
-const RANGES: Record<TimeframeId, string> = {
+export const YAHOO_TIMEFRAMES = new Set<TimeframeId>(['1m', '5m', '15m', '30m', '1h', '1d', '1w', '1mo'])
+
+const RANGES: Partial<Record<TimeframeId, string>> = {
   '1m': '1d',
   '5m': '5d',
   '15m': '5d',
+  '30m': '5d',
   '1h': '1mo',
+  '1d': '1y',
+  '1w': '5y',
+  '1mo': '5y',
 }
 
 const CACHE_TTL_MS = 20_000
@@ -157,9 +163,12 @@ function parseChart(symbol: CandleSymbol, timeframe: TimeframeId, payload: Yahoo
 }
 
 async function download(symbol: CandleSymbol, timeframe: TimeframeId): Promise<MarketCandles> {
+  const range = RANGES[timeframe]
+  if (!range) throw new Error(`Yahoo Finance does not support the ${timeframe} timeframe`)
+  const interval = timeframe === '1h' ? '60m' : timeframe === '1w' ? '1wk' : timeframe === '1mo' ? '1mo' : timeframe
   const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(YAHOO_TICKERS[symbol])}`)
-  url.searchParams.set('interval', timeframe === '1h' ? '60m' : timeframe)
-  url.searchParams.set('range', RANGES[timeframe])
+  url.searchParams.set('interval', interval)
+  url.searchParams.set('range', range)
   const response = await fetch(url, {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PFT-Terminal/1.0)', Accept: 'application/json' },
     cache: 'no-store',

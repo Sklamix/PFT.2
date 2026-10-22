@@ -105,15 +105,29 @@ export function parsePendingOrderInput(raw: unknown): PendingOrderInput {
   if (Math.abs(lots - lotsRaw) > 1e-9) throw new ValidationError('lots must be in steps of 0.01')
   if (lots < MIN_LOTS || lots > MAX_LOTS) throw new ValidationError(`lots must be between ${MIN_LOTS} and ${MAX_LOTS}`)
 
+  const rawType = body.orderType ?? 'LIMIT'
+  if (rawType !== 'LIMIT' && rawType !== 'STOP' && rawType !== 'STOP_LIMIT') {
+    throw new ValidationError('orderType must be LIMIT, STOP or STOP_LIMIT')
+  }
+  const type = rawType
+
   const limitPrice = optionalPrice(body, 'limitPrice')
-  if (limitPrice == null) throw new ValidationError('limitPrice must be a positive number')
+  const stopPrice = optionalPrice(body, 'stopPrice')
+
+  if (type === 'LIMIT' && limitPrice == null) throw new ValidationError('limitPrice must be a positive number')
+  if (type === 'STOP' && stopPrice == null) throw new ValidationError('stopPrice must be a positive number')
+  if (type === 'STOP_LIMIT' && (stopPrice == null || limitPrice == null)) {
+    throw new ValidationError('stopPrice and limitPrice must be positive numbers')
+  }
 
   return {
     accountId,
     symbol,
     side,
+    type,
     lots,
-    limitPrice,
+    limitPrice: type === 'STOP' ? (stopPrice as number) : (limitPrice as number),
+    stopPrice: type === 'LIMIT' ? null : stopPrice,
     stopLoss: optionalPrice(body, 'stopLoss'),
     takeProfit: optionalPrice(body, 'takeProfit'),
     quote: parseQuote(symbol, body.quote),

@@ -86,6 +86,12 @@ enum PendingTradeOrderStatus {
   REJECTED
 }
 
+enum PendingOrderType {
+  LIMIT
+  STOP
+  STOP_LIMIT
+}
+
 enum CloseReason {
   TAKE_PROFIT
   STOP_LOSS
@@ -269,8 +275,11 @@ model PendingTradeOrder {
   tradingAccount   TradingAccount          @relation(fields: [tradingAccountId], references: [id], onDelete: Cascade)
   symbol           String
   side             OrderSide
+  type             PendingOrderType        @default(LIMIT)
   sizeLots         Float
   limitPrice       Float
+  stopPrice        Float?
+  triggeredAt      DateTime?
   stopLoss         Float?
   takeProfit       Float?
   status           PendingTradeOrderStatus @default(PENDING)

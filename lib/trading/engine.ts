@@ -197,7 +197,8 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
 }
 
 function pendingOrderMessage(order: PendingTradeOrder, message: string) {
-  return `${order.side} ${order.sizeLots.toFixed(2)} ${order.symbol}: ${message}`
+  const label = order.type === 'STOP' ? 'stop' : order.type === 'STOP_LIMIT' ? 'stop-limit' : 'limit'
+  return `${order.side} ${order.sizeLots.toFixed(2)} ${order.symbol} (${label}): ${message}`
 }
 
 async function processPendingOrders(w: Working, quotes: Quotes) {
@@ -205,7 +206,23 @@ async function processPendingOrders(w: Working, quotes: Quotes) {
     const quote = quotes[order.symbol]
     if (!quote) continue
 
-    const triggered = order.side === 'BUY' ? quote.ask <= order.limitPrice : quote.bid >= order.limitPrice
+    let triggered = false
+    if (order.type === 'STOP') {
+      const stop = order.stopPrice ?? order.limitPrice
+      triggered = order.side === 'BUY' ? quote.ask >= stop : quote.bid <= stop
+    } else if (order.type === 'STOP_LIMIT') {
+      if (!order.triggeredAt) {
+        const stop = order.stopPrice ?? order.limitPrice
+        const stopHit = order.side === 'BUY' ? quote.ask >= stop : quote.bid <= stop
+        if (!stopHit) continue
+        const marked = await w.tx.triggerPendingOrder(order.id)
+        if (!marked) continue
+        order.triggeredAt = new Date()
+      }
+      triggered = order.side === 'BUY' ? quote.ask <= order.limitPrice : quote.bid >= order.limitPrice
+    } else {
+      triggered = order.side === 'BUY' ? quote.ask <= order.limitPrice : quote.bid >= order.limitPrice
+    }
     if (!triggered) continue
 
     w.pendingOrders = w.pendingOrders.filter((item) => item.id !== order.id)
@@ -336,24 +353,38 @@ export async function placePendingOrder(input: PendingOrderInput): Promise<Engin
     }
 
     const quotePrice = input.side === 'BUY' ? input.quote.ask : input.quote.bid
-    const correctSide = input.side === 'BUY' ? input.limitPrice < quotePrice : input.limitPrice > quotePrice
-    if (!correctSide) {
-      return {
-        ok: false,
-        status: 422,
-        error: `A ${input.side} limit price must be ${input.side === 'BUY' ? 'below the current ask' : 'above the current bid'}`,
-        book: await persist(w),
+    const executionPrice = input.type === 'STOP' ? (input.stopPrice ?? input.limitPrice) : input.limitPrice
+    if (input.type === 'LIMIT') {
+      const correctSide = input.side === 'BUY' ? input.limitPrice < quotePrice : input.limitPrice > quotePrice
+      if (!correctSide) {
+        return {
+          ok: false,
+          status: 422,
+          error: `A ${input.side} limit price must be ${input.side === 'BUY' ? 'below the current ask' : 'above the current bid'}`,
+          book: await persist(w),
+        }
+      }
+    } else {
+      const stop = input.stopPrice ?? input.limitPrice
+      const correctSide = input.side === 'BUY' ? stop > quotePrice : stop < quotePrice
+      if (!correctSide) {
+        return {
+          ok: false,
+          status: 422,
+          error: `A ${input.side} stop price must be ${input.side === 'BUY' ? 'above the current ask' : 'below the current bid'}`,
+          book: await persist(w),
+        }
       }
     }
 
-    const protectionError = validateProtection(input.symbol, input.side, input.limitPrice, input.stopLoss, input.takeProfit)
+    const protectionError = validateProtection(input.symbol, input.side, executionPrice, input.stopLoss, input.takeProfit)
     if (protectionError) {
       return { ok: false, status: 422, error: protectionError, book: await persist(w) }
     }
 
     const metrics = await metricsFor(w)
     const margin = positionMargin(
-      { symbol: input.symbol, sizeLots: input.lots, entryPrice: input.limitPrice, currentPrice: input.limitPrice },
+      { symbol: input.symbol, sizeLots: input.lots, entryPrice: executionPrice, currentPrice: executionPrice },
       w.leverage,
     )
     if (margin > metrics.freeMargin) {
@@ -368,8 +399,10 @@ export async function placePendingOrder(input: PendingOrderInput): Promise<Engin
     const pendingOrder = await tx.createPendingOrder({
       symbol: input.symbol,
       side: input.side,
+      type: input.type,
       sizeLots: input.lots,
       limitPrice: input.limitPrice,
+      stopPrice: input.stopPrice,
       stopLoss: input.stopLoss,
       takeProfit: input.takeProfit,
     })

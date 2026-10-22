@@ -52,7 +52,7 @@ export type CloseRequest = {
 
 export type NewPendingOrder = Pick<
   PendingTradeOrder,
-  'symbol' | 'side' | 'sizeLots' | 'limitPrice' | 'stopLoss' | 'takeProfit'
+  'symbol' | 'side' | 'type' | 'sizeLots' | 'limitPrice' | 'stopPrice' | 'stopLoss' | 'takeProfit'
 >
 
 /** Operations available while holding an exclusive lock on one trading account. */
@@ -64,6 +64,8 @@ export interface BookTx {
   recentHistory(limit: number): Promise<TradeHistory[]>
   createPosition(data: NewPosition): Promise<Position>
   createPendingOrder(data: NewPendingOrder): Promise<PendingTradeOrder>
+  /** Marks a STOP_LIMIT order as triggered so it can wait for its limit price. */
+  triggerPendingOrder(id: string): Promise<boolean>
   updatePendingOrderStatus(id: string, status: PendingTradeOrderStatus, reason?: string): Promise<boolean>
   cancelPendingOrders(reason: string): Promise<void>
   markPositions(positions: Position[]): Promise<void>
@@ -133,8 +135,11 @@ function toPendingOrder(row: Prisma.PendingTradeOrderGetPayload<object>): Pendin
     tradingAccountId: row.tradingAccountId,
     symbol: row.symbol,
     side: row.side,
+    type: row.type,
     sizeLots: row.sizeLots,
     limitPrice: row.limitPrice,
+    stopPrice: row.stopPrice,
+    triggeredAt: row.triggeredAt,
     stopLoss: row.stopLoss,
     takeProfit: row.takeProfit,
     status: row.status,
@@ -182,6 +187,19 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
       const order = toPendingOrder(row)
       pendingOrders.unshift(order)
       return order
+    },
+
+    async triggerPendingOrder(id) {
+      const triggeredAt = new Date()
+      const result = await tx.pendingTradeOrder.updateMany({
+        where: { id, tradingAccountId: accountId, status: 'PENDING', triggeredAt: null },
+        data: { triggeredAt },
+      })
+      if (result.count > 0) {
+        const order = pendingOrders.find((item) => item.id === id)
+        if (order) order.triggeredAt = triggeredAt
+      }
+      return result.count > 0
     },
 
     async updatePendingOrderStatus(id, status, reason) {
@@ -445,6 +463,7 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
         ...data,
         id: mockId('order'),
         tradingAccountId: accountId,
+        triggeredAt: null,
         status: 'PENDING',
         reason: null,
         createdAt: now,
@@ -455,6 +474,14 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       state.pendingOrders.set(order.id, order)
       this.pendingOrders.unshift(order)
       return { ...order }
+    },
+
+    async triggerPendingOrder(id) {
+      const order = state.pendingOrders.get(id)
+      if (!order || order.tradingAccountId !== accountId || order.status !== 'PENDING' || order.triggeredAt) return false
+      order.triggeredAt = new Date()
+      order.updatedAt = new Date()
+      return true
     },
 
     async updatePendingOrderStatus(id, status, reason) {

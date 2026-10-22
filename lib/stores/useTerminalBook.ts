@@ -67,7 +67,9 @@ type TerminalBook = {
   init: (accountId: string) => Promise<void>
   markMarket: (symbol: string, bid: number, ask: number, mid: number) => void
   placeMarket: (input: OrderRequest) => Promise<ActionResult<{ position: Position }>>
-  placePending: (input: OrderRequest & { limitPrice: number }) => Promise<ActionResult<{ pendingOrder: PendingTradeOrder }>>
+  placePending: (
+    input: OrderRequest & { type: 'LIMIT' | 'STOP' | 'STOP_LIMIT'; limitPrice: number; stopPrice?: number | null },
+  ) => Promise<ActionResult<{ pendingOrder: PendingTradeOrder }>>
   closePosition: (id: string) => Promise<ActionResult<{ trade: TradeHistory }>>
   cancelPending: (id: string) => Promise<ActionResult<object>>
   sync: () => Promise<void>
@@ -76,11 +78,12 @@ type TerminalBook = {
 
 type ServerBook = Omit<BookPayload, 'positions' | 'pendingOrders' | 'history' | 'events'> & {
   positions: (Omit<Position, 'openedAt' | 'closedAt'> & { openedAt: string; closedAt: string | null })[]
-  pendingOrders: (Omit<PendingTradeOrder, 'createdAt' | 'updatedAt' | 'filledAt' | 'cancelledAt'> & {
+  pendingOrders: (Omit<PendingTradeOrder, 'createdAt' | 'updatedAt' | 'filledAt' | 'cancelledAt' | 'triggeredAt'> & {
     createdAt: string
     updatedAt: string
     filledAt: string | null
     cancelledAt: string | null
+    triggeredAt: string | null
   })[]
   history: (Omit<TradeHistory, 'openedAt' | 'closedAt'> & { openedAt: string; closedAt: string })[]
   events: Omit<BookPayload['events'], 'closed'> & { closed: ServerBook['history'] }
@@ -240,6 +243,7 @@ function toPendingOrder(row: ServerBook['pendingOrders'][number]): PendingTradeO
     updatedAt: new Date(row.updatedAt),
     filledAt: row.filledAt ? new Date(row.filledAt) : null,
     cancelledAt: row.cancelledAt ? new Date(row.cancelledAt) : null,
+    triggeredAt: row.triggeredAt ? new Date(row.triggeredAt) : null,
   }
 }
 
@@ -330,7 +334,9 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
           symbol: input.symbol,
           side: input.side,
           lots: input.sizeLots,
+          orderType: input.type,
           limitPrice: input.limitPrice,
+          stopPrice: input.stopPrice ?? null,
           stopLoss: input.stopLoss ?? null,
           takeProfit: input.takeProfit ?? null,
           quote: mark ? { bid: mark.bid, ask: mark.ask } : null,

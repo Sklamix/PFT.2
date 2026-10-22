@@ -2,9 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
-import { applyTick, generateCandleHistory, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
+import { applyTick, parseTimeframe, TIMEFRAMES, type Candle } from '@/lib/terminal/candles'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
+import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTimezoneStore } from '@/lib/stores/useTimezoneStore'
+import { loadStoredTimeframes, useTimeframeStore } from '@/lib/stores/useTimeframeStore'
+import { TimeframePicker } from '@/components/terminal/TimeframePicker'
 import { cn } from '@/lib/utils'
 
 const CHART_BG = '#0b111d'
@@ -21,12 +24,13 @@ type CandlesResponse = { candles?: Candle[]; lastPrice?: number; collecting?: bo
 
 type MarketData = { candles: Candle[]; lastPrice: number; collecting: boolean }
 
-async function fetchMarketCandles(symbol: string, timeframe: TimeframeId, signal: AbortSignal): Promise<MarketData | null> {
-  if (!isTerminalSymbol(symbol)) return null
+async function fetchMarketCandles(symbol: string, timeframe: string, signal: AbortSignal): Promise<MarketData> {
+  const empty: MarketData = { candles: [], lastPrice: 0, collecting: true }
+  if (!isTerminalSymbol(symbol)) return empty
   try {
     const params = new URLSearchParams({ symbol, timeframe })
     const response = await fetch(`/api/trading/candles?${params}`, { signal })
-    if (!response.ok) return null
+    if (!response.ok) return empty
     const body = (await response.json()) as CandlesResponse
     if (body.collecting || !body.candles?.length) {
       return { candles: [], lastPrice: 0, collecting: body.collecting === true }
@@ -37,7 +41,7 @@ async function fetchMarketCandles(symbol: string, timeframe: TimeframeId, signal
     const lastPrice = Number.isFinite(body.lastPrice) && body.lastPrice! > 0 ? body.lastPrice! : candles[candles.length - 1].close
     return { candles, lastPrice, collecting: false }
   } catch {
-    return null
+    return empty
   }
 }
 
@@ -56,11 +60,54 @@ export function TradingChart() {
   const containerRef = useRef<HTMLDivElement>(null)
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
   const currentPrice = useTradingStore((state) => state.currentPrice)
+  const connectionStatus = useTradingStore((state) => state.connectionStatus)
   const timeZone = useTimezoneStore((state) => state.timeZone)
-  const [timeframe, setTimeframe] = useState<TimeframeId>('5m')
+  const placeMarket = useTerminalBook((state) => state.placeMarket)
+  const accountStatus = useTerminalBook((state) => state.account?.status)
+  const timeframe = useTimeframeStore((state) => state.selected)
   const [collecting, setCollecting] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
-  const tf = TIMEFRAMES.find((item) => item.id === timeframe) ?? TIMEFRAMES[1]
+  const [quickLots, setQuickLots] = useState('0.10')
+  const [quickBusy, setQuickBusy] = useState<'BUY' | 'SELL' | null>(null)
+  const [quickNotice, setQuickNotice] = useState<string | null>(null)
+  const tradable = accountStatus === 'ACTIVE' && getSymbol(selectedSymbol).available
+  const quickEnabled = tradable && connectionStatus === 'CONNECTED' && !quickBusy
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('pft_one_click_lots')
+      if (stored === '0.01' || stored === '0.10' || stored === '1.00') setQuickLots(stored)
+    } catch {
+      // Storage can be unavailable; keep the default lot.
+    }
+  }, [])
+
+  function changeQuickLots(value: string) {
+    setQuickLots(value)
+    try {
+      window.localStorage.setItem('pft_one_click_lots', value)
+    } catch {
+      // Storage can be unavailable; the choice still applies for this session.
+    }
+  }
+
+  async function quickTrade(side: 'BUY' | 'SELL') {
+    if (!quickEnabled) return
+    setQuickBusy(side)
+    setQuickNotice(null)
+    try {
+      const result = await placeMarket({ symbol: selectedSymbol, side, sizeLots: Number(quickLots) })
+      setQuickNotice(result.ok ? `${side} ${quickLots} filled at ${result.position.entryPrice}` : result.error)
+      window.setTimeout(() => setQuickNotice(null), 5000)
+    } finally {
+      setQuickBusy(null)
+    }
+  }
+  const tf = parseTimeframe(timeframe) ?? TIMEFRAMES.find((item) => item.id === '5m')!
+
+  useEffect(() => {
+    loadStoredTimeframes()
+  }, [])
   const seriesRef = useRef<{
     candle: { setData: (d: unknown[]) => void; update: (d: unknown) => void }
     volume: { setData: (d: unknown[]) => void; update: (d: unknown) => void }
@@ -134,7 +181,7 @@ export function TradingChart() {
         scaleMargins: { top: 0.82, bottom: 0 },
       })
 
-      const history = market?.candles ?? generateCandleHistory(selectedSymbol, tf.seconds, useTradingStore.getState().currentPrice)
+      const history = market.candles
       lastCandleRef.current = history[history.length - 1] ?? null
       candleSeries.setData(history.map(toCandleBar))
       volumeSeries.setData(history.map(toVolumeBar))
@@ -176,35 +223,59 @@ export function TradingChart() {
 
   return (
     <section className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-xl border border-border bg-[#0b111d]">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Price action</p>
-        <div className="flex rounded-md border border-border bg-secondary/60 p-0.5" role="tablist" aria-label="Chart timeframe">
-          {TIMEFRAMES.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="tab"
-              aria-selected={timeframe === item.id}
-              onClick={() => setTimeframe(item.id)}
-              className={cn(
-                'rounded px-2 py-1 font-mono text-[11px] font-medium transition-colors',
-                timeframe === item.id ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <p className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Price action</p>
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <TimeframePicker />
+          <div className="flex items-center gap-1">
+            <select
+              value={quickLots}
+              onChange={(event) => changeQuickLots(event.target.value)}
+              aria-label="One-click lot size"
+              className="h-7 rounded-md border border-border bg-secondary/60 px-1.5 font-mono text-[11px] text-foreground outline-none focus-visible:border-ring"
             >
-              {item.label}
+              <option value="0.01">0.01</option>
+              <option value="0.10">0.10</option>
+              <option value="1.00">1.00</option>
+            </select>
+            <button
+              type="button"
+              disabled={!quickEnabled}
+              onClick={() => void quickTrade('SELL')}
+              title={`Sell ${quickLots} lots at market`}
+              className="h-7 rounded-md border border-danger/50 bg-danger/15 px-2 font-mono text-[11px] font-semibold text-danger transition-colors hover:bg-danger/25 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {quickBusy === 'SELL' ? '…' : 'SELL'}
             </button>
-          ))}
+            <button
+              type="button"
+              disabled={!quickEnabled}
+              onClick={() => void quickTrade('BUY')}
+              title={`Buy ${quickLots} lots at market`}
+              className="h-7 rounded-md border border-primary/50 bg-primary/15 px-2 font-mono text-[11px] font-semibold text-primary transition-colors hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {quickBusy === 'BUY' ? '…' : 'BUY'}
+            </button>
+          </div>
         </div>
       </div>
       <div className="relative min-h-[240px] flex-1">
         <div ref={containerRef} className="absolute inset-0" />
+        {quickNotice ? (
+          <div
+            role="status"
+            className="absolute left-2 top-2 z-20 max-w-[calc(100%-1rem)] rounded-md border border-border bg-[#0b111d]/95 px-2.5 py-1.5 font-mono text-[10px] text-foreground shadow-lg"
+          >
+            {quickNotice}
+          </div>
+        ) : null}
         {collecting && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b111d]/90 p-6 text-center">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-widest text-primary">Collecting live XAU/USD ticks</p>
+              <p className="font-mono text-[10px] uppercase tracking-widest text-primary">Collecting live {selectedSymbol} ticks</p>
               <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-                The spot chart is built from ticks recorded by our server. History fills in automatically; this
-                usually takes a few minutes.
+                This chart is built from ticks recorded by our server for {tf.label}. History fills in automatically;
+                shorter timeframes appear first.
               </p>
             </div>
           </div>

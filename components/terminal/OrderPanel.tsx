@@ -31,11 +31,13 @@ export function OrderPanel() {
   const leverage = useTerminalBook((state) => state.account?.leverage ?? 100)
 
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market')
+  const [pendingType, setPendingType] = useState<'LIMIT' | 'STOP' | 'STOP_LIMIT'>('LIMIT')
   const [side, setSide] = useState<OrderSide>('BUY')
   const [lots, setLots] = useState('0.10')
   const [stopLoss, setStopLoss] = useState('')
   const [takeProfit, setTakeProfit] = useState('')
   const [limitPrice, setLimitPrice] = useState('')
+  const [stopPrice, setStopPrice] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
@@ -44,6 +46,14 @@ export function OrderPanel() {
   const sl = stopLoss === '' ? null : Number(stopLoss)
   const tp = takeProfit === '' ? null : Number(takeProfit)
   const limit = limitPrice === '' ? null : Number(limitPrice)
+  const stop = stopPrice === '' ? null : Number(stopPrice)
+  const pendingPrice = pendingType === 'STOP' ? stop : limit
+  const validPending =
+    pendingType === 'LIMIT'
+      ? limit != null && limit > 0
+      : pendingType === 'STOP'
+        ? stop != null && stop > 0
+        : limit != null && limit > 0 && stop != null && stop > 0
   const entry = side === 'BUY' ? ask : bid
   const validLots = Number.isFinite(sizeLots) && sizeLots > 0
   const pipValue = validLots ? pipValueUsd(selectedSymbol, sizeLots, entry) : 0
@@ -63,7 +73,7 @@ export function OrderPanel() {
     connectionStatus === 'CONNECTED' &&
     validLots &&
     !busy &&
-    (orderType === 'market' || (limit != null && limit > 0)) &&
+    (orderType === 'market' || validPending) &&
     (sl == null || Number.isFinite(sl)) &&
     (tp == null || Number.isFinite(tp))
 
@@ -72,18 +82,25 @@ export function OrderPanel() {
     setBusy(true)
     setNotice(null)
     try {
-      if (orderType === 'limit' && limit) {
+      if (orderType === 'limit' && validPending && pendingPrice) {
         const result = await placePending({
           symbol: selectedSymbol,
           side,
           sizeLots,
-          limitPrice: limit,
+          type: pendingType,
+          limitPrice: pendingType === 'STOP' ? (stop as number) : (limit as number),
+          stopPrice: pendingType === 'LIMIT' ? null : stop,
           stopLoss: sl,
           takeProfit: tp,
         })
+        const label = pendingType === 'STOP' ? 'Stop' : pendingType === 'STOP_LIMIT' ? 'Stop-limit' : 'Limit'
+        const detail =
+          pendingType === 'STOP_LIMIT'
+            ? `trigger ${formatPrice(selectedSymbol, stop as number)} / limit ${formatPrice(selectedSymbol, limit as number)}`
+            : `at ${formatPrice(selectedSymbol, pendingPrice)}`
         setNotice(
           result.ok
-            ? { tone: 'ok', text: `Limit ${side} ${sizeLots} ${meta.displayName} queued at ${formatPrice(selectedSymbol, limit)}` }
+            ? { tone: 'ok', text: `${label} ${side} ${sizeLots} ${meta.displayName} queued ${detail}` }
             : { tone: 'error', text: result.error },
         )
       } else {
@@ -116,21 +133,58 @@ export function OrderPanel() {
         <Tabs value={orderType} onValueChange={(value) => setOrderType(value === 'limit' ? 'limit' : 'market')}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="market">Market</TabsTrigger>
-            <TabsTrigger value="limit">Pending / Limit</TabsTrigger>
+            <TabsTrigger value="limit">Pending</TabsTrigger>
           </TabsList>
           <TabsContent value="market" className="mt-3 text-xs text-muted-foreground">
             Live reference price with an indicative spread; not an executable broker bid/ask.
           </TabsContent>
-          <TabsContent value="limit" className="mt-3 space-y-2">
-            <Field label="Limit price">
-              <input
-                inputMode="decimal"
-                value={limitPrice}
-                onChange={(event) => setLimitPrice(event.target.value)}
-                placeholder={formatPrice(selectedSymbol, entry)}
-                className={inputClass}
-              />
-            </Field>
+          <TabsContent value="limit" className="mt-3 space-y-3">
+            <div className="grid grid-cols-3 gap-1">
+              {(['LIMIT', 'STOP', 'STOP_LIMIT'] as const).map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setPendingType(type)}
+                  className={cn(
+                    'rounded-md border px-1.5 py-1.5 font-mono text-[10px] uppercase tracking-wide transition-colors',
+                    pendingType === type
+                      ? 'border-primary/50 bg-primary/15 text-primary'
+                      : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {type === 'STOP_LIMIT' ? 'Stop-limit' : type === 'STOP' ? 'Stop' : 'Limit'}
+                </button>
+              ))}
+            </div>
+            {pendingType !== 'LIMIT' ? (
+              <Field label="Stop price">
+                <input
+                  inputMode="decimal"
+                  value={stopPrice}
+                  onChange={(event) => setStopPrice(event.target.value)}
+                  placeholder={formatPrice(selectedSymbol, entry)}
+                  className={inputClass}
+                />
+              </Field>
+            ) : null}
+            {pendingType !== 'STOP' ? (
+              <Field label="Limit price">
+                <input
+                  inputMode="decimal"
+                  value={limitPrice}
+                  onChange={(event) => setLimitPrice(event.target.value)}
+                  placeholder={formatPrice(selectedSymbol, entry)}
+                  className={inputClass}
+                />
+              </Field>
+            ) : null}
+            <p className="font-mono text-[10px] leading-relaxed text-muted-foreground">
+              {pendingType === 'LIMIT'
+                ? 'Fills when the market reaches your limit price.'
+                : pendingType === 'STOP'
+                  ? 'Triggers a market order when the stop price is reached.'
+                  : 'Triggers at the stop price, then waits for the limit price.'}
+            </p>
           </TabsContent>
         </Tabs>
 
@@ -216,7 +270,11 @@ export function OrderPanel() {
 
         <Button className="mt-auto h-10 w-full" disabled={!canSubmit} onClick={() => void execute()}>
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
-          {busy ? 'Working…' : orderType === 'limit' ? 'Place limit order' : 'Execute trade'}
+          {busy
+            ? 'Working…'
+            : orderType === 'limit'
+              ? `Place ${pendingType === 'STOP_LIMIT' ? 'stop-limit' : pendingType.toLowerCase()} order`
+              : 'Execute trade'}
         </Button>
         {!tradable && accountStatus ? (
           <p className="font-mono text-[11px] text-muted-foreground">

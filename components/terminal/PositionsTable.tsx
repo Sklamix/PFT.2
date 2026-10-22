@@ -90,8 +90,14 @@ export function PositionsTable() {
                       <SideBadge side={order.side} />
                     </TableCell>
                     <TableCell className="tabular-nums">{order.sizeLots.toFixed(2)}</TableCell>
-                    <TableCell className="tabular-nums text-muted-foreground">Limit {formatPrice(order.symbol, order.limitPrice)}</TableCell>
-                    <TableCell className="text-muted-foreground">Working</TableCell>
+                    <TableCell className="tabular-nums text-muted-foreground">
+                      {order.type === 'STOP'
+                        ? `Stop ${formatPrice(order.symbol, order.stopPrice ?? order.limitPrice)}`
+                        : order.type === 'STOP_LIMIT'
+                          ? `${order.triggeredAt ? 'Triggered' : 'Stop'} ${formatPrice(order.symbol, order.stopPrice ?? order.limitPrice)} / ${formatPrice(order.symbol, order.limitPrice)}`
+                          : `Limit ${formatPrice(order.symbol, order.limitPrice)}`}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{order.triggeredAt ? 'Triggered' : 'Working'}</TableCell>
                     <TableCell className="tabular-nums">{order.stopLoss == null ? '—' : formatPrice(order.symbol, order.stopLoss)}</TableCell>
                     <TableCell className="tabular-nums">{order.takeProfit == null ? '—' : formatPrice(order.symbol, order.takeProfit)}</TableCell>
                     <TableCell className="text-muted-foreground">Pending</TableCell>

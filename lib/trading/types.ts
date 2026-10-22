@@ -79,8 +79,10 @@ export type PendingOrderInput = {
   accountId: string
   symbol: string
   side: OrderSide
+  type: 'LIMIT' | 'STOP' | 'STOP_LIMIT'
   lots: number
   limitPrice: number
+  stopPrice: number | null
   stopLoss: number | null
   takeProfit: number | null
   quote: Quote

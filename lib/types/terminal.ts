@@ -8,6 +8,8 @@ export type OrderSide = (typeof ORDER_SIDES)[number]
 export type PositionStatus = (typeof POSITION_STATUSES)[number]
 export type CloseReason = (typeof CLOSE_REASONS)[number]
 export type PendingTradeOrderStatus = 'PENDING' | 'FILLED' | 'CANCELLED' | 'REJECTED'
+export const PENDING_ORDER_TYPES = ['LIMIT', 'STOP', 'STOP_LIMIT'] as const
+export type PendingOrderType = (typeof PENDING_ORDER_TYPES)[number]
 
 export interface TradingAccount {
   id: string
@@ -60,8 +62,11 @@ export interface PendingTradeOrder {
   tradingAccountId: string
   symbol: string
   side: OrderSide
+  type: PendingOrderType
   sizeLots: number
   limitPrice: number
+  stopPrice: number | null
+  triggeredAt: Date | null
   stopLoss: number | null
   takeProfit: number | null
   status: PendingTradeOrderStatus

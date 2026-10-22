@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/prisma'
-import { bucketStart, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
+import { bucketStart, type Candle } from '@/lib/terminal/candles'
 
 const CANDLES_TTL_MS = 5_000
 const MAX_QUERY_ROWS = 40_000
@@ -72,14 +72,13 @@ function aggregate(
 /** Candles built from the ticks this server has recorded for `symbol`. */
 export async function getMarketCandles(
   symbol: string,
-  timeframe: TimeframeId,
+  seconds: number,
   limit = 500,
 ): Promise<MarketCandlesResult> {
-  const key = `${symbol}:${timeframe}:${limit}`
+  const key = `${symbol}:${seconds}:${limit}`
   const hit = cache.get(key)
   if (hit && hit.expires > Date.now()) return hit.value
 
-  const seconds = TIMEFRAMES.find((item) => item.id === timeframe)?.seconds ?? 60
   const expectedMinutes = Math.ceil((limit * seconds) / 60) + 2
   const rows = await prisma.marketCandle.findMany({
     where: { symbol },
