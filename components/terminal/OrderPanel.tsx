@@ -23,6 +23,30 @@ const USD_PRESETS = [100, 500, 1000, 5000] as const
 const MIN_ORDER_LOTS = 0.01
 const MAX_ORDER_LOTS = 50
 
+/** Digits before the decimal in the current market price: 1.2 → 1, 12.4 → 2, 4027 → 4. */
+function priceIntegerDigits(price: number) {
+  if (!Number.isFinite(price) || price <= 0) return 1
+  return Math.max(1, Math.floor(Math.log10(price)) + 1)
+}
+
+/**
+ * Inserts the decimal separator at the same place as the current quote while typing.
+ * Deletions are left alone so the trader can erase the dot without it snapping back.
+ */
+function formatPriceEntry(raw: string, previous: string, integerDigits: number, decimals: number) {
+  const normalized = raw.replace(/,/g, '.').replace(/[^\d.]/g, '')
+  if (!normalized) return ''
+
+  const dot = normalized.indexOf('.')
+  const integer = (dot === -1 ? normalized : normalized.slice(0, dot)).slice(0, integerDigits)
+  const fraction = dot === -1 ? '' : normalized.slice(dot + 1).replace(/\./g, '').slice(0, decimals)
+  const deleting = raw.length < previous.length
+
+  if (dot !== -1) return `${integer}.${fraction}`
+  if (deleting || normalized.length < integerDigits) return integer
+  return `${integer}.${normalized.slice(integerDigits).slice(0, decimals)}`
+}
+
 export function OrderPanel() {
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
   const bid = useTradingStore((state) => state.bid)
@@ -60,6 +84,9 @@ export function OrderPanel() {
         ? stop != null && stop > 0
         : limit != null && limit > 0 && stop != null && stop > 0
   const entry = side === 'BUY' ? ask : bid
+  const referencePrice = Number.isFinite(entry) && entry > 0 ? entry : meta.mockBasePrice
+  const priceDigits = priceIntegerDigits(referencePrice)
+  const priceDecimals = meta.priceDecimals
   const parsedUsd = usdAmount === '' ? null : Number(usdAmount)
   const lotsFromMargin = lotsForMarginUsd(selectedSymbol, parsedUsd ?? 0, entry, leverage)
   // USD input is a margin budget and must respect the broker's 0.01 lot step.
@@ -189,7 +216,9 @@ export function OrderPanel() {
                 <input
                   inputMode="decimal"
                   value={stopPrice}
-                  onChange={(event) => setStopPrice(event.target.value)}
+                  onChange={(event) =>
+                    setStopPrice(formatPriceEntry(event.target.value, stopPrice, priceDigits, priceDecimals))
+                  }
                   placeholder={formatPrice(selectedSymbol, entry)}
                   className={inputClass}
                 />
@@ -200,7 +229,9 @@ export function OrderPanel() {
                 <input
                   inputMode="decimal"
                   value={limitPrice}
-                  onChange={(event) => setLimitPrice(event.target.value)}
+                  onChange={(event) =>
+                    setLimitPrice(formatPriceEntry(event.target.value, limitPrice, priceDigits, priceDecimals))
+                  }
                   placeholder={formatPrice(selectedSymbol, entry)}
                   className={inputClass}
                 />
@@ -353,7 +384,13 @@ export function OrderPanel() {
 
         <div className="grid grid-cols-2 gap-2">
           <Field label="Stop loss">
-            <input inputMode="decimal" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" className={inputClass} />
+            <input
+              inputMode="decimal"
+              value={stopLoss}
+              onChange={(event) => setStopLoss(formatPriceEntry(event.target.value, stopLoss, priceDigits, priceDecimals))}
+              placeholder="Optional"
+              className={inputClass}
+            />
             {projections.sl != null && (
               <p className={cn('mt-1 font-mono text-[11px]', projections.sl >= 0 ? 'text-primary' : 'text-danger')}>
                 {formatUsd(projections.sl, { signed: true })}
@@ -361,7 +398,13 @@ export function OrderPanel() {
             )}
           </Field>
           <Field label="Take profit">
-            <input inputMode="decimal" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" className={inputClass} />
+            <input
+              inputMode="decimal"
+              value={takeProfit}
+              onChange={(event) => setTakeProfit(formatPriceEntry(event.target.value, takeProfit, priceDigits, priceDecimals))}
+              placeholder="Optional"
+              className={inputClass}
+            />
             {projections.tp != null && (
               <p className={cn('mt-1 font-mono text-[11px]', projections.tp >= 0 ? 'text-primary' : 'text-danger')}>
                 {formatUsd(projections.tp, { signed: true })}
