@@ -1,12 +1,27 @@
 import { bucketStart, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
 
-export const CANDLE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'] as const
+export const CANDLE_SYMBOLS = [
+  'EURUSD',
+  'GBPUSD',
+  'USDJPY',
+  'USDCHF',
+  'AUDUSD',
+  'USDCAD',
+  'NZDUSD',
+  'XAUUSD',
+  'BTCUSD',
+] as const
+
 export type CandleSymbol = (typeof CANDLE_SYMBOLS)[number]
 
 const YAHOO_TICKERS: Record<CandleSymbol, string> = {
   EURUSD: 'EURUSD=X',
   GBPUSD: 'GBPUSD=X',
   USDJPY: 'JPY=X',
+  USDCHF: 'USDCHF=X',
+  AUDUSD: 'AUDUSD=X',
+  USDCAD: 'USDCAD=X',
+  NZDUSD: 'NZDUSD=X',
   XAUUSD: 'GC=F',
   BTCUSD: 'BTC-USD',
 }

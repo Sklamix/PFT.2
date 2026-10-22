@@ -3,7 +3,16 @@ const CACHE_TTL_MS = 1_000
 const FETCH_TIMEOUT_MS = 4_000
 
 /** Symbols FXCM serves through its public rates feed. Gold stays on the Swissquote spot feed. */
-export const FXCM_QUOTE_SYMBOLS = ['EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD'] as const
+export const FXCM_QUOTE_SYMBOLS = [
+  'EURUSD',
+  'GBPUSD',
+  'USDJPY',
+  'USDCHF',
+  'AUDUSD',
+  'USDCAD',
+  'NZDUSD',
+  'BTCUSD',
+] as const
 export type FxcmSymbol = (typeof FXCM_QUOTE_SYMBOLS)[number]
 
 export type FxcmQuote = {
