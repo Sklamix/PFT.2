@@ -22,3 +22,6 @@ node_modules
 # Local agent skills (installed per-machine, not versioned)
 .agents/
 skills-lock.json
+
+# Cloudflare worker local secrets
+.dev.vars
