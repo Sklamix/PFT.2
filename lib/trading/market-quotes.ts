@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
 import { getFxcmQuotes, FXCM_QUOTE_SYMBOLS } from '@/lib/market/fxcm'
-import { recordGoldTick } from '@/lib/market/gold-candles'
+import { recordMarketTick } from '@/lib/market/market-candles'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
 import { getMarketQuotes, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
 import type { Quote, Quotes } from './types'
@@ -52,6 +52,9 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
           providerTime: quote.providerTime,
           updatedAt: quote.providerTime,
         })
+        void recordMarketTick(symbol, quote.mid).catch((error) => {
+          console.warn(`[pft candles] Failed to record ${symbol} tick`, error)
+        })
       }
     } catch (error) {
       console.warn('[pft market quotes] FXCM feed failed, falling back to Yahoo', error)
@@ -72,7 +75,7 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
         providerTime: gold.providerTime,
         updatedAt: gold.providerTime,
       })
-      void recordGoldTick(gold.mid).catch((error) => {
+      void recordMarketTick('XAUUSD', gold.mid).catch((error) => {
         console.warn('[pft gold candles] Failed to record spot tick', error)
       })
     } catch (error) {

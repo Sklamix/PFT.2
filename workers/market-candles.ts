@@ -1,5 +1,6 @@
+import { getFxcmQuotes, FXCM_QUOTE_SYMBOLS } from '@/lib/market/fxcm'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
-import { recordGoldTick } from '@/lib/market/gold-candles'
+import { recordMarketTick } from '@/lib/market/market-candles'
 import { prisma } from '@/lib/prisma'
 
 const DEFAULT_INTERVAL_MS = 5_000
@@ -19,17 +20,33 @@ function sleep(ms: number) {
 }
 
 async function tick() {
-  const quote = await getGoldSpotQuote()
-  await recordGoldTick(quote.mid)
-  console.info('[pft gold worker] tick', {
-    source: quote.source,
-    mid: Number(quote.mid.toFixed(3)),
-    providerTime: new Date(quote.providerTime).toISOString(),
-  })
+  const results = await Promise.allSettled([
+    (async () => {
+      const gold = await getGoldSpotQuote()
+      await recordMarketTick('XAUUSD', gold.mid)
+      return `XAUUSD ${gold.mid.toFixed(3)} (${gold.source})`
+    })(),
+    (async () => {
+      const quotes = await getFxcmQuotes()
+      const written: string[] = []
+      for (const symbol of FXCM_QUOTE_SYMBOLS) {
+        const quote = quotes.get(symbol)
+        if (!quote) continue
+        await recordMarketTick(symbol, quote.mid)
+        written.push(`${symbol} ${quote.mid}`)
+      }
+      return written.join(' · ')
+    })(),
+  ])
+
+  for (const result of results) {
+    if (result.status === 'fulfilled') console.info('[pft market worker] tick', result.value)
+    else console.error('[pft market worker] tick failed', result.reason)
+  }
 }
 
 async function run() {
-  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required to run the gold tick worker')
+  if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required to run the market candle worker')
 
   if (process.env.GOLD_TICK_ONCE === '1') {
     await tick()
@@ -38,7 +55,7 @@ async function run() {
   }
 
   const interval = intervalMs()
-  console.info(`[pft gold worker] Started (every ${interval} ms)`)
+  console.info(`[pft market worker] Started (every ${interval} ms)`)
 
   while (!stopping) {
     const startedAt = Date.now()
@@ -46,7 +63,7 @@ async function run() {
       await tick()
     } catch (error) {
       // Keep the loop alive through provider or database hiccups; the next tick retries.
-      console.error('[pft gold worker] Tick failed', error)
+      console.error('[pft market worker] Tick failed', error)
     }
     if (!stopping) await sleep(Math.max(250, interval - (Date.now() - startedAt)))
   }
@@ -55,7 +72,7 @@ async function run() {
 async function stop(signal: string) {
   if (stopping) return
   stopping = true
-  console.info(`[pft gold worker] Shutting down (${signal})`)
+  console.info(`[pft market worker] Shutting down (${signal})`)
   await prisma.$disconnect()
   process.exit(0)
 }
@@ -64,7 +81,7 @@ process.on('SIGINT', () => void stop('SIGINT'))
 process.on('SIGTERM', () => void stop('SIGTERM'))
 
 void run().catch(async (error) => {
-  console.error('[pft gold worker] Fatal error', error)
+  console.error('[pft market worker] Fatal error', error)
   await prisma.$disconnect()
   process.exit(1)
 })

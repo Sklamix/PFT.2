@@ -377,8 +377,9 @@ model ChallengePricing {
 }
 
 /// Aggregated from live spot ticks recorded by the server. One row per minute per symbol;
-/// 5m/15m/1h candles are built by aggregating these rows at read time.
-model GoldCandle {
+/// 5m/15m/1h candles are built by aggregating these rows at read time. The physical table keeps
+/// its original name so existing deployments need no migration.
+model MarketCandle {
   id        String   @id @default(cuid())
   symbol    String   @default("XAUUSD")
   minute    DateTime @db.Timestamptz(3)
@@ -389,6 +390,7 @@ model GoldCandle {
   samples   Int      @default(1)
   updatedAt DateTime @updatedAt
 
+  @@map("GoldCandle")
   @@unique([symbol, minute])
   @@index([symbol, minute])
 }

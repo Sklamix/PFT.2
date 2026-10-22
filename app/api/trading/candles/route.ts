@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
-import { getGoldCandles } from '@/lib/market/gold-candles'
+import { getMarketCandles as getTickCandles } from '@/lib/market/market-candles'
 import { CANDLE_SYMBOLS, getMarketCandles, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
 import { TIMEFRAMES, type TimeframeId } from '@/lib/terminal/candles'
 
 export const dynamic = 'force-dynamic'
 
 const TIMEFRAME_IDS = TIMEFRAMES.map((item) => item.id) as readonly string[]
+const TICK_CANDLE_SYMBOLS = new Set(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'])
 
 function isTimeframe(value: string): value is TimeframeId {
   return TIMEFRAME_IDS.includes(value)
@@ -24,23 +25,23 @@ export async function GET(request: Request) {
   }
 
   try {
-    if (symbol === 'XAUUSD') {
+    if (TICK_CANDLE_SYMBOLS.has(symbol)) {
       try {
-        const gold = await getGoldCandles(timeframe as TimeframeId)
+        const own = await getTickCandles(symbol, timeframe as TimeframeId)
         return NextResponse.json(
           {
             symbol,
             timeframe,
-            source: 'swissquote',
-            lastPrice: gold.lastPrice,
-            fetchedAt: gold.fetchedAt,
-            candles: gold.candles,
-            collecting: gold.collecting,
+            source: symbol === 'XAUUSD' ? 'swissquote' : 'fxcm',
+            lastPrice: own.lastPrice,
+            fetchedAt: own.fetchedAt,
+            candles: own.candles,
+            collecting: own.collecting,
           },
           { headers: { 'Cache-Control': 'private, no-store, max-age=0' } },
         )
       } catch (error) {
-        console.warn('[pft candles] Own XAU/USD candles unavailable, falling back to Yahoo', error)
+        console.warn(`[pft candles] Own ${symbol} candles unavailable, falling back to Yahoo`, error)
       }
     }
 

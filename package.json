@@ -13,7 +13,8 @@
     "db:seed": "prisma db seed",
     "db:seed-pricing": "tsx prisma/seed-challenge-pricing.ts",
     "worker:trading-orders": "tsx workers/trading-orders.ts",
-    "worker:gold-candles": "tsx workers/gold-candles.ts"
+    "worker:market-candles": "tsx workers/market-candles.ts",
+    "worker:gold-candles": "tsx workers/market-candles.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
