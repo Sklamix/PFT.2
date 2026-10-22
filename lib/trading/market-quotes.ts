@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { getFxcmQuotes, FXCM_QUOTE_SYMBOLS } from '@/lib/market/fxcm'
 import { recordGoldTick } from '@/lib/market/gold-candles'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
 import { getMarketQuotes, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
@@ -7,7 +8,7 @@ import type { Quote, Quotes } from './types'
 
 export const MAX_MARKET_QUOTE_AGE_MS = 15_000
 
-export type QuoteSource = 'SWISSQUOTE' | 'GOLD_API' | 'YAHOO' | 'TWELVE_DATA'
+export type QuoteSource = 'FXCM' | 'SWISSQUOTE' | 'GOLD_API' | 'YAHOO' | 'TWELVE_DATA'
 
 export type QuoteSnapshot = {
   symbol: TerminalSymbolId
@@ -33,6 +34,29 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
     (TERMINAL_SYMBOLS as readonly string[]).includes(symbol),
   )
   const snapshots = new Map<string, QuoteSnapshot>()
+
+  // FXCM's public rates feed is a real broker bid/ask stream for FX and BTC, updated every 1–2 s.
+  if (wanted.some((symbol) => (FXCM_QUOTE_SYMBOLS as readonly string[]).includes(symbol))) {
+    try {
+      const quotes = await getFxcmQuotes()
+      for (const symbol of FXCM_QUOTE_SYMBOLS) {
+        if (!wanted.includes(symbol)) continue
+        const quote = quotes.get(symbol)
+        if (!quote) continue
+        snapshots.set(symbol, {
+          symbol,
+          mid: quote.mid,
+          bid: quote.bid,
+          ask: quote.ask,
+          source: 'FXCM',
+          providerTime: quote.providerTime,
+          updatedAt: quote.providerTime,
+        })
+      }
+    } catch (error) {
+      console.warn('[pft market quotes] FXCM feed failed, falling back to Yahoo', error)
+    }
+  }
 
   // Gold spot does not exist on Yahoo (only the delayed GC=F future). Exact spot comes from the
   // free Swissquote/gold-api feed; every tick also feeds our own one-minute candle history.
