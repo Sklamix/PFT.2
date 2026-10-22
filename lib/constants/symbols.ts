@@ -260,3 +260,14 @@ export function requiredMarginUsd(symbol: string, lots: number, price: number, l
   if (!leverage) return notionalUsd(symbol, lots, price)
   return notionalUsd(symbol, lots, price) / leverage
 }
+
+/** Inverse of requiredMarginUsd: how many lots a given USD margin budget can support. */
+export function lotsForMarginUsd(symbol: string, marginUsd: number, price: number, leverage = 100) {
+  const meta = getSymbol(symbol)
+  if (!Number.isFinite(marginUsd) || marginUsd <= 0 || !Number.isFinite(price) || price <= 0) return 0
+  const effectiveLeverage = leverage > 0 ? leverage : 1
+  const marginPerLot = meta.symbol.endsWith('JPY')
+    ? meta.lotSize / effectiveLeverage
+    : (meta.lotSize * price) / effectiveLeverage
+  return marginPerLot > 0 ? marginUsd / marginPerLot : 0
+}

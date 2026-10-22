@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -8,6 +8,7 @@ import {
   calculatePnlUsd,
   formatPrice,
   getSymbol,
+  lotsForMarginUsd,
   pipValueUsd,
   requiredMarginUsd,
 } from '@/lib/constants/symbols'
@@ -18,6 +19,12 @@ import type { OrderSide } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
 
 const LOT_PRESETS = [0.01, 0.1, 1, 5] as const
+const USD_PRESETS = [100, 500, 1000, 5000] as const
+const SIZE_MODE_KEY = 'pft_order_size_mode'
+const MIN_ORDER_LOTS = 0.01
+const MAX_ORDER_LOTS = 50
+
+type SizeMode = 'lots' | 'usd'
 
 export function OrderPanel() {
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
@@ -33,7 +40,9 @@ export function OrderPanel() {
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market')
   const [pendingType, setPendingType] = useState<'LIMIT' | 'STOP' | 'STOP_LIMIT'>('LIMIT')
   const [side, setSide] = useState<OrderSide>('BUY')
+  const [sizeMode, setSizeMode] = useState<SizeMode>('lots')
   const [lots, setLots] = useState('0.10')
+  const [usdAmount, setUsdAmount] = useState('500')
   const [stopLoss, setStopLoss] = useState('')
   const [takeProfit, setTakeProfit] = useState('')
   const [limitPrice, setLimitPrice] = useState('')
@@ -41,8 +50,25 @@ export function OrderPanel() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SIZE_MODE_KEY)
+      if (stored === 'lots' || stored === 'usd') setSizeMode(stored)
+    } catch {
+      // Storage can be unavailable; keep Lots for this session.
+    }
+  }, [])
+
+  function changeSizeMode(mode: SizeMode) {
+    setSizeMode(mode)
+    try {
+      window.localStorage.setItem(SIZE_MODE_KEY, mode)
+    } catch {
+      // Storage can be unavailable; the choice still applies for this session.
+    }
+  }
+
   const meta = getSymbol(selectedSymbol)
-  const sizeLots = Number(lots)
   const sl = stopLoss === '' ? null : Number(stopLoss)
   const tp = takeProfit === '' ? null : Number(takeProfit)
   const limit = limitPrice === '' ? null : Number(limitPrice)
@@ -55,9 +81,26 @@ export function OrderPanel() {
         ? stop != null && stop > 0
         : limit != null && limit > 0 && stop != null && stop > 0
   const entry = side === 'BUY' ? ask : bid
-  const validLots = Number.isFinite(sizeLots) && sizeLots > 0
+  const parsedUsd = usdAmount === '' ? null : Number(usdAmount)
+  const rawLots =
+    sizeMode === 'usd'
+      ? lotsForMarginUsd(selectedSymbol, parsedUsd ?? 0, entry, leverage)
+      : Number(lots)
+  // USD mode allocates margin and must respect the broker's 0.01 lot step.
+  const sizeLots = sizeMode === 'usd' ? Math.floor(rawLots * 100) / 100 : rawLots
+  const validLots = Number.isFinite(sizeLots) && sizeLots >= MIN_ORDER_LOTS
+  const lotsTooLarge = validLots && sizeLots > MAX_ORDER_LOTS
   const pipValue = validLots ? pipValueUsd(selectedSymbol, sizeLots, entry) : 0
   const margin = validLots ? requiredMarginUsd(selectedSymbol, sizeLots, entry, leverage) : 0
+  const minMargin = requiredMarginUsd(selectedSymbol, MIN_ORDER_LOTS, entry, leverage)
+  const usdInvalid = sizeMode === 'usd' && parsedUsd != null && (!Number.isFinite(parsedUsd) || parsedUsd <= 0)
+  const usdTooSmall =
+    sizeMode === 'usd' &&
+    parsedUsd != null &&
+    Number.isFinite(parsedUsd) &&
+    parsedUsd > 0 &&
+    parsedUsd < minMargin
+  const marginExceeds = validLots && margin > freeMargin + 0.005
   const tradable = accountStatus === 'ACTIVE' && getSymbol(selectedSymbol).available
 
   const projections = useMemo(() => {
@@ -72,6 +115,10 @@ export function OrderPanel() {
     tradable &&
     connectionStatus === 'CONNECTED' &&
     validLots &&
+    !lotsTooLarge &&
+    !usdInvalid &&
+    !usdTooSmall &&
+    !marginExceeds &&
     !busy &&
     (orderType === 'market' || validPending) &&
     (sl == null || Number.isFinite(sl)) &&
@@ -217,37 +264,91 @@ export function OrderPanel() {
           </button>
         </div>
 
-        <Field label="Lot size">
-          <input
-            inputMode="decimal"
-            value={lots}
-            onChange={(event) => setLots(event.target.value)}
-            className={inputClass}
-          />
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {LOT_PRESETS.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setLots(preset.toFixed(2))}
-                className={cn(
-                  'rounded-full border px-2 py-0.5 font-mono text-[11px]',
-                  Number(lots) === preset
-                    ? 'border-primary/40 bg-primary/15 text-primary'
-                    : 'border-border text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {preset.toFixed(2)}
-              </button>
-            ))}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Order size</span>
+            <div className="flex rounded-md border border-border bg-secondary/60 p-0.5" role="tablist" aria-label="Order size mode">
+              {(['lots', 'usd'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="tab"
+                  aria-selected={sizeMode === mode}
+                  onClick={() => changeSizeMode(mode)}
+                  className={cn(
+                    'rounded px-2 py-1 font-mono text-[10px] font-medium uppercase tracking-wide transition-colors',
+                    sizeMode === mode ? 'bg-background text-foreground' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {mode === 'lots' ? 'Lots' : 'USD'}
+                </button>
+              ))}
+            </div>
           </div>
-          <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
-            ~{formatUsd(pipValue)} / pip · margin {formatUsd(margin)}
-          </p>
-          {validLots && margin > freeMargin ? (
-            <p className="mt-1 font-mono text-[11px] text-danger">Exceeds free margin {formatUsd(freeMargin)}</p>
-          ) : null}
-        </Field>
+
+          <Field label={sizeMode === 'lots' ? 'Lot size' : 'Margin amount (USD)'}>
+            <input
+              inputMode="decimal"
+              value={sizeMode === 'lots' ? lots : usdAmount}
+              onChange={(event) => (sizeMode === 'lots' ? setLots(event.target.value) : setUsdAmount(event.target.value))}
+              placeholder={sizeMode === 'lots' ? '0.10' : '500'}
+              className={inputClass}
+            />
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {(sizeMode === 'lots' ? LOT_PRESETS : USD_PRESETS).map((preset) => {
+                const active =
+                  sizeMode === 'lots' ? Number(lots) === preset : Number(usdAmount) === preset
+                return (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => (sizeMode === 'lots' ? setLots(preset.toFixed(2)) : setUsdAmount(String(preset)))}
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 font-mono text-[11px]',
+                      active
+                        ? 'border-primary/40 bg-primary/15 text-primary'
+                        : 'border-border text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {sizeMode === 'lots' ? preset.toFixed(2) : formatUsd(preset)}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="mt-1.5 font-mono text-[11px] text-muted-foreground">
+              {sizeMode === 'lots' ? (
+                <>~{formatUsd(pipValue)} / pip · margin {formatUsd(margin)}</>
+              ) : (
+                <>≈ {Number.isFinite(sizeLots) ? sizeLots.toFixed(2) : '0.00'} lots · margin {formatUsd(margin)} of {formatUsd(parsedUsd ?? 0)}</>
+              )}
+            </p>
+            {sizeMode === 'usd' ? (
+              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                USD is a margin budget; lots are rounded down to 0.01. Free margin {formatUsd(freeMargin)}.
+              </p>
+            ) : null}
+            {usdTooSmall ? (
+              <p role="alert" className="mt-1 font-mono text-[11px] text-danger">
+                Недостатньо коштів навіть для мінімального ордера (0.01 лота)
+              </p>
+            ) : null}
+            {usdInvalid ? (
+              <p role="alert" className="mt-1 font-mono text-[11px] text-danger">
+                Enter a positive USD amount.
+              </p>
+            ) : null}
+            {lotsTooLarge ? (
+              <p role="alert" className="mt-1 font-mono text-[11px] text-danger">
+                Maximum order size is {MAX_ORDER_LOTS.toFixed(2)} lots.
+              </p>
+            ) : null}
+            {marginExceeds ? (
+              <p role="alert" className="mt-1 font-mono text-[11px] text-danger">
+                Insufficient free margin: requires {formatUsd(margin)}, available {formatUsd(freeMargin)}.
+              </p>
+            ) : null}
+          </Field>
+        </div>
 
         <div className="grid grid-cols-2 gap-2">
           <Field label="Stop loss">
