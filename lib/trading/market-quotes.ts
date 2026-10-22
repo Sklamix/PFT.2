@@ -1,6 +1,6 @@
-import { prisma } from '@/lib/prisma'
+﻿import { prisma } from '@/lib/prisma'
 import { spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
-import { getFxcmQuotes, FXCM_QUOTE_SYMBOLS } from '@/lib/market/fxcm'
+import { getFxcmQuotes, FXCM_SYMBOLS } from '@/lib/market/fxcm'
 import { recordMarketTick } from '@/lib/market/market-candles'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
 import { getMarketQuotes, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
@@ -35,11 +35,11 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
   )
   const snapshots = new Map<string, QuoteSnapshot>()
 
-  // FXCM's public rates feed is a real broker bid/ask stream for FX and BTC, updated every 1–2 s.
-  if (wanted.some((symbol) => (FXCM_QUOTE_SYMBOLS as readonly string[]).includes(symbol))) {
+  // FXCM's public rates feed is a real broker bid/ask stream for FX and BTC, updated every 1вЂ“2 s.
+  if (wanted.some((symbol) => (FXCM_SYMBOLS as readonly string[]).includes(symbol))) {
     try {
       const quotes = await getFxcmQuotes()
-      for (const symbol of FXCM_QUOTE_SYMBOLS) {
+      for (const symbol of FXCM_SYMBOLS) {
         if (!wanted.includes(symbol)) continue
         const quote = quotes.get(symbol)
         if (!quote) continue

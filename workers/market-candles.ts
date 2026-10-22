@@ -1,4 +1,4 @@
-import { getFxcmQuotes, FXCM_QUOTE_SYMBOLS } from '@/lib/market/fxcm'
+﻿import { getFxcmQuotes, FXCM_SYMBOLS } from '@/lib/market/fxcm'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
 import { recordMarketTick } from '@/lib/market/market-candles'
 import { prisma } from '@/lib/prisma'
@@ -29,13 +29,13 @@ async function tick() {
     (async () => {
       const quotes = await getFxcmQuotes()
       const written: string[] = []
-      for (const symbol of FXCM_QUOTE_SYMBOLS) {
+      for (const symbol of FXCM_SYMBOLS) {
         const quote = quotes.get(symbol)
         if (!quote) continue
         await recordMarketTick(symbol, quote.mid)
         written.push(`${symbol} ${quote.mid}`)
       }
-      return written.join(' · ')
+      return written.join(' В· ')
     })(),
   ])
 

@@ -1,5 +1,7 @@
 export const FOREX_MAJORS = ['EURUSD', 'GBPUSD', 'USDJPY'] as const
-export const SECONDARY_SYMBOLS = ['XAUUSD', 'BTCUSD'] as const
+export const METAL_SYMBOLS = ['XAUUSD', 'XAGUSD', 'COPPER'] as const
+export const CRYPTO_SYMBOLS = ['BTCUSD'] as const
+export const SECONDARY_SYMBOLS = [...METAL_SYMBOLS, ...CRYPTO_SYMBOLS] as const
 
 type ForexSpec = readonly [
   id: string,
@@ -62,8 +64,8 @@ export type SymbolCategory = 'forex' | 'metal' | 'crypto'
 /** UI grouping for the symbol selector. Order here is the display order. */
 export const SYMBOL_GROUPS = [
   { id: 'forex', label: 'Forex', symbols: FOREX_SYMBOLS },
-  { id: 'metal', label: 'Metals', symbols: ['XAUUSD'] },
-  { id: 'crypto', label: 'Crypto', symbols: ['BTCUSD'] },
+  { id: 'metal', label: 'Metals', symbols: METAL_SYMBOLS },
+  { id: 'crypto', label: 'Crypto', symbols: CRYPTO_SYMBOLS },
 ] as const satisfies readonly {
   id: SymbolCategory
   label: string
@@ -119,6 +121,32 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
     priceDecimals: 2,
     typicalSpreadPips: 25,
     mockBasePrice: 4140,
+    category: 'metal',
+    available: true,
+  },
+  XAGUSD: {
+    id: 'XAGUSD',
+    symbol: 'XAGUSD',
+    displayName: 'XAG/USD',
+    name: 'Silver / US Dollar',
+    pipSize: 0.01,
+    lotSize: 5000,
+    priceDecimals: 3,
+    typicalSpreadPips: 3,
+    mockBasePrice: 54.8,
+    category: 'metal',
+    available: true,
+  },
+  COPPER: {
+    id: 'COPPER',
+    symbol: 'COPPER',
+    displayName: 'COPPER',
+    name: 'Copper / US Dollar',
+    pipSize: 0.0005,
+    lotSize: 25000,
+    priceDecimals: 4,
+    typicalSpreadPips: 8,
+    mockBasePrice: 6.4024,
     category: 'metal',
     available: true,
   },

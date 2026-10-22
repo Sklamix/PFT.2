@@ -9,8 +9,11 @@ const FXCM_SYMBOLS = [
   'GBPJPY', 'GBPCHF', 'GBPAUD', 'GBPCAD', 'GBPNZD',
   'AUDJPY', 'AUDCHF', 'AUDCAD', 'AUDNZD', 'NZDJPY', 'NZDCHF', 'NZDCAD',
   'CADJPY', 'CHFJPY', 'CADCHF',
+  'XAGUSD', 'Copper',
   'BTCUSD',
 ] as const
+
+const INTERNAL_SYMBOL: Record<string, string> = { Copper: 'COPPER' }
 const CYCLES = 4
 const CYCLE_DELAY_MS = 5_000
 const FETCH_TIMEOUT_MS = 5_000
@@ -33,7 +36,7 @@ function parseFxcm(xml: string): Tick[] {
     const bid = Number(match[2].match(/<Bid>([^<]+)<\/Bid>/)?.[1])
     const ask = Number(match[2].match(/<Ask>([^<]+)<\/Ask>/)?.[1])
     if (!finitePrice(bid) || !finitePrice(ask) || ask < bid) continue
-    ticks.push({ symbol, mid: (bid + ask) / 2 })
+    ticks.push({ symbol: INTERNAL_SYMBOL[symbol] ?? symbol, mid: (bid + ask) / 2 })
   }
   return ticks
 }

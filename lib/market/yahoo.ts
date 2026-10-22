@@ -29,6 +29,8 @@ export const CANDLE_SYMBOLS = [
   'CADJPY',
   'CHFJPY',
   'CADCHF',
+  'XAGUSD',
+  'COPPER',
   'XAUUSD',
   'BTCUSD',
 ] as const
@@ -64,6 +66,8 @@ const YAHOO_TICKERS: Record<CandleSymbol, string> = {
   CADJPY: 'CADJPY=X',
   CHFJPY: 'CHFJPY=X',
   CADCHF: 'CADCHF=X',
+  XAGUSD: 'SI=F',
+  COPPER: 'HG=F',
   XAUUSD: 'GC=F',
   BTCUSD: 'BTC-USD',
 }

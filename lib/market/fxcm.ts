@@ -2,8 +2,8 @@ const FXCM_URL = 'https://rates.fxcm.com/RatesXML'
 const CACHE_TTL_MS = 1_000
 const FETCH_TIMEOUT_MS = 4_000
 
-/** Symbols FXCM serves through its public rates feed. Gold stays on the Swissquote spot feed. */
-export const FXCM_QUOTE_SYMBOLS = [
+/** Internal symbols served through FXCM's public rates feed. Gold stays on the Swissquote spot feed. */
+export const FXCM_SYMBOLS = [
   'EURUSD',
   'GBPUSD',
   'USDJPY',
@@ -32,9 +32,11 @@ export const FXCM_QUOTE_SYMBOLS = [
   'CADJPY',
   'CHFJPY',
   'CADCHF',
+  'XAGUSD',
+  'COPPER',
   'BTCUSD',
 ] as const
-export type FxcmSymbol = (typeof FXCM_QUOTE_SYMBOLS)[number]
+export type FxcmSymbol = (typeof FXCM_SYMBOLS)[number]
 
 export type FxcmQuote = {
   symbol: FxcmSymbol
@@ -44,19 +46,26 @@ export type FxcmQuote = {
   providerTime: number
 }
 
-const SYMBOLS = new Set<string>(FXCM_QUOTE_SYMBOLS)
+/** Internal id → FXCM's XML symbol where they differ. */
+const PROVIDER_SYMBOL: Record<FxcmSymbol, string> = Object.fromEntries(
+  FXCM_SYMBOLS.map((symbol) => [symbol, symbol === 'COPPER' ? 'Copper' : symbol]),
+) as Record<FxcmSymbol, string>
+
+const INTERNAL_SYMBOL = new Map<string, FxcmSymbol>(
+  FXCM_SYMBOLS.map((symbol) => [PROVIDER_SYMBOL[symbol], symbol]),
+)
 
 function parseRates(xml: string): Map<string, FxcmQuote> {
   const quotes = new Map<string, FxcmQuote>()
   for (const match of xml.matchAll(/<Rate Symbol="([^"]+)">([\s\S]*?)<\/Rate>/g)) {
-    const symbol = match[1]
-    if (!SYMBOLS.has(symbol)) continue
+    const symbol = INTERNAL_SYMBOL.get(match[1])
+    if (!symbol) continue
     const body = match[2]
     const bid = Number(body.match(/<Bid>([^<]+)<\/Bid>/)?.[1])
     const ask = Number(body.match(/<Ask>([^<]+)<\/Ask>/)?.[1])
     if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask < bid) continue
     quotes.set(symbol, {
-      symbol: symbol as FxcmSymbol,
+      symbol,
       bid,
       ask,
       mid: (bid + ask) / 2,
