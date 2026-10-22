@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { formatPrice, getSymbol } from '@/lib/constants/symbols'
 import { formatPct, formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import type { CloseReason, OrderSide } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
 
@@ -27,6 +28,7 @@ export function PositionsTable() {
   const cancelPending = useTerminalBook((state) => state.cancelPending)
   const closing = useTerminalBook((state) => state.closing)
   const cancelling = useTerminalBook((state) => state.cancelling)
+  const timeZone = useTimezoneStore((state) => state.timeZone)
   const [closeError, setCloseError] = useState<string | null>(null)
 
   async function close(id: string) {
@@ -68,6 +70,7 @@ export function PositionsTable() {
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</TableHead>
+                  <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Time</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Side</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Lots</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Entry</TableHead>
@@ -82,6 +85,7 @@ export function PositionsTable() {
                 {pending.map((order) => (
                   <TableRow key={order.id} className="font-mono text-xs">
                     <TableCell>{getSymbol(order.symbol).displayName}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatStamp(order.createdAt, timeZone)}</TableCell>
                     <TableCell>
                       <SideBadge side={order.side} />
                     </TableCell>
@@ -107,6 +111,7 @@ export function PositionsTable() {
                 {positions.map((position) => (
                   <TableRow key={position.id} className="font-mono text-xs">
                     <TableCell>{getSymbol(position.symbol).displayName}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatStamp(position.openedAt, timeZone)}</TableCell>
                     <TableCell>
                       <SideBadge side={position.side} />
                     </TableCell>
@@ -156,7 +161,7 @@ export function PositionsTable() {
               <TableBody>
                 {history.map((trade) => (
                   <TableRow key={trade.id} className="font-mono text-xs">
-                    <TableCell className="text-muted-foreground">{formatStamp(trade.closedAt)}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatStamp(trade.closedAt, timeZone)}</TableCell>
                     <TableCell>{getSymbol(trade.symbol).displayName}</TableCell>
                     <TableCell>
                       <SideBadge side={trade.side} />
@@ -244,8 +249,9 @@ function RuleCard({
   )
 }
 
-function formatStamp(value: Date) {
+function formatStamp(value: Date, timeZone: string) {
   return new Date(value).toLocaleString('en-GB', {
+    timeZone,
     month: 'short',
     day: '2-digit',
     hour: '2-digit',

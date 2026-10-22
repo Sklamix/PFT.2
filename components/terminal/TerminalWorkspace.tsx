@@ -7,6 +7,7 @@ import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/challenges'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
 import { OrderPanel } from './OrderPanel'
@@ -56,6 +57,10 @@ export function TerminalWorkspace() {
   const [challengeViewOpen, setChallengeViewOpen] = useState(false)
   const accountId = useTerminalBook((state) => state.accountId)
   const hasNoAccounts = loadState === 'error' && loadError === 'No trading accounts on this login yet'
+
+  useEffect(() => {
+    loadStoredTimeZone()
+  }, [])
 
   const loadOrders = useCallback(async () => {
     const response = await fetch('/api/checkout/pending', { cache: 'no-store' }).catch(() => null)

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
 import { applyTick, generateCandleHistory, TIMEFRAMES, type Candle, type TimeframeId } from '@/lib/terminal/candles'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
+import { useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import { cn } from '@/lib/utils'
 
 const CHART_BG = '#0b111d'
@@ -55,6 +56,7 @@ export function TradingChart() {
   const containerRef = useRef<HTMLDivElement>(null)
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
   const currentPrice = useTradingStore((state) => state.currentPrice)
+  const timeZone = useTimezoneStore((state) => state.timeZone)
   const [timeframe, setTimeframe] = useState<TimeframeId>('5m')
   const [collecting, setCollecting] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
@@ -89,6 +91,9 @@ export function TradingChart() {
           fontFamily: 'var(--font-geist-mono), ui-monospace, monospace',
           attributionLogo: false,
         },
+        localization: {
+          timeFormatter: (time: unknown) => formatChartTime(Number(time), timeZone),
+        },
         grid: {
           vertLines: { color: GRID },
           horzLines: { color: GRID },
@@ -106,6 +111,7 @@ export function TradingChart() {
           borderColor: GRID,
           timeVisible: true,
           secondsVisible: tf.seconds < 300,
+          tickMarkFormatter: (time: unknown, tickMarkType: number) => formatChartTick(Number(time), tickMarkType, timeZone),
         },
       })
       chart = instance
@@ -149,7 +155,7 @@ export function TradingChart() {
       lastCandleRef.current = null
       chart?.remove()
     }
-  }, [selectedSymbol, timeframe, tf.seconds, reloadKey])
+  }, [selectedSymbol, timeframe, tf.seconds, reloadKey, timeZone])
 
   // The gold chart is built from ticks recorded by our server; retry until history exists.
   useEffect(() => {
@@ -223,5 +229,43 @@ function toVolumeBar(candle: Candle) {
     time: candle.time as never,
     value: candle.volume,
     color: candle.close >= candle.open ? 'rgba(16, 185, 129, 0.35)' : 'rgba(244, 63, 94, 0.35)',
+  }
+}
+
+/** Lightweight-charts tick marks: keep labels short and render them in the selected timezone. */
+function formatChartTick(time: number, tickMarkType: number, timeZone: string) {
+  const date = new Date(time * 1_000)
+  try {
+    if (tickMarkType === 0) return new Intl.DateTimeFormat('en-GB', { timeZone, year: 'numeric' }).format(date)
+    if (tickMarkType === 1) return new Intl.DateTimeFormat('en-GB', { timeZone, month: 'short' }).format(date)
+    if (tickMarkType === 2) return new Intl.DateTimeFormat('en-GB', { timeZone, day: '2-digit', month: 'short' }).format(date)
+    if (tickMarkType === 3) {
+      return new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(date)
+    }
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(date)
+  } catch {
+    return ''
+  }
+}
+
+function formatChartTime(time: number, timeZone: string) {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(new Date(time * 1_000))
+  } catch {
+    return ''
   }
 }

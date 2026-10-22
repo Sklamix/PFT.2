@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Clock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -14,7 +14,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { SYMBOL_GROUPS, formatPrice, formatSpreadValue, getSymbol } from '@/lib/constants/symbols'
 import { formatPct, formatUsd } from '@/lib/dashboard-data'
+import { useNow } from '@/hooks/use-now'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { TIMEZONE_OPTIONS, timeZoneOffsetLabel, useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
 
@@ -129,7 +131,58 @@ export function TerminalHeader() {
           </div>
         </div>
       </dl>
+
+      <TimezoneClock />
     </header>
+  )
+}
+
+function TimezoneClock() {
+  const now = useNow()
+  const timeZone = useTimezoneStore((state) => state.timeZone)
+  const setTimeZone = useTimezoneStore((state) => state.setTimeZone)
+  const label = TIMEZONE_OPTIONS.find((option) => option.value === timeZone)?.label ?? timeZone
+  const time = now === null
+    ? '--:--:--'
+    : new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(now))
+  const date = now === null
+    ? ''
+    : new Intl.DateTimeFormat('en-GB', { timeZone, day: '2-digit', month: 'short' }).format(new Date(now))
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="outline" className="h-9 shrink-0 justify-between gap-2 border-border bg-card px-2.5" />}
+        aria-label={`Terminal time ${time} ${label}. Change timezone`}
+      >
+        <Clock className="size-4 text-primary" aria-hidden="true" />
+        <span className="flex flex-col items-start leading-none">
+          <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+            {label} · {timeZoneOffsetLabel(timeZone)}
+          </span>
+          <span className="mt-0.5 font-mono text-xs tabular-nums text-foreground">
+            {time} <span className="text-muted-foreground">{date}</span>
+          </span>
+        </span>
+        <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Chart timezone</DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuRadioGroup value={timeZone} onValueChange={setTimeZone}>
+          {TIMEZONE_OPTIONS.map((option) => (
+            <DropdownMenuRadioItem key={option.value} value={option.value} className="font-mono text-xs">
+              <span className="flex w-full items-center justify-between gap-4">
+                <span>{option.label}</span>
+                <span className="text-[10px] text-muted-foreground">{timeZoneOffsetLabel(option.value)}</span>
+              </span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
