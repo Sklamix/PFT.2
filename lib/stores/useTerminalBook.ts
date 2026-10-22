@@ -70,6 +70,14 @@ type TerminalBook = {
   placePending: (
     input: OrderRequest & { type: 'LIMIT' | 'STOP' | 'STOP_LIMIT'; limitPrice: number; stopPrice?: number | null },
   ) => Promise<ActionResult<{ pendingOrder: PendingTradeOrder }>>
+  modifyPending: (
+    id: string,
+    prices: { limitPrice?: number; stopPrice?: number },
+  ) => Promise<ActionResult<{ pendingOrder: PendingTradeOrder }>>
+  updateProtection: (
+    id: string,
+    levels: { stopLoss: number | null; takeProfit: number | null },
+  ) => Promise<ActionResult<object>>
   closePosition: (id: string) => Promise<ActionResult<{ trade: TradeHistory }>>
   cancelPending: (id: string) => Promise<ActionResult<object>>
   sync: () => Promise<void>
@@ -345,6 +353,45 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       applyBook(body.book)
       if (!ok || !body.pendingOrder) return { ok: false, error: body.error ?? 'Pending order rejected' }
       return { ok: true, pendingOrder: toPendingOrder(body.pendingOrder) }
+    },
+
+    modifyPending: async (id, prices) => {
+      const state = get()
+      const order = state.pending.find((item) => item.id === id)
+      if (!order) return { ok: false, error: 'Pending order not found' }
+      const mark = state.marks[order.symbol]
+      const { ok, body } = await call('/api/trading/pending', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          accountId: state.accountId,
+          pendingOrderId: id,
+          limitPrice: prices.limitPrice ?? null,
+          stopPrice: prices.stopPrice ?? null,
+          quote: mark ? { bid: mark.bid, ask: mark.ask } : null,
+        }),
+      })
+      applyBook(body.book)
+      if (!ok || !body.pendingOrder) return { ok: false, error: body.error ?? 'Order modification rejected' }
+      return { ok: true, pendingOrder: toPendingOrder(body.pendingOrder) }
+    },
+
+    updateProtection: async (id, levels) => {
+      const state = get()
+      const position = state.positions.find((item) => item.id === id)
+      if (!position) return { ok: false, error: 'Position not found' }
+      const mark = state.marks[position.symbol]
+      const { ok, body } = await call('/api/trading/protection', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          positionId: id,
+          stopLoss: levels.stopLoss,
+          takeProfit: levels.takeProfit,
+          quote: mark ? { bid: mark.bid, ask: mark.ask } : null,
+        }),
+      })
+      applyBook(body.book)
+      if (!ok) return { ok: false, error: body.error ?? 'Protection update rejected' }
+      return { ok: true }
     },
 
     closePosition: async (id) => {

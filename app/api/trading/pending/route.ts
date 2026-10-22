@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { cancelPendingOrder, placePendingOrder } from '@/lib/trading/engine'
+import { prisma } from '@/lib/prisma'
+import { cancelPendingOrder, modifyPendingOrder, placePendingOrder } from '@/lib/trading/engine'
 import { handleError, readJson, respond } from '@/lib/trading/http'
-import { parsePendingOrderInput, ValidationError } from '@/lib/trading/validation'
+import { parsePendingModifyInput, parsePendingOrderInput, ValidationError } from '@/lib/trading/validation'
 import { authorizeAccount } from '@/lib/trader/guard'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
 
@@ -15,6 +16,26 @@ export async function POST(request: Request) {
     const quote = (await getFreshMarketQuotes())[input.symbol]
     if (!quote) return NextResponse.json({ error: 'A fresh Twelve Data quote is not available' }, { status: 503 })
     return respond(await placePendingOrder({ ...input, quote }))
+  } catch (error) {
+    return handleError(error)
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const input = parsePendingModifyInput(await readJson(request))
+    const { error } = await authorizeAccount(input.accountId)
+    if (error) return error
+    const order = await prisma.pendingTradeOrder.findUnique({
+      where: { id: input.pendingOrderId },
+      select: { symbol: true, tradingAccountId: true },
+    })
+    if (!order || order.tradingAccountId !== input.accountId) {
+      return NextResponse.json({ error: 'Pending order not found' }, { status: 404 })
+    }
+    const quote = (await getFreshMarketQuotes())[order.symbol]
+    if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
+    return respond(await modifyPendingOrder({ ...input, quote }))
   } catch (error) {
     return handleError(error)
   }

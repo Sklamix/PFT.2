@@ -1,6 +1,14 @@
 import { AVAILABLE_SYMBOLS, getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
 import { cachedReferencePrice } from '@/lib/market/yahoo'
-import type { CloseInput, OrderInput, PendingOrderInput, Quote, Quotes } from './types'
+import type {
+  CloseInput,
+  OrderInput,
+  PendingOrderInput,
+  PendingOrderModifyInput,
+  PositionProtectionInput,
+  Quote,
+  Quotes,
+} from './types'
 
 export const TRADABLE_SYMBOLS: readonly string[] = AVAILABLE_SYMBOLS
 export const MIN_LOTS = 0.01
@@ -132,6 +140,38 @@ export function parsePendingOrderInput(raw: unknown): PendingOrderInput {
     takeProfit: optionalPrice(body, 'takeProfit'),
     quote: parseQuote(symbol, body.quote),
   }
+}
+
+export function parsePendingModifyInput(raw: unknown): Omit<PendingOrderModifyInput, 'quote'> {
+  const body = asBody(raw)
+  const accountId = requiredString(body, 'accountId')
+  const pendingOrderId = requiredString(body, 'pendingOrderId')
+  const limitPrice = optionalPrice(body, 'limitPrice')
+  const stopPrice = optionalPrice(body, 'stopPrice')
+  if (limitPrice == null && stopPrice == null) {
+    throw new ValidationError('limitPrice or stopPrice is required')
+  }
+  return { accountId, pendingOrderId, limitPrice, stopPrice }
+}
+
+export function parseProtectionInput(raw: unknown): Omit<PositionProtectionInput, 'accountId' | 'quote'> {
+  const body = asBody(raw)
+  const positionId = requiredString(body, 'positionId')
+  return {
+    positionId,
+    stopLoss: nullablePrice(body, 'stopLoss'),
+    takeProfit: nullablePrice(body, 'takeProfit'),
+  }
+}
+
+function nullablePrice(body: Body, key: string) {
+  const value = body[key]
+  if (value == null || value === '') return null
+  const num = typeof value === 'string' ? Number(value) : value
+  if (typeof num !== 'number' || !Number.isFinite(num) || num <= 0) {
+    throw new ValidationError(`${key} must be a positive number or null`)
+  }
+  return num
 }
 
 export function parseCloseInput(raw: unknown): CloseInput {

@@ -66,6 +66,10 @@ export interface BookTx {
   createPendingOrder(data: NewPendingOrder): Promise<PendingTradeOrder>
   /** Marks a STOP_LIMIT order as triggered so it can wait for its limit price. */
   triggerPendingOrder(id: string): Promise<boolean>
+  /** Updates drag-modified prices on a still-pending order. */
+  updatePendingOrderPrices(id: string, prices: { limitPrice: number; stopPrice: number | null }): Promise<PendingTradeOrder | null>
+  /** Updates SL/TP on an open position. */
+  updatePositionProtection(id: string, stopLoss: number | null, takeProfit: number | null): Promise<boolean>
   updatePendingOrderStatus(id: string, status: PendingTradeOrderStatus, reason?: string): Promise<boolean>
   cancelPendingOrders(reason: string): Promise<void>
   markPositions(positions: Position[]): Promise<void>
@@ -199,6 +203,28 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
         const order = pendingOrders.find((item) => item.id === id)
         if (order) order.triggeredAt = triggeredAt
       }
+      return result.count > 0
+    },
+
+    async updatePendingOrderPrices(id, prices) {
+      const result = await tx.pendingTradeOrder.updateMany({
+        where: { id, tradingAccountId: accountId, status: 'PENDING' },
+        data: { limitPrice: prices.limitPrice, stopPrice: prices.stopPrice },
+      })
+      if (result.count === 0) return null
+      const order = pendingOrders.find((item) => item.id === id)
+      if (!order) return null
+      order.limitPrice = prices.limitPrice
+      order.stopPrice = prices.stopPrice
+      order.updatedAt = new Date()
+      return { ...order }
+    },
+
+    async updatePositionProtection(id, stopLoss, takeProfit) {
+      const result = await tx.position.updateMany({
+        where: { id, tradingAccountId: accountId, status: 'OPEN' },
+        data: { stopLoss, takeProfit },
+      })
       return result.count > 0
     },
 
@@ -481,6 +507,23 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       if (!order || order.tradingAccountId !== accountId || order.status !== 'PENDING' || order.triggeredAt) return false
       order.triggeredAt = new Date()
       order.updatedAt = new Date()
+      return true
+    },
+
+    async updatePendingOrderPrices(id, prices) {
+      const order = state.pendingOrders.get(id)
+      if (!order || order.tradingAccountId !== accountId || order.status !== 'PENDING') return null
+      order.limitPrice = prices.limitPrice
+      order.stopPrice = prices.stopPrice
+      order.updatedAt = new Date()
+      return { ...order }
+    },
+
+    async updatePositionProtection(id, stopLoss, takeProfit) {
+      const position = state.positions.get(id)
+      if (!position || position.tradingAccountId !== accountId || position.status !== 'OPEN') return false
+      position.stopLoss = stopLoss
+      position.takeProfit = takeProfit
       return true
     },
 

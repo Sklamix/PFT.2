@@ -87,3 +87,20 @@ export type PendingOrderInput = {
   takeProfit: number | null
   quote: Quote
 }
+
+/** Chart drag modifies only the prices that were actually moved. */
+export type PendingOrderModifyInput = {
+  accountId: string
+  pendingOrderId: string
+  limitPrice: number | null
+  stopPrice: number | null
+  quote: Quote
+}
+
+export type PositionProtectionInput = {
+  accountId: string
+  positionId: string
+  stopLoss: number | null
+  takeProfit: number | null
+  quote: Quote
+}

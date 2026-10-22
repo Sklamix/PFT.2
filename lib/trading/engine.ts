@@ -16,7 +16,18 @@ import {
   utcDayStart,
   validateProtection,
 } from './risk'
-import type { AccountView, Breach, BookPayload, CloseInput, OrderInput, PendingOrderInput, Quotes, RiskMetrics } from './types'
+import type {
+  AccountView,
+  Breach,
+  BookPayload,
+  CloseInput,
+  OrderInput,
+  PendingOrderInput,
+  PendingOrderModifyInput,
+  PositionProtectionInput,
+  Quotes,
+  RiskMetrics,
+} from './types'
 import { parseQuote } from './validation'
 
 const HISTORY_LIMIT = 50
@@ -408,6 +419,86 @@ export async function placePendingOrder(input: PendingOrderInput): Promise<Engin
     })
     const book = await persist(w)
     return { ok: true, pendingOrder, book }
+  })
+  return result ?? notFound()
+}
+
+export async function modifyPendingOrder(
+  input: PendingOrderModifyInput,
+): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> {
+  const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> => {
+    const w = load(tx)
+    if (w.status !== 'ACTIVE') {
+      return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
+    }
+
+    const order = w.pendingOrders.find((item) => item.id === input.pendingOrderId)
+    if (!order) return { ok: false, status: 404, error: 'Pending order not found', book: await snapshot(w) }
+
+    const quote = parseQuote(order.symbol, input.quote)
+    const limitPrice = input.limitPrice ?? order.limitPrice
+    const stopPrice =
+      order.type === 'LIMIT' ? null : input.stopPrice ?? order.stopPrice ?? order.limitPrice
+    const quotePrice = order.side === 'BUY' ? quote.ask : quote.bid
+
+    if (order.type === 'LIMIT' || (order.type === 'STOP_LIMIT' && order.triggeredAt)) {
+      const correctSide = order.side === 'BUY' ? limitPrice < quotePrice : limitPrice > quotePrice
+      if (!correctSide) {
+        return {
+          ok: false,
+          status: 422,
+          error: `A ${order.side} limit price must be ${order.side === 'BUY' ? 'below the current ask' : 'above the current bid'}`,
+          book: await persist(w),
+        }
+      }
+    } else {
+      const stop = stopPrice ?? order.limitPrice
+      const correctSide = order.side === 'BUY' ? stop > quotePrice : stop < quotePrice
+      if (!correctSide) {
+        return {
+          ok: false,
+          status: 422,
+          error: `A ${order.side} stop price must be ${order.side === 'BUY' ? 'above the current ask' : 'below the current bid'}`,
+          book: await persist(w),
+        }
+      }
+    }
+
+    const updated = await tx.updatePendingOrderPrices(order.id, { limitPrice, stopPrice })
+    if (!updated) return { ok: false, status: 409, error: 'Pending order is no longer active', book: await snapshot(w) }
+    return { ok: true, pendingOrder: updated, book: await persist(w) }
+  })
+  return result ?? notFound()
+}
+
+export async function modifyPositionProtection(input: PositionProtectionInput): Promise<EngineResult> {
+  const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult> => {
+    const w = load(tx)
+    if (w.status !== 'ACTIVE') {
+      return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
+    }
+
+    let position = w.positions.find((item) => item.id === input.positionId)
+    if (!position) return { ok: false, status: 404, error: 'Position not found', book: await snapshot(w) }
+
+    const quote = parseQuote(position.symbol, input.quote)
+    await applyQuotes(w, { [position.symbol]: quote })
+    await settleProtectiveOrders(w)
+    position = w.positions.find((item) => item.id === input.positionId)
+    if (!position) return { ok: false, status: 409, error: 'Position is already closed', book: await persist(w) }
+
+    const protectionError = validateProtection(position.symbol, position.side, position.entryPrice, input.stopLoss, input.takeProfit)
+    if (protectionError) return { ok: false, status: 422, error: protectionError, book: await persist(w) }
+
+    const updated = await tx.updatePositionProtection(position.id, input.stopLoss, input.takeProfit)
+    if (!updated) return { ok: false, status: 409, error: 'Position is already closed', book: await persist(w) }
+    w.positions = w.positions.map((item) =>
+      item.id === position.id ? { ...item, stopLoss: input.stopLoss, takeProfit: input.takeProfit } : item,
+    )
+
+    await settleProtectiveOrders(w)
+    await enforceRules(w)
+    return { ok: true, book: await persist(w) }
   })
   return result ?? notFound()
 }
