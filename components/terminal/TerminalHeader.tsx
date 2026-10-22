@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, ChevronDown, Clock, Search, Star } from 'lucide-react'
+import { Check, ChevronDown, Clock, Plus, Star } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -131,10 +131,16 @@ function SymbolPicker({
     )
   }
 
-  const favoriteSymbols = favorites.filter(matches)
   const groups = SYMBOL_GROUPS.map((group) => ({ ...group, symbols: group.symbols.filter(matches) })).filter(
     (group) => group.symbols.length > 0,
   )
+
+  function select(id: TerminalSymbolId) {
+    if (!getSymbol(id).available) return
+    // A symbol chosen from search becomes part of the visible list automatically.
+    if (!favorites.includes(id)) toggleFavorite(id)
+    onSelect(id)
+  }
 
   return (
     <DropdownMenu>
@@ -148,7 +154,7 @@ function SymbolPicker({
       <DropdownMenuContent align="start" className="w-80 p-0">
         <div className="border-b border-border p-2">
           <label className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5">
-            <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <Plus className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <input
               autoFocus
               value={query}
@@ -156,55 +162,63 @@ function SymbolPicker({
               onKeyDown={(event) => {
                 if (event.key !== 'Escape') event.stopPropagation()
               }}
-              placeholder="Search symbol or asset…"
-              aria-label="Search symbols"
+              placeholder="Add symbols"
+              aria-label="Add symbols"
               className="h-8 w-full bg-transparent font-mono text-xs text-foreground outline-none placeholder:text-muted-foreground/70"
             />
           </label>
         </div>
 
         <div className="max-h-80 overflow-y-auto p-1">
-          {favoriteSymbols.length > 0 && (
-            <>
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-highlight">
-                  Favorites
-                </DropdownMenuLabel>
-                {favoriteSymbols.map((id) => (
-                  <SymbolRow
-                    key={`favorite-${id}`}
-                    id={id}
-                    selected={selectedSymbol === id}
-                    favorite
-                    onSelect={onSelect}
-                    onToggleFavorite={toggleFavorite}
-                  />
-                ))}
-              </DropdownMenuGroup>
-              <DropdownMenuSeparator />
-            </>
-          )}
-
-          {groups.map((group, index) => (
-            <DropdownMenuGroup key={group.id}>
-              <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                {group.label}
+          {!normalized && favorites.length > 0 && (
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-highlight">
+                Favorites
               </DropdownMenuLabel>
-              {group.symbols.map((id) => (
+              {favorites.map((id) => (
                 <SymbolRow
                   key={id}
                   id={id}
                   selected={selectedSymbol === id}
-                  favorite={favorites.includes(id)}
-                  onSelect={onSelect}
+                  favorite
+                  onSelect={select}
                   onToggleFavorite={toggleFavorite}
                 />
               ))}
-              {index < groups.length - 1 && <DropdownMenuSeparator />}
             </DropdownMenuGroup>
-          ))}
+          )}
 
-          {favoriteSymbols.length === 0 && groups.length === 0 && (
+          {!normalized && favorites.length === 0 && (
+            <div className="px-3 py-8 text-center">
+              <Plus className="mx-auto size-5 text-muted-foreground" aria-hidden="true" />
+              <p className="mt-2 text-sm font-medium text-foreground">Add symbols</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Search above and tap the star to build your terminal list.
+              </p>
+            </div>
+          )}
+
+          {normalized &&
+            groups.map((group, index) => (
+              <DropdownMenuGroup key={group.id}>
+                <DropdownMenuLabel className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                  {group.label}
+                </DropdownMenuLabel>
+                {group.symbols.map((id) => (
+                  <SymbolRow
+                    key={id}
+                    id={id}
+                    selected={selectedSymbol === id}
+                    favorite={favorites.includes(id)}
+                    onSelect={select}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                ))}
+                {index < groups.length - 1 && <DropdownMenuSeparator />}
+              </DropdownMenuGroup>
+            ))}
+
+          {normalized && groups.length === 0 && (
             <p className="px-3 py-6 text-center text-xs text-muted-foreground">No assets match “{query.trim()}”.</p>
           )}
         </div>
@@ -223,7 +237,7 @@ function SymbolRow({
   id: TerminalSymbolId
   selected: boolean
   favorite: boolean
-  onSelect: (symbol: string) => void
+  onSelect: (symbol: TerminalSymbolId) => void
   onToggleFavorite: (symbol: TerminalSymbolId) => void
 }) {
   const item = getSymbol(id)
