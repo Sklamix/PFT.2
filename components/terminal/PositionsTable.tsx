@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, X } from 'lucide-react'
+import { Check, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -28,11 +28,16 @@ export function PositionsTable() {
   const cancelPending = useTerminalBook((state) => state.cancelPending)
   const closeAll = useTerminalBook((state) => state.closeAll)
   const cancelAll = useTerminalBook((state) => state.cancelAll)
+  const updateProtection = useTerminalBook((state) => state.updateProtection)
   const closing = useTerminalBook((state) => state.closing)
   const cancelling = useTerminalBook((state) => state.cancelling)
   const timeZone = useTimezoneStore((state) => state.timeZone)
   const [closeError, setCloseError] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState<'close' | 'cancel' | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [slDraft, setSlDraft] = useState('')
+  const [tpDraft, setTpDraft] = useState('')
+  const [savingProtection, setSavingProtection] = useState(false)
 
   async function close(id: string) {
     setCloseError(null)
@@ -44,6 +49,44 @@ export function PositionsTable() {
     setCloseError(null)
     const result = await cancelPending(id)
     if (!result.ok) setCloseError(result.error)
+  }
+
+  function startEdit(positionId: string, stopLoss: number | null, takeProfit: number | null) {
+    setCloseError(null)
+    setEditingId(positionId)
+    setSlDraft(stopLoss == null ? '' : String(stopLoss))
+    setTpDraft(takeProfit == null ? '' : String(takeProfit))
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setSlDraft('')
+    setTpDraft('')
+  }
+
+  async function saveProtection(positionId: string) {
+    const stopLoss = slDraft.trim() === '' ? null : Number(slDraft)
+    const takeProfit = tpDraft.trim() === '' ? null : Number(tpDraft)
+    if (
+      (stopLoss != null && (!Number.isFinite(stopLoss) || stopLoss <= 0)) ||
+      (takeProfit != null && (!Number.isFinite(takeProfit) || takeProfit <= 0))
+    ) {
+      setCloseError('SL and TP must be positive prices or empty.')
+      return
+    }
+
+    setSavingProtection(true)
+    setCloseError(null)
+    try {
+      const result = await updateProtection(positionId, { stopLoss, takeProfit })
+      if (!result.ok) {
+        setCloseError(result.error)
+        return
+      }
+      cancelEdit()
+    } finally {
+      setSavingProtection(false)
+    }
   }
 
   async function handleCloseAll() {
@@ -127,7 +170,7 @@ export function PositionsTable() {
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">SL</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">TP</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Floating P&amp;L</TableHead>
-                  <TableHead className="w-10" />
+                  <TableHead className="w-16" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -173,21 +216,84 @@ export function PositionsTable() {
                     <TableCell className="tabular-nums">{position.sizeLots.toFixed(2)}</TableCell>
                     <TableCell className="tabular-nums">{formatPrice(position.symbol, position.entryPrice)}</TableCell>
                     <TableCell className="tabular-nums">{formatPrice(position.symbol, position.currentPrice)}</TableCell>
-                    <TableCell className="tabular-nums">{position.stopLoss == null ? '—' : formatPrice(position.symbol, position.stopLoss)}</TableCell>
-                    <TableCell className="tabular-nums">{position.takeProfit == null ? '—' : formatPrice(position.symbol, position.takeProfit)}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {editingId === position.id ? (
+                        <input
+                          inputMode="decimal"
+                          value={slDraft}
+                          onChange={(event) => setSlDraft(event.target.value)}
+                          placeholder="None"
+                          aria-label="Stop loss"
+                          className={tableInputClass}
+                        />
+                      ) : position.stopLoss == null ? (
+                        '—'
+                      ) : (
+                        formatPrice(position.symbol, position.stopLoss)
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {editingId === position.id ? (
+                        <input
+                          inputMode="decimal"
+                          value={tpDraft}
+                          onChange={(event) => setTpDraft(event.target.value)}
+                          placeholder="None"
+                          aria-label="Take profit"
+                          className={tableInputClass}
+                        />
+                      ) : position.takeProfit == null ? (
+                        '—'
+                      ) : (
+                        formatPrice(position.symbol, position.takeProfit)
+                      )}
+                    </TableCell>
                     <TableCell className={cn('tabular-nums font-medium', position.floatingPnl >= 0 ? 'text-primary' : 'text-danger')}>
                       {formatUsd(position.floatingPnl, { signed: true })}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        aria-label={`Close ${position.symbol} position`}
-                        disabled={Boolean(closing[position.id])}
-                        onClick={() => void close(position.id)}
-                      >
-                        {closing[position.id] ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
-                      </Button>
+                      {editingId === position.id ? (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Save SL/TP for ${position.symbol}`}
+                            disabled={savingProtection}
+                            onClick={() => void saveProtection(position.id)}
+                          >
+                            {savingProtection ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5 text-primary" />}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label="Cancel SL/TP edit"
+                            disabled={savingProtection}
+                            onClick={cancelEdit}
+                          >
+                            <X className="size-3.5" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Edit SL/TP for ${position.symbol}`}
+                            onClick={() => startEdit(position.id, position.stopLoss, position.takeProfit)}
+                          >
+                            <Pencil className="size-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            aria-label={`Close ${position.symbol} position`}
+                            disabled={Boolean(closing[position.id])}
+                            onClick={() => void close(position.id)}
+                          >
+                            {closing[position.id] ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -257,6 +363,9 @@ export function PositionsTable() {
     </section>
   )
 }
+
+const tableInputClass =
+  'h-7 w-24 rounded border border-input bg-background/80 px-1.5 font-mono text-[11px] text-foreground outline-none focus-visible:border-ring'
 
 function SideBadge({ side }: { side: OrderSide }) {
   return (

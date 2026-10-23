@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -15,6 +15,7 @@ import {
 import { formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
+import { useOrderTicketStore, type PendingTicketType } from '@/lib/stores/useOrderTicketStore'
 import type { OrderSide } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
 
@@ -58,16 +59,21 @@ export function OrderPanel() {
   const freeMargin = useTerminalBook((state) => state.snapshot.freeMargin)
   const leverage = useTerminalBook((state) => state.account?.leverage ?? 100)
 
-  const [orderType, setOrderType] = useState<'market' | 'limit'>('market')
-  const [pendingType, setPendingType] = useState<'LIMIT' | 'STOP' | 'STOP_LIMIT'>('LIMIT')
-  const [side, setSide] = useState<OrderSide>('BUY')
+  const orderType = useOrderTicketStore((state) => state.orderType)
+  const pendingType = useOrderTicketStore((state) => state.pendingType)
+  const side = useOrderTicketStore((state) => state.side)
+  const stopLoss = useOrderTicketStore((state) => state.stopLoss)
+  const takeProfit = useOrderTicketStore((state) => state.takeProfit)
+  const limitPrice = useOrderTicketStore((state) => state.limitPrice)
+  const stopPrice = useOrderTicketStore((state) => state.stopPrice)
+  const setOrderType = useOrderTicketStore((state) => state.setOrderType)
+  const setSide = useOrderTicketStore((state) => state.setSide)
+  const setField = useOrderTicketStore((state) => state.setField)
+  const openPending = useOrderTicketStore((state) => state.openPending)
+  const resetForSymbol = useOrderTicketStore((state) => state.resetForSymbol)
   const [sizeSource, setSizeSource] = useState<'lots' | 'usd'>('lots')
   const [lots, setLots] = useState('0.10')
   const [usdAmount, setUsdAmount] = useState('500')
-  const [stopLoss, setStopLoss] = useState('')
-  const [takeProfit, setTakeProfit] = useState('')
-  const [limitPrice, setLimitPrice] = useState('')
-  const [stopPrice, setStopPrice] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
 
@@ -111,6 +117,30 @@ export function OrderPanel() {
   const marginExceeds = validLots && margin > freeMargin + 0.005
   const tradable = accountStatus === 'ACTIVE' && getSymbol(selectedSymbol).available
 
+  useEffect(() => {
+    resetForSymbol(selectedSymbol)
+  }, [resetForSymbol, selectedSymbol])
+
+  function chooseSide(next: OrderSide) {
+    if (orderType === 'pending') {
+      openPending(selectedSymbol, next, next === 'BUY' ? ask : bid, pendingType)
+    } else {
+      setSide(next)
+    }
+  }
+
+  function choosePendingType(type: PendingTicketType) {
+    openPending(selectedSymbol, side, entry, type)
+  }
+
+  function chooseOrderTab(value: string) {
+    if (value === 'limit') {
+      openPending(selectedSymbol, side, entry, pendingType)
+    } else {
+      setOrderType('market')
+    }
+  }
+
   const projections = useMemo(() => {
     if (!validLots) return { sl: null as number | null, tp: null as number | null }
     return {
@@ -137,7 +167,7 @@ export function OrderPanel() {
     setBusy(true)
     setNotice(null)
     try {
-      if (orderType === 'limit' && validPending && pendingPrice) {
+      if (orderType === 'pending' && validPending && pendingPrice) {
         const result = await placePending({
           symbol: selectedSymbol,
           side,
@@ -158,6 +188,7 @@ export function OrderPanel() {
             ? { tone: 'ok', text: `${label} ${side} ${sizeLots} ${meta.displayName} queued ${detail}` }
             : { tone: 'error', text: result.error },
         )
+        if (result.ok) setOrderType('market')
       } else {
         const result = await placeMarket({
           symbol: selectedSymbol,
@@ -185,7 +216,7 @@ export function OrderPanel() {
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-4">
-        <Tabs value={orderType} onValueChange={(value) => setOrderType(value === 'limit' ? 'limit' : 'market')}>
+        <Tabs value={orderType === 'pending' ? 'limit' : 'market'} onValueChange={chooseOrderTab}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="market">Market</TabsTrigger>
             <TabsTrigger value="limit">Pending</TabsTrigger>
@@ -199,7 +230,7 @@ export function OrderPanel() {
                 <button
                   key={type}
                   type="button"
-                  onClick={() => setPendingType(type)}
+                  onClick={() => choosePendingType(type)}
                   className={cn(
                     'rounded-md border px-1.5 py-1.5 font-mono text-[10px] uppercase tracking-wide transition-colors',
                     pendingType === type
@@ -217,7 +248,7 @@ export function OrderPanel() {
                   inputMode="decimal"
                   value={stopPrice}
                   onChange={(event) =>
-                    setStopPrice(formatPriceEntry(event.target.value, stopPrice, priceDigits, priceDecimals))
+                    setField('stopPrice', formatPriceEntry(event.target.value, stopPrice, priceDigits, priceDecimals))
                   }
                   placeholder={formatPrice(selectedSymbol, entry)}
                   className={inputClass}
@@ -230,7 +261,7 @@ export function OrderPanel() {
                   inputMode="decimal"
                   value={limitPrice}
                   onChange={(event) =>
-                    setLimitPrice(formatPriceEntry(event.target.value, limitPrice, priceDigits, priceDecimals))
+                    setField('limitPrice', formatPriceEntry(event.target.value, limitPrice, priceDigits, priceDecimals))
                   }
                   placeholder={formatPrice(selectedSymbol, entry)}
                   className={inputClass}
@@ -250,7 +281,7 @@ export function OrderPanel() {
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            onClick={() => setSide('BUY')}
+            onClick={() => chooseSide('BUY')}
             className={cn(
               'rounded-lg border px-3 py-2.5 text-left transition-colors',
               side === 'BUY'
@@ -263,7 +294,7 @@ export function OrderPanel() {
           </button>
           <button
             type="button"
-            onClick={() => setSide('SELL')}
+            onClick={() => chooseSide('SELL')}
             className={cn(
               'rounded-lg border px-3 py-2.5 text-left transition-colors',
               side === 'SELL'
@@ -387,7 +418,7 @@ export function OrderPanel() {
             <input
               inputMode="decimal"
               value={stopLoss}
-              onChange={(event) => setStopLoss(formatPriceEntry(event.target.value, stopLoss, priceDigits, priceDecimals))}
+              onChange={(event) => setField('stopLoss', formatPriceEntry(event.target.value, stopLoss, priceDigits, priceDecimals))}
               placeholder="Optional"
               className={inputClass}
             />
@@ -401,7 +432,7 @@ export function OrderPanel() {
             <input
               inputMode="decimal"
               value={takeProfit}
-              onChange={(event) => setTakeProfit(formatPriceEntry(event.target.value, takeProfit, priceDigits, priceDecimals))}
+              onChange={(event) => setField('takeProfit', formatPriceEntry(event.target.value, takeProfit, priceDigits, priceDecimals))}
               placeholder="Optional"
               className={inputClass}
             />
@@ -417,7 +448,7 @@ export function OrderPanel() {
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
           {busy
             ? 'Working…'
-            : orderType === 'limit'
+            : orderType === 'pending'
               ? `Place ${pendingType === 'STOP_LIMIT' ? 'stop-limit' : pendingType.toLowerCase()} order`
               : 'Execute trade'}
         </Button>

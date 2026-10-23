@@ -18,7 +18,8 @@ import {
   type ChartPoint,
   type DrawingTool,
 } from '@/lib/stores/useChartLayoutStore'
-import type { PendingTradeOrder, Position } from '@/lib/types/terminal'
+import { useOrderTicketStore, type TicketPriceField } from '@/lib/stores/useOrderTicketStore'
+import type { OrderSide, PendingTradeOrder, Position } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
 
 const CHART_BG = '#0b111d'
@@ -49,8 +50,12 @@ type ChartLevel = {
   color: string
   dashed: boolean
   label: string
+  symbol?: string
   order?: PendingTradeOrder
   position?: Position
+  draftField?: TicketPriceField
+  draftSide?: OrderSide
+  draftEntry?: number
 }
 
 type PriceLineApi = {
@@ -179,6 +184,95 @@ function buildChartLevels(symbol: string, pending: PendingTradeOrder[], position
   return levels
 }
 
+function buildDraftLevels({
+  symbol,
+  draftSymbol,
+  orderType,
+  side,
+  pendingType,
+  limitPrice,
+  stopPrice,
+  stopLoss,
+  takeProfit,
+}: {
+  symbol: string
+  draftSymbol: string
+  orderType: string
+  side: OrderSide
+  pendingType: 'LIMIT' | 'STOP' | 'STOP_LIMIT'
+  limitPrice: string
+  stopPrice: string
+  stopLoss: string
+  takeProfit: string
+}) {
+  if (orderType !== 'pending' || draftSymbol !== symbol) return []
+  const limit = Number(limitPrice)
+  const stop = Number(stopPrice)
+  const sl = Number(stopLoss)
+  const tp = Number(takeProfit)
+  const executionPrice = pendingType === 'STOP' ? stop : limit
+  if (!Number.isFinite(executionPrice) || executionPrice <= 0) return []
+
+  const levels: ChartLevel[] = []
+  if ((pendingType === 'LIMIT' || pendingType === 'STOP_LIMIT') && Number.isFinite(limit) && limit > 0) {
+    levels.push({
+      key: 'draft:limit',
+      kind: 'limit',
+      price: limit,
+      color: PENDING_LIMIT_COLOR,
+      dashed: true,
+      label: `${side} LIMIT · preview`,
+      symbol,
+      draftField: 'limitPrice',
+      draftSide: side,
+      draftEntry: limit,
+    })
+  }
+  if ((pendingType === 'STOP' || pendingType === 'STOP_LIMIT') && Number.isFinite(stop) && stop > 0) {
+    levels.push({
+      key: 'draft:stop',
+      kind: 'stop',
+      price: stop,
+      color: PENDING_STOP_COLOR,
+      dashed: true,
+      label: `${side} STOP · preview`,
+      symbol,
+      draftField: 'stopPrice',
+      draftSide: side,
+      draftEntry: stop,
+    })
+  }
+  if (Number.isFinite(sl) && sl > 0) {
+    levels.push({
+      key: 'draft:sl',
+      kind: 'sl',
+      price: sl,
+      color: STOP_LOSS_COLOR,
+      dashed: true,
+      label: 'SL',
+      symbol,
+      draftField: 'stopLoss',
+      draftSide: side,
+      draftEntry: executionPrice,
+    })
+  }
+  if (Number.isFinite(tp) && tp > 0) {
+    levels.push({
+      key: 'draft:tp',
+      kind: 'tp',
+      price: tp,
+      color: TAKE_PROFIT_COLOR,
+      dashed: true,
+      label: 'TP',
+      symbol,
+      draftField: 'takeProfit',
+      draftSide: side,
+      draftEntry: executionPrice,
+    })
+  }
+  return levels
+}
+
 function roundToTick(price: number, decimals: number) {
   const step = 10 ** -decimals
   return Number((Math.round(price / step) * step).toFixed(decimals))
@@ -302,8 +396,8 @@ function levelBadge(level: ChartLevel, price: number) {
   const order = level.order
   return {
     title: level.label,
-    price: order ? formatPrice(order.symbol, price) : price.toFixed(5),
-    detail: order ? `${order.sizeLots.toFixed(2)} lots · drag to modify` : 'drag to modify',
+    price: order ? formatPrice(order.symbol, price) : formatPrice(level.symbol ?? 'EURUSD', price),
+    detail: order ? `${order.sizeLots.toFixed(2)} lots · drag to modify` : 'preview · drag to modify',
   }
 }
 
@@ -365,9 +459,43 @@ export function TradingChart() {
   const [chartReady, setChartReady] = useState(0)
   const tradable = accountStatus === 'ACTIVE' && getSymbol(selectedSymbol).available
   const quickEnabled = tradable && connectionStatus === 'CONNECTED' && !quickBusy
+  const ticketSymbol = useOrderTicketStore((state) => state.symbol)
+  const ticketOrderType = useOrderTicketStore((state) => state.orderType)
+  const ticketPendingType = useOrderTicketStore((state) => state.pendingType)
+  const ticketSide = useOrderTicketStore((state) => state.side)
+  const ticketLimitPrice = useOrderTicketStore((state) => state.limitPrice)
+  const ticketStopPrice = useOrderTicketStore((state) => state.stopPrice)
+  const ticketStopLoss = useOrderTicketStore((state) => state.stopLoss)
+  const ticketTakeProfit = useOrderTicketStore((state) => state.takeProfit)
+  const setTicketField = useOrderTicketStore((state) => state.setField)
   const levels = useMemo(
-    () => buildChartLevels(selectedSymbol, pendingOrders, openPositions),
-    [selectedSymbol, pendingOrders, openPositions],
+    () => [
+      ...buildChartLevels(selectedSymbol, pendingOrders, openPositions),
+      ...buildDraftLevels({
+        symbol: selectedSymbol,
+        draftSymbol: ticketSymbol,
+        orderType: ticketOrderType,
+        side: ticketSide,
+        pendingType: ticketPendingType,
+        limitPrice: ticketLimitPrice,
+        stopPrice: ticketStopPrice,
+        stopLoss: ticketStopLoss,
+        takeProfit: ticketTakeProfit,
+      }),
+    ],
+    [
+      selectedSymbol,
+      pendingOrders,
+      openPositions,
+      ticketSymbol,
+      ticketOrderType,
+      ticketSide,
+      ticketPendingType,
+      ticketLimitPrice,
+      ticketStopPrice,
+      ticketStopLoss,
+      ticketTakeProfit,
+    ],
   )
   const drawingTool = useChartLayoutStore((state) => state.tool)
   const drawings = useChartLayoutStore((state) => state.drawingsBySymbol[selectedSymbol] ?? EMPTY_CHART_DRAWINGS)
@@ -634,6 +762,18 @@ export function TradingChart() {
       }
     }
 
+    if (level.draftField && (level.kind === 'sl' || level.kind === 'tp') && level.draftEntry && level.draftSide) {
+      if (level.kind === 'sl') {
+        price = level.draftSide === 'BUY'
+          ? Math.min(price, level.draftEntry - step)
+          : Math.max(price, level.draftEntry + step)
+      } else {
+        price = level.draftSide === 'BUY'
+          ? Math.max(price, level.draftEntry + step)
+          : Math.min(price, level.draftEntry - step)
+      }
+    }
+
     if (level.order) {
       if (level.kind === 'stop') {
         if (level.order.side === 'BUY' && Number.isFinite(ask)) price = Math.max(price, ask + step)
@@ -819,6 +959,17 @@ export function TradingChart() {
   }
 
   async function commitLevel(level: ChartLevel, price: number) {
+    if (level.draftField) {
+      setTicketField(level.draftField, price.toFixed(getSymbol(selectedSymbol).priceDecimals))
+      setLevelNotice({
+        tone: 'ok',
+        text: `${level.kind === 'sl' ? 'Stop loss' : level.kind === 'tp' ? 'Take profit' : 'Order price'} preview updated`,
+      })
+      window.setTimeout(() => setLevelNotice(null), 3000)
+      setDragPreview(null)
+      return
+    }
+
     setLevelNotice({ tone: 'ok', text: 'Updating…' })
     try {
       let result: { ok: true } | { ok: false; error: string }
