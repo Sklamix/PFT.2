@@ -166,6 +166,7 @@ async function processTrading(env: Env) {
       signal: AbortSignal.timeout(25_000),
     })
     if (!response.ok) console.error('[pft market worker] Trading cron failed', response.status, await response.text())
+    else console.info('[pft market worker] trading cron processed')
   } catch (error) {
     console.error('[pft market worker] Trading cron request failed', error)
   }
