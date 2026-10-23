@@ -91,11 +91,40 @@ async function fetchGold(): Promise<Tick | null> {
   }
 }
 
-async function upsertTick(sql: NeonQueryFunction<false, false>, tick: Tick, now: number) {
-  const minute = new Date(Math.floor(now / 60_000) * 60_000)
+async function upsertTicks(sql: NeonQueryFunction<false, false>, ticks: Tick[], now: number) {
+  if (ticks.length === 0) return
+  const minute = new Date(Math.floor(now / 60_000) * 60_000).toISOString()
+  // One Neon HTTP request per cycle instead of one per symbol; Workers Free allows 50 subrequests.
+  const payload = JSON.stringify(
+    ticks.map((tick) => ({
+      id: crypto.randomUUID(),
+      symbol: tick.symbol,
+      minute,
+      open: tick.mid,
+      high: tick.mid,
+      low: tick.mid,
+      close: tick.mid,
+      samples: 1,
+    })),
+  )
+
   await sql`
+    WITH data AS (
+      SELECT *
+      FROM jsonb_to_recordset(${payload}::jsonb) AS x(
+        id text,
+        symbol text,
+        minute timestamptz,
+        open double precision,
+        high double precision,
+        low double precision,
+        close double precision,
+        samples integer
+      )
+    )
     INSERT INTO "GoldCandle" ("id", "symbol", "minute", "open", "high", "low", "close", "samples", "updatedAt")
-    VALUES (${crypto.randomUUID()}, ${tick.symbol}, ${minute}, ${tick.mid}, ${tick.mid}, ${tick.mid}, ${tick.mid}, 1, NOW())
+    SELECT "id", "symbol", "minute", "open", "high", "low", "close", "samples", NOW()
+    FROM data
     ON CONFLICT ("symbol", "minute") DO UPDATE SET
       "high" = GREATEST("GoldCandle"."high", EXCLUDED."high"),
       "low" = LEAST("GoldCandle"."low", EXCLUDED."low"),
@@ -119,14 +148,12 @@ async function collect(sql: NeonQueryFunction<false, false>) {
   if (goldResult.status === 'fulfilled' && goldResult.value) ticks.push(goldResult.value)
   else if (goldResult.status === 'rejected') console.error('[pft market worker] Gold failed', goldResult.reason)
 
-  for (const tick of ticks) {
-    try {
-      await upsertTick(sql, tick, now)
-    } catch (error) {
-      console.error(`[pft market worker] Failed to store ${tick.symbol}`, error)
-    }
+  try {
+    await upsertTicks(sql, ticks, now)
+    console.info('[pft market worker] stored', ticks.map((tick) => `${tick.symbol}:${tick.mid}`).join(' '))
+  } catch (error) {
+    console.error('[pft market worker] Failed to batch store ticks', error)
   }
-  console.info('[pft market worker] stored', ticks.map((tick) => `${tick.symbol}:${tick.mid}`).join(' '))
 }
 
 async function processTrading(env: Env) {
