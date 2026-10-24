@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { syncAccount } from '@/lib/trading/engine'
+import { readAccount, syncAccount } from '@/lib/trading/engine'
 import { handleError, readJson, respond } from '@/lib/trading/http'
 import { ValidationError } from '@/lib/trading/validation'
 import { authorizeAccount } from '@/lib/trader/guard'
@@ -16,10 +16,8 @@ export async function POST(request: Request) {
     const { error } = await authorizeAccount(accountId)
     if (error) return error
     const quotes = await getFreshMarketQuotes()
-    if (Object.keys(quotes).length === 0) {
-      return NextResponse.json({ error: 'No fresh market quotes are available' }, { status: 503 })
-    }
-    return respond(await syncAccount(accountId, quotes))
+    // With no fresh quote, return the existing book untouched instead of marking it to stale prices.
+    return respond(Object.keys(quotes).length === 0 ? await readAccount(accountId) : await syncAccount(accountId, quotes))
   } catch (error) {
     return handleError(error)
   }

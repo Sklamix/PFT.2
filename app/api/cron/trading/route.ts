@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic'
 async function run() {
   const quotes = await getFreshMarketQuotes()
   if (Object.keys(quotes).length === 0) {
-    return NextResponse.json({ error: 'Fresh market quotes are not available' }, { status: 503 })
+    // Weekend or a stalled feed. There is nothing to mark or fill, but the cron itself succeeded.
+    return NextResponse.json({ status: 'market_closed', accounts: 0 })
   }
 
   const accounts = await prisma.tradingAccount.findMany({

@@ -13,10 +13,10 @@ export function parseGmtTimeOfDay(value: string | undefined, at: Date = new Date
   return timestamp > at.getTime() + 60_000 ? timestamp - 86_400_000 : timestamp
 }
 
-export const INDEX_QUOTE_MAX_AGE_MS = 120_000
+export const QUOTE_MAX_AGE_MS = 3_000
 
 export function isFreshQuote(feedTime: number, at: Date = new Date()): boolean {
   if (!Number.isFinite(feedTime) || feedTime <= 0) return false
   const age = at.getTime() - feedTime
-  return age >= -60_000 && age <= INDEX_QUOTE_MAX_AGE_MS
+  return age >= -QUOTE_MAX_AGE_MS && age <= QUOTE_MAX_AGE_MS
 }

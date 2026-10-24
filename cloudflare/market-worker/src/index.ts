@@ -1,10 +1,9 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
 import { isFreshQuote, parseGmtTimeOfDay } from '../../../lib/market/feed-time'
-import { isIndexMarketOpen, isIndexSymbol } from '../../../lib/market/index-sessions'
+import { isIndexMarketOpen } from '../../../lib/market/index-sessions'
 
 const FXCM_URL = 'https://rates.fxcm.com/RatesXML'
 const SWISSQUOTE_URL = 'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD'
-const GOLD_API_URL = 'https://api.gold-api.com/price/XAU'
 const FXCM_SYMBOLS = [
   'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
   'EURGBP', 'EURJPY', 'EURCHF', 'EURAUD', 'EURCAD', 'EURNZD',
@@ -52,30 +51,30 @@ function parseFxcm(xml: string): Tick[] {
     const ask = Number(match[2].match(/<Ask>([^<]+)<\/Ask>/)?.[1])
     if (!finitePrice(bid) || !finitePrice(ask) || ask < bid) continue
     const internal = INTERNAL_SYMBOL[symbol] ?? symbol
+    const feedTime = parseGmtTimeOfDay(match[2].match(/<Last>([^<]+)<\/Last>/)?.[1])
+    if (!isFreshQuote(feedTime)) continue
     if (!isIndexMarketOpen(internal)) continue
-    if (isIndexSymbol(internal)) {
-      const feedTime = parseGmtTimeOfDay(match[2].match(/<Last>([^<]+)<\/Last>/)?.[1])
-      if (!isFreshQuote(feedTime)) continue
-    }
     ticks.push({ symbol: internal, mid: (bid + ask) / 2 })
   }
   return ticks
 }
 
-function parseSwissquote(payload: unknown): number | null {
+function parseSwissquote(payload: unknown): { mid: number; at: number } | null {
   if (!Array.isArray(payload)) return null
-  let best: { bid: number; ask: number } | null = null
+  let best: { bid: number; ask: number; at: number } | null = null
   for (const entry of payload) {
+    const ts = Number((entry as { ts?: unknown })?.ts)
+    const at = Number.isFinite(ts) && ts > 0 ? ts : 0
     const profiles = (entry as { spreadProfilePrices?: unknown })?.spreadProfilePrices
     if (!Array.isArray(profiles)) continue
     for (const profile of profiles) {
       const bid = Number((profile as { bid?: unknown }).bid)
       const ask = Number((profile as { ask?: unknown }).ask)
       if (!finitePrice(bid) || !finitePrice(ask) || ask < bid) continue
-      if (!best || ask - bid < best.ask - best.bid) best = { bid, ask }
+      if (!best || ask - bid < best.ask - best.bid) best = { bid, ask, at }
     }
   }
-  return best ? (best.bid + best.ask) / 2 : null
+  return best ? { mid: (best.bid + best.ask) / 2, at: best.at } : null
 }
 
 async function fetchFxcm(): Promise<Tick[]> {
@@ -88,26 +87,14 @@ async function fetchFxcm(): Promise<Tick[]> {
 }
 
 async function fetchGold(): Promise<Tick | null> {
-  try {
-    const response = await fetch(SWISSQUOTE_URL, {
-      headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (compatible; PFT-Worker/1.0)' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
-    if (!response.ok) throw new Error(`Swissquote responded ${response.status}`)
-    const mid = parseSwissquote(await response.json())
-    if (mid) return { symbol: 'XAUUSD', mid }
-    throw new Error('Swissquote returned no usable XAU/USD price')
-  } catch (error) {
-    console.warn('[pft market worker] Swissquote failed, trying gold-api.com', error)
-    const response = await fetch(GOLD_API_URL, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    })
-    if (!response.ok) throw new Error(`gold-api.com responded ${response.status}`)
-    const payload = (await response.json()) as { price?: unknown }
-    const price = Number(payload.price)
-    return finitePrice(price) ? { symbol: 'XAUUSD', mid: price } : null
-  }
+  const response = await fetch(SWISSQUOTE_URL, {
+    headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0 (compatible; PFT-Worker/1.0)' },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  if (!response.ok) throw new Error(`Swissquote responded ${response.status}`)
+  const quote = parseSwissquote(await response.json())
+  if (!quote || !isFreshQuote(quote.at)) throw new Error('Swissquote returned no fresh XAU/USD price')
+  return { symbol: 'XAUUSD', mid: quote.mid }
 }
 
 async function upsertTicks(sql: NeonQueryFunction<false, false>, ticks: Tick[], now: number) {

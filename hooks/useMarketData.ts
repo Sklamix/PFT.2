@@ -5,7 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 
 const QUOTE_POLL_INTERVAL_MS = 1_000
-const MAX_QUOTE_AGE_MS = 15_000
+const MAX_QUOTE_AGE_MS = 3_000
 
 type LiveQuote = {
   symbol: string
@@ -54,7 +54,7 @@ export function useMarketData() {
           quote.bid > 0 &&
           quote.ask >= quote.bid &&
           Number.isFinite(providerTime) &&
-          age >= -5_000 &&
+          age >= -MAX_QUOTE_AGE_MS &&
           age <= MAX_QUOTE_AGE_MS
         ) {
           setLiveQuote(selectedSymbol, quote.bid, quote.ask, providerTime)

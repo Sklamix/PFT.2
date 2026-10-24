@@ -1,19 +1,18 @@
 ﻿import { prisma } from '@/lib/prisma'
-import { INDEX_SYMBOLS, spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { INDEX_SYMBOLS, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
 import { getFxcmQuotes, FXCM_SYMBOLS } from '@/lib/market/fxcm'
 import { recordMarketTick } from '@/lib/market/market-candles'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
-import { isFreshQuote } from '@/lib/market/feed-time'
+import { isFreshQuote, QUOTE_MAX_AGE_MS } from '@/lib/market/feed-time'
 import { isIndexMarketOpen } from '@/lib/market/index-sessions'
-import { getMarketQuotes, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
 import type { Quote, Quotes } from './types'
 
-export const MAX_MARKET_QUOTE_AGE_MS = 15_000
+export const MAX_MARKET_QUOTE_AGE_MS = QUOTE_MAX_AGE_MS
 
-/** Index CFDs must never fall back to delayed Yahoo history/quotes. */
+/** Index CFDs must never fall back to delayed provider history/quotes. */
 const LIVE_ONLY_SYMBOLS = new Set<string>(INDEX_SYMBOLS)
 
-export type QuoteSource = 'FXCM' | 'SWISSQUOTE' | 'GOLD_API' | 'YAHOO' | 'TWELVE_DATA'
+export type QuoteSource = 'FXCM' | 'SWISSQUOTE' | 'TWELVE_DATA'
 
 export type QuoteSnapshot = {
   symbol: TerminalSymbolId
@@ -25,14 +24,9 @@ export type QuoteSnapshot = {
   updatedAt: number
 }
 
-function snapshot(symbol: TerminalSymbolId, mid: number, source: QuoteSource, at: number): QuoteSnapshot {
-  const quote = spreadFromMid(symbol, mid)
-  return { symbol, mid, bid: quote.bid, ask: quote.ask, source, providerTime: at, updatedAt: at }
-}
-
 /**
- * Live quotes are served from Yahoo Finance on the server. The Twelve Data worker is kept as a
- * reserve: its persisted MarketQuote rows fill any symbol Yahoo failed to answer for.
+ * Every live quote must be no older than three seconds. FXCM's Last clock is the actual
+ * provider timestamp, so a frozen feed can never be used for a fill or a candle.
  */
 export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SYMBOLS): Promise<QuoteSnapshot[]> {
   const wanted = symbols.filter((symbol): symbol is TerminalSymbolId =>
@@ -40,7 +34,7 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
   )
   const snapshots = new Map<string, QuoteSnapshot>()
 
-  // FXCM's public rates feed is a real broker bid/ask stream for FX and BTC, updated every 1вЂ“2 s.
+  // FXCM's public rates feed is a real broker bid/ask stream for FX, metals, crypto and indices.
   if (wanted.some((symbol) => (FXCM_SYMBOLS as readonly string[]).includes(symbol))) {
     try {
       const quotes = await getFxcmQuotes()
@@ -49,32 +43,31 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
         if (LIVE_ONLY_SYMBOLS.has(symbol) && !isIndexMarketOpen(symbol)) continue
         const quote = quotes.get(symbol)
         if (!quote) continue
-        if (LIVE_ONLY_SYMBOLS.has(symbol) && !isFreshQuote(quote.feedTime, new Date(quote.providerTime))) {
-          continue
-        }
+        if (!isFreshQuote(quote.feedTime, new Date(quote.providerTime))) continue
+
         snapshots.set(symbol, {
           symbol,
           mid: quote.mid,
           bid: quote.bid,
           ask: quote.ask,
           source: 'FXCM',
-          providerTime: quote.providerTime,
-          updatedAt: quote.providerTime,
+          providerTime: quote.feedTime,
+          updatedAt: quote.feedTime,
         })
         void recordMarketTick(symbol, quote.mid).catch((error) => {
           console.warn(`[pft candles] Failed to record ${symbol} tick`, error)
         })
       }
     } catch (error) {
-      console.warn('[pft market quotes] FXCM feed failed, falling back to Yahoo', error)
+      console.warn('[pft market quotes] FXCM feed failed', error)
     }
   }
 
-  // Gold spot does not exist on Yahoo (only the delayed GC=F future). Exact spot comes from the
-  // free Swissquote/gold-api feed; every tick also feeds our own one-minute candle history.
+  // Gold spot comes from Swissquote; every tick also feeds our own candle history.
   if (wanted.includes('XAUUSD')) {
     try {
       const gold = await getGoldSpotQuote()
+      if (!isFreshQuote(gold.providerTime)) throw new Error('Gold spot quote is stale')
       snapshots.set('XAUUSD', {
         symbol: 'XAUUSD',
         mid: gold.mid,
@@ -88,25 +81,11 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
         console.warn('[pft gold candles] Failed to record spot tick', error)
       })
     } catch (error) {
-      console.warn('[pft market quotes] Gold spot failed, falling back to Yahoo GC=F', error)
+      console.warn('[pft market quotes] Gold spot quote unavailable', error)
     }
   }
 
-  const candleSymbols = wanted.filter(
-    (symbol): symbol is CandleSymbol =>
-      isCandleSymbol(symbol) && !LIVE_ONLY_SYMBOLS.has(symbol) && !snapshots.has(symbol),
-  )
-  if (candleSymbols.length) {
-    try {
-      const quotes = await getMarketQuotes(candleSymbols)
-      for (const quote of quotes) {
-        snapshots.set(quote.symbol, snapshot(quote.symbol, quote.mid, 'YAHOO', quote.fetchedAt))
-      }
-    } catch (error) {
-      console.warn('[pft market quotes] Yahoo quote fetch failed, trying reserve feed', error)
-    }
-  }
-
+  // Twelve Data rows are a last-resort reserve, but still held to the same three-second rule.
   const missing = wanted.filter((symbol) => !snapshots.has(symbol) && !LIVE_ONLY_SYMBOLS.has(symbol))
   if (missing.length) {
     try {
@@ -132,12 +111,10 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
         }
       }
     } catch (error) {
-      // Without a database the reserve feed is simply unavailable; Yahoo is the primary source.
       if (!snapshots.size) throw error
     }
   }
 
-  if (!snapshots.size) throw new Error('No fresh market quotes available')
   return wanted.flatMap((symbol) => (snapshots.has(symbol) ? [snapshots.get(symbol)!] : []))
 }
 
