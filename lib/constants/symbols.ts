@@ -1,7 +1,21 @@
 export const FOREX_MAJORS = ['EURUSD', 'GBPUSD', 'USDJPY'] as const
 export const METAL_SYMBOLS = ['XAUUSD', 'XAGUSD', 'COPPER'] as const
+export const INDEX_SYMBOLS = [
+  'US500',
+  'US100',
+  'US30',
+  'US2000',
+  'GER40',
+  'UK100',
+  'FRA40',
+  'EU50',
+  'JPN225',
+  'HK50',
+  'AUS200',
+  'CN50',
+] as const
 export const CRYPTO_SYMBOLS = ['BTCUSD'] as const
-export const SECONDARY_SYMBOLS = [...METAL_SYMBOLS, ...CRYPTO_SYMBOLS] as const
+export const SECONDARY_SYMBOLS = [...METAL_SYMBOLS, ...INDEX_SYMBOLS, ...CRYPTO_SYMBOLS] as const
 
 type ForexSpec = readonly [
   id: string,
@@ -55,15 +69,43 @@ const FOREX_SPECS = [
 ] as const satisfies readonly ForexSpec[]
 
 export type ForexSymbol = (typeof FOREX_SPECS)[number][0]
+
+type IndexSpec = readonly [
+  id: string,
+  displayName: string,
+  name: string,
+  priceDecimals: number,
+  typicalSpreadPoints: number,
+  mockBasePrice: number,
+]
+
+/** Provider-backed index CFDs. One lot is one index unit ($1 per index point). */
+const INDEX_SPECS = [
+  ['US500', 'US500', 'S&P 500 Index CFD', 2, 0.6, 7636.0],
+  ['US100', 'US100', 'Nasdaq 100 Index CFD', 2, 1.7, 29025.0],
+  ['US30', 'US30', 'Dow Jones 30 Index CFD', 2, 3.0, 52274.0],
+  ['US2000', 'US2000', 'Russell 2000 Index CFD', 2, 0.3, 2779.0],
+  ['GER40', 'GER40', 'DAX 40 Index CFD', 2, 1.5, 25139.0],
+  ['UK100', 'UK100', 'FTSE 100 Index CFD', 2, 1.4, 10696.0],
+  ['FRA40', 'FRA40', 'CAC 40 Index CFD', 2, 1.2, 7782.0],
+  ['EU50', 'EU50', 'Euro Stoxx 50 Index CFD', 2, 1.8, 6067.0],
+  ['JPN225', 'JPN225', 'Nikkei 225 Index CFD', 1, 10.0, 62612.0],
+  ['HK50', 'HK50', 'Hang Seng Index CFD', 2, 3.0, 23098.0],
+  ['AUS200', 'AUS200', 'ASX 200 Index CFD', 2, 1.2, 8736.0],
+  ['CN50', 'CN50', 'China A50 Index CFD', 2, 11.0, 13010.0],
+] as const satisfies readonly IndexSpec[]
+
+export type IndexSymbol = (typeof INDEX_SPECS)[number][0]
 export const FOREX_SYMBOLS: readonly ForexSymbol[] = FOREX_SPECS.map(([id]) => id)
 export const TERMINAL_SYMBOLS = [...FOREX_SYMBOLS, ...SECONDARY_SYMBOLS] as const
 
 export type TerminalSymbolId = (typeof TERMINAL_SYMBOLS)[number]
-export type SymbolCategory = 'forex' | 'metal' | 'crypto'
+export type SymbolCategory = 'forex' | 'metal' | 'index' | 'crypto'
 
 /** UI grouping for the symbol selector. Order here is the display order. */
 export const SYMBOL_GROUPS = [
   { id: 'forex', label: 'Forex', symbols: FOREX_SYMBOLS },
+  { id: 'index', label: 'Indices', symbols: INDEX_SYMBOLS },
   { id: 'metal', label: 'Metals', symbols: METAL_SYMBOLS },
   { id: 'crypto', label: 'Crypto', symbols: CRYPTO_SYMBOLS },
 ] as const satisfies readonly {
@@ -109,8 +151,28 @@ const forexSymbols = Object.fromEntries(
   ),
 ) as Record<ForexSymbol, MarketSymbol>
 
+const indexSymbols = Object.fromEntries(
+  INDEX_SPECS.map(([id, displayName, name, priceDecimals, typicalSpreadPoints, mockBasePrice]) => [
+    id,
+    {
+      id,
+      symbol: id,
+      displayName,
+      name,
+      pipSize: 1,
+      lotSize: 1,
+      priceDecimals,
+      typicalSpreadPips: typicalSpreadPoints,
+      mockBasePrice,
+      category: 'index' as const,
+      available: true,
+    },
+  ]),
+) as Record<IndexSymbol, MarketSymbol>
+
 export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
   ...forexSymbols,
+  ...indexSymbols,
   XAUUSD: {
     id: 'XAUUSD',
     symbol: 'XAUUSD',
@@ -215,6 +277,7 @@ export function formatSpreadPips(symbol: string, spread: number) {
 export function formatSpreadValue(symbol: string, spread: number) {
   const meta = getSymbol(symbol)
   if (meta.category === 'forex') return `${formatSpreadPips(symbol, spread)} pips`
+  if (meta.category === 'index') return `${spread.toFixed(1)} pts`
   return `$${spread.toFixed(2)}`
 }
 

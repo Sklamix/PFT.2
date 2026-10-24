@@ -33,6 +33,18 @@ export const CANDLE_SYMBOLS = [
   'COPPER',
   'XAUUSD',
   'BTCUSD',
+  'US500',
+  'US100',
+  'US30',
+  'US2000',
+  'GER40',
+  'UK100',
+  'FRA40',
+  'EU50',
+  'JPN225',
+  'HK50',
+  'AUS200',
+  'CN50',
 ] as const
 
 export type CandleSymbol = (typeof CANDLE_SYMBOLS)[number]
@@ -70,6 +82,18 @@ const YAHOO_TICKERS: Record<CandleSymbol, string> = {
   COPPER: 'HG=F',
   XAUUSD: 'GC=F',
   BTCUSD: 'BTC-USD',
+  US500: '^GSPC',
+  US100: '^NDX',
+  US30: '^DJI',
+  US2000: '^RUT',
+  GER40: '^GDAXI',
+  UK100: '^FTSE',
+  FRA40: '^FCHI',
+  EU50: '^STOXX50E',
+  JPN225: '^N225',
+  HK50: '^HSI',
+  AUS200: '^AXJO',
+  CN50: 'XIN9.FGI',
 }
 
 export const YAHOO_TIMEFRAMES = new Set<TimeframeId>(['1m', '5m', '15m', '30m', '1h', '1d', '1w', '1mo'])

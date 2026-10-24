@@ -11,9 +11,20 @@ const FXCM_SYMBOLS = [
   'CADJPY', 'CHFJPY', 'CADCHF',
   'XAGUSD', 'Copper',
   'BTCUSD',
+  'SPX500', 'NAS100', 'US30', 'US2000',
+  'GER30', 'UK100', 'FRA40', 'EUSTX50',
+  'JPN225', 'HKG33', 'AUS200', 'CHN50',
 ] as const
 
-const INTERNAL_SYMBOL: Record<string, string> = { Copper: 'COPPER' }
+const INTERNAL_SYMBOL: Record<string, string> = {
+  Copper: 'COPPER',
+  SPX500: 'US500',
+  NAS100: 'US100',
+  GER30: 'GER40',
+  EUSTX50: 'EU50',
+  HKG33: 'HK50',
+  CHN50: 'CN50',
+}
 const CYCLES = 4
 const CYCLE_DELAY_MS = 5_000
 const FETCH_TIMEOUT_MS = 5_000

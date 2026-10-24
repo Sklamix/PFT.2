@@ -1,5 +1,5 @@
 ﻿import { prisma } from '@/lib/prisma'
-import { spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { INDEX_SYMBOLS, spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
 import { getFxcmQuotes, FXCM_SYMBOLS } from '@/lib/market/fxcm'
 import { recordMarketTick } from '@/lib/market/market-candles'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
@@ -7,6 +7,9 @@ import { getMarketQuotes, isCandleSymbol, type CandleSymbol } from '@/lib/market
 import type { Quote, Quotes } from './types'
 
 export const MAX_MARKET_QUOTE_AGE_MS = 15_000
+
+/** Index CFDs must never fall back to delayed Yahoo history/quotes. */
+const LIVE_ONLY_SYMBOLS = new Set<string>(INDEX_SYMBOLS)
 
 export type QuoteSource = 'FXCM' | 'SWISSQUOTE' | 'GOLD_API' | 'YAHOO' | 'TWELVE_DATA'
 
@@ -84,7 +87,8 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
   }
 
   const candleSymbols = wanted.filter(
-    (symbol): symbol is CandleSymbol => isCandleSymbol(symbol) && !snapshots.has(symbol),
+    (symbol): symbol is CandleSymbol =>
+      isCandleSymbol(symbol) && !LIVE_ONLY_SYMBOLS.has(symbol) && !snapshots.has(symbol),
   )
   if (candleSymbols.length) {
     try {
@@ -97,7 +101,7 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
     }
   }
 
-  const missing = wanted.filter((symbol) => !snapshots.has(symbol))
+  const missing = wanted.filter((symbol) => !snapshots.has(symbol) && !LIVE_ONLY_SYMBOLS.has(symbol))
   if (missing.length) {
     try {
       const rows = await prisma.marketQuote.findMany({

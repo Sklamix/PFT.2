@@ -13,6 +13,7 @@ const TICK_CANDLE_SYMBOLS = new Set([
   'CADJPY', 'CHFJPY', 'CADCHF',
   'XAGUSD', 'COPPER',
   'XAUUSD', 'BTCUSD',
+  'US500', 'US100', 'US30', 'US2000', 'GER40', 'UK100', 'FRA40', 'EU50', 'JPN225', 'HK50', 'AUS200', 'CN50',
 ])
 
 export async function GET(request: Request) {
@@ -35,6 +36,8 @@ export async function GET(request: Request) {
 
   try {
     if (TICK_CANDLE_SYMBOLS.has(symbol)) {
+      // Live symbols are charted only from our own tick store. Never mix in delayed
+      // provider history, so the candles always match the real-time execution feed.
       try {
         const own = await getTickCandles(symbol, spec.seconds)
         return NextResponse.json(
@@ -52,7 +55,21 @@ export async function GET(request: Request) {
           { headers: { 'Cache-Control': 'private, no-store, max-age=0' } },
         )
       } catch (error) {
-        console.warn(`[pft candles] Own ${symbol} candles unavailable, falling back to Yahoo`, error)
+        console.warn(`[pft candles] Own ${symbol} candles unavailable`, error)
+        return NextResponse.json(
+          {
+            symbol,
+            timeframe: spec.id,
+            timeframeSeconds: spec.seconds,
+            label: spec.label,
+            source: symbol === 'XAUUSD' ? 'swissquote' : 'fxcm',
+            lastPrice: 0,
+            fetchedAt: Date.now(),
+            candles: [],
+            collecting: true,
+          },
+          { headers: { 'Cache-Control': 'private, no-store, max-age=0' } },
+        )
       }
     }
 

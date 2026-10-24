@@ -279,7 +279,9 @@ function roundToTick(price: number, decimals: number) {
 }
 
 function pointSizeFor(symbol: string) {
-  return 10 ** -getSymbol(symbol).priceDecimals
+  const meta = getSymbol(symbol)
+  // FX shows MT5-style fractional points; indices and metals use their trading point.
+  return meta.category === 'index' ? meta.pipSize : 10 ** -meta.priceDecimals
 }
 
 function signedPoints(points: number) {

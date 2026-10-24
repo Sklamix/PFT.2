@@ -35,8 +35,18 @@ export function defaultPendingPrices(symbol: string, side: OrderSide, entry: num
   const meta = getSymbol(symbol)
   const price = Number.isFinite(entry) && entry > 0 ? entry : meta.mockBasePrice
   const point = 10 ** -meta.priceDecimals
-  const offset = meta.category === 'forex' ? meta.pipSize * 10 : Math.max(point * 20, price * 0.001)
-  const risk = meta.category === 'forex' ? meta.pipSize * 8 : Math.max(point * 20, price * 0.002)
+  const offset =
+    meta.category === 'forex'
+      ? meta.pipSize * 10
+      : meta.category === 'index'
+        ? meta.pipSize * 10
+        : Math.max(point * 20, price * 0.001)
+  const risk =
+    meta.category === 'forex'
+      ? meta.pipSize * 8
+      : meta.category === 'index'
+        ? meta.pipSize * 20
+        : Math.max(point * 20, price * 0.002)
   const direction = side === 'BUY' ? 1 : -1
   const stop = type === 'LIMIT' ? 0 : price + offset * direction
   const limit =

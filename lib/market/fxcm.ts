@@ -35,6 +35,18 @@ export const FXCM_SYMBOLS = [
   'XAGUSD',
   'COPPER',
   'BTCUSD',
+  'US500',
+  'US100',
+  'US30',
+  'US2000',
+  'GER40',
+  'UK100',
+  'FRA40',
+  'EU50',
+  'JPN225',
+  'HK50',
+  'AUS200',
+  'CN50',
 ] as const
 export type FxcmSymbol = (typeof FXCM_SYMBOLS)[number]
 
@@ -48,7 +60,18 @@ export type FxcmQuote = {
 
 /** Internal id → FXCM's XML symbol where they differ. */
 const PROVIDER_SYMBOL: Record<FxcmSymbol, string> = Object.fromEntries(
-  FXCM_SYMBOLS.map((symbol) => [symbol, symbol === 'COPPER' ? 'Copper' : symbol]),
+  FXCM_SYMBOLS.map((symbol) => {
+    const provider: Partial<Record<FxcmSymbol, string>> = {
+      COPPER: 'Copper',
+      US500: 'SPX500',
+      US100: 'NAS100',
+      GER40: 'GER30',
+      EU50: 'EUSTX50',
+      HK50: 'HKG33',
+      CN50: 'CHN50',
+    }
+    return [symbol, provider[symbol] ?? symbol]
+  }),
 ) as Record<FxcmSymbol, string>
 
 const INTERNAL_SYMBOL = new Map<string, FxcmSymbol>(
