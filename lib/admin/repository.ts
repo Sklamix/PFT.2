@@ -57,6 +57,7 @@ function mapTrader(account: AccountWithRelations): TraderRow {
   const open = account.positions.filter((position) => position.status === 'OPEN')
   const row: TraderRow = {
     id: account.id,
+    userId: account.userId,
     displayId: account.displayId,
     mt5Login: account.mt5Login,
     mt5Server: account.mt5Server,

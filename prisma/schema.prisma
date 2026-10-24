@@ -14,10 +14,16 @@ enum Role {
 }
 
 enum KycStatus {
-  UNVERIFIED
+  NOT_STARTED
   PENDING
   APPROVED
   REJECTED
+}
+
+enum ChallengeStatus {
+  IN_PROGRESS
+  PASSED
+  FAILED
 }
 
 enum ChallengeType {
@@ -126,7 +132,12 @@ model User {
   emailVerifiedAt DateTime?
   profileCompletedAt DateTime?
   role          Role      @default(TRADER)
-  kycStatus     KycStatus @default(UNVERIFIED)
+  kycStatus     KycStatus @default(NOT_STARTED)
+  kycSessionId  String?   @unique
+  kycVerifiedAt DateTime?
+  kycNote       String?
+  kycUpdatedAt  DateTime?
+  challengeStatus ChallengeStatus @default(IN_PROGRESS)
   telegram      String?
   discord       String?
   createdAt     DateTime  @default(now())

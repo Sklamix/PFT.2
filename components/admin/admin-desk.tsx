@@ -6,6 +6,7 @@ import { LogOut, ReceiptText, Search, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
 import { KpiBar } from '@/components/admin/kpi-bar'
+import { KycDialog } from '@/components/admin/kyc-dialog'
 import { OrdersQueue } from '@/components/admin/orders-queue'
 import { PayoutQueue } from '@/components/admin/payout-queue'
 import { RiskTable } from '@/components/admin/risk-table'
@@ -54,6 +55,8 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [trades, setTrades] = useState<TradeRow[]>([])
   const [tradesOpen, setTradesOpen] = useState(false)
   const [breachOpen, setBreachOpen] = useState(false)
+  const [kycOpen, setKycOpen] = useState(false)
+  const [kycUserId, setKycUserId] = useState<string | null>(null)
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [reason, setReason] = useState('')
   const [overrideStatus, setOverrideStatus] = useState<AccountStatus>('ACTIVE')
@@ -193,6 +196,10 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             setBreachType(row.dailyDrawdownPct / row.dailyDrawdownLimitPct >= row.maxDrawdownPct / row.maxDrawdownLimitPct ? 'BREACHED_DAILY' : 'BREACHED_MAX')
             setBreachOpen(true)
           }}
+          onKyc={(row) => {
+            setKycUserId(row.userId)
+            setKycOpen(true)
+          }}
           onOverride={(row) => {
             setSelected(row)
             setOverrideStatus(row.status)
@@ -264,6 +271,13 @@ export function AdminDesk({ user }: { user: AdminSession }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <KycDialog
+        open={kycOpen}
+        onOpenChange={setKycOpen}
+        userId={kycUserId}
+        onSaved={() => void load()}
+      />
 
       <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
         <DialogContent className="border-border bg-card sm:max-w-md">

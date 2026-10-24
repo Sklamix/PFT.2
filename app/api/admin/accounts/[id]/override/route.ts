@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
+import { syncChallengeStatus } from '@/lib/kyc/state'
 import type { AccountStatus } from '@/lib/admin/types'
 
 const STATUSES: AccountStatus[] = [
@@ -22,6 +23,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!body.status || !STATUSES.includes(body.status)) return jsonError('Invalid account status')
     const account = await adminRepo.override(id, body.status, body.reason?.trim() || 'Manual override', session.sub)
     if (!account) return jsonError('Account not found', 404)
+    await syncChallengeStatus(account.userId)
     return NextResponse.json({ account })
   } catch (err) {
     return safeError(err)

@@ -1,5 +1,6 @@
 export type Role = 'TRADER' | 'ADMIN' | 'RISK_MANAGER'
-export type KycStatus = 'UNVERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED'
+export type KycStatus = 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED'
+export type ChallengeStatus = 'IN_PROGRESS' | 'PASSED' | 'FAILED'
 export type ChallengeType = 'ONE_STEP' | 'TWO_STEP' | 'FUNDED'
 export type AccountPhase = 'PHASE_1' | 'PHASE_2' | 'FUNDED'
 export type AccountStatus =
@@ -30,6 +31,7 @@ export type AdminSession = {
 
 export type TraderRow = {
   id: string
+  userId: string
   displayId: string
   mt5Login: string
   mt5Server: string

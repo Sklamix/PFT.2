@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from 'react'
 import { ArrowLeft, LoaderCircle, Save } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { KYCSection } from '@/components/profile/kyc-section'
 
 type Profile = {
   email: string
@@ -142,6 +143,8 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
             </form>
           )}
         </section>
+
+        {mode === 'settings' && <KYCSection />}
       </div>
     </main>
   )

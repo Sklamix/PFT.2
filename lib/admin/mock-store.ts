@@ -507,6 +507,7 @@ function toTraderRow(acc: MockAccount): TraderRow {
   const open = trades.filter((trade) => trade.accountId === acc.id && trade.status === 'OPEN')
   const row: TraderRow = {
     id: acc.id,
+    userId: acc.userId,
     displayId: acc.displayId,
     mt5Login: acc.mt5Login,
     mt5Server: acc.mt5Server,

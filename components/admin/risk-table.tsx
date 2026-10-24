@@ -19,12 +19,14 @@ export function RiskTable({
   rows,
   onTrades,
   onBreach,
+  onKyc,
   onOverride,
   onRefresh,
 }: {
   rows: TraderRow[]
   onTrades: (row: TraderRow) => void
   onBreach: (row: TraderRow) => void
+  onKyc: (row: TraderRow) => void
   onOverride: (row: TraderRow) => void
   onRefresh: (row: TraderRow) => void
 }) {
@@ -65,6 +67,19 @@ export function RiskTable({
                 <p className="font-mono text-[11px] text-muted-foreground">
                   {row.mt5Login} · {row.traderEmail}
                 </p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  KYC:{' '}
+                  <span
+                    className={cn(
+                      'font-semibold',
+                      row.kycStatus === 'APPROVED' && 'text-primary',
+                      row.kycStatus === 'PENDING' && 'text-warning',
+                      row.kycStatus === 'REJECTED' && 'text-destructive',
+                    )}
+                  >
+                    {row.kycStatus}
+                  </span>
+                </p>
               </TableCell>
               <TableCell>
                 <p className="text-sm">{formatUsd(row.planSize, true)} · {challengeLabel(row.challengeType)}</p>
@@ -95,6 +110,7 @@ export function RiskTable({
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => onTrades(row)}>View trade history</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onRefresh(row)}>Reload account data</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onKyc(row)}>Manage KYC</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onOverride(row)}>Override status</DropdownMenuItem>
                     <DropdownMenuItem variant="destructive" onClick={() => onBreach(row)}>
                       Kill-switch / breach

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireStaff } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
+import { syncChallengeStatus } from '@/lib/kyc/state'
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { session, error } = await requireStaff()
@@ -15,6 +16,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!body.reason?.trim()) return jsonError('Breach reason is required')
     const account = await adminRepo.breach(id, body.type, body.reason.trim(), session.sub)
     if (!account) return jsonError('Account not found', 404)
+    await syncChallengeStatus(account.userId)
     return NextResponse.json({ account })
   } catch (err) {
     return safeError(err)
