@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import { parsePhoneNumberFromString } from 'libphonenumber-js'
 import { prisma } from '@/lib/prisma'
+import { countryByValue } from '@/lib/countries'
 import { requireTrader } from '@/lib/trader/auth'
 
 export const dynamic = 'force-dynamic'
@@ -59,7 +61,8 @@ export async function PATCH(request: Request) {
   const dateOfBirth = typeof input.dateOfBirth === 'string' ? input.dateOfBirth.trim() : ''
   const country = typeof input.country === 'string' ? input.country.trim() : ''
   const rawPhone = typeof input.phone === 'string' ? input.phone.trim() : ''
-  const normalizedPhone = rawPhone.replace(/[\s().-]/g, '')
+  const residence = countryByValue(country)
+  const parsedPhone = parsePhoneNumberFromString(rawPhone)
   const parsedBirthDate = DATE_PATTERN.test(dateOfBirth) ? new Date(`${dateOfBirth}T00:00:00.000Z`) : null
 
   if (!NAME_PATTERN.test(name)) {
@@ -71,11 +74,11 @@ export async function PATCH(request: Request) {
   if (!parsedBirthDate || Number.isNaN(parsedBirthDate.getTime()) || parsedBirthDate.toISOString().slice(0, 10) !== dateOfBirth || parsedBirthDate > new Date()) {
     return NextResponse.json({ error: 'Enter a valid date of birth in the past.' }, { status: 400 })
   }
-  if (!/^\+?[1-9]\d{7,14}$/.test(normalizedPhone)) {
-    return NextResponse.json({ error: 'Enter a valid phone number including its country code.' }, { status: 400 })
+  if (!residence) {
+    return NextResponse.json({ error: 'Select a valid country of residence.' }, { status: 400 })
   }
-  if (country.length < 2 || country.length > 100) {
-    return NextResponse.json({ error: 'Enter a valid country of residence.' }, { status: 400 })
+  if (!parsedPhone?.isValid()) {
+    return NextResponse.json({ error: 'Enter a valid phone number in international format.' }, { status: 400 })
   }
 
   try {
@@ -85,8 +88,8 @@ export async function PATCH(request: Request) {
         name,
         nickname,
         dateOfBirth: parsedBirthDate,
-        country,
-        phone: normalizedPhone,
+        country: residence.code,
+        phone: parsedPhone.number,
         profileCompletedAt: new Date(),
       },
       select: { email: true, name: true, nickname: true, dateOfBirth: true, country: true, phone: true },
