@@ -43,7 +43,10 @@ export async function authenticateTrader(email: string, password: string): Promi
       ? { sub: DEMO_TRADER_ID, email: DEMO_TRADER_EMAIL, name: 'Demo Trader' }
       : null
   }
-  const user = await (await db()).user.findUnique({ where: { email: normalized } })
+  const user = await (await db()).user.findUnique({
+    where: { email: normalized },
+    select: { id: true, email: true, name: true, role: true, passwordHash: true },
+  })
   if (!user || user.role !== 'TRADER' || !hasUsablePassword(user.passwordHash)) return null
   if (!verifyPassword(password, user.passwordHash)) return null
   return { sub: user.id, email: user.email, name: user.name }
@@ -79,6 +82,7 @@ export async function issuePasswordToken(userId: string, ttlMs: number, client?:
   await (client ?? (await db())).user.update({
     where: { id: userId },
     data: { passwordTokenHash: hash, passwordTokenExpiresAt: new Date(Date.now() + ttlMs) },
+    select: { id: true },
   })
   return token
 }
@@ -87,7 +91,10 @@ export async function setPasswordWithToken(token: string, password: string): Pro
   if (!usingDatabase() || !token) return null
   const prisma = await db()
   const hash = hashPasswordToken(token)
-  const user = await prisma.user.findUnique({ where: { passwordTokenHash: hash } })
+  const user = await prisma.user.findUnique({
+    where: { passwordTokenHash: hash },
+    select: { id: true, email: true, name: true, role: true, passwordTokenExpiresAt: true },
+  })
   if (!user || user.role !== 'TRADER' || !user.passwordTokenExpiresAt || user.passwordTokenExpiresAt < new Date()) {
     return null
   }
