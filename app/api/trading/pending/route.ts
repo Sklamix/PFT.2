@@ -5,6 +5,7 @@ import { handleError, readJson, respond } from '@/lib/trading/http'
 import { parsePendingModifyInput, parsePendingOrderInput, ValidationError } from '@/lib/trading/validation'
 import { authorizeAccount } from '@/lib/trader/guard'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
+import { isIndexMarketOpen } from '@/lib/market/index-sessions'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,8 +14,11 @@ export async function POST(request: Request) {
     const input = parsePendingOrderInput(await readJson(request))
     const { error } = await authorizeAccount(input.accountId)
     if (error) return error
+    if (!isIndexMarketOpen(input.symbol)) {
+      return NextResponse.json({ error: 'This index market is closed' }, { status: 422 })
+    }
     const quote = (await getFreshMarketQuotes())[input.symbol]
-    if (!quote) return NextResponse.json({ error: 'A fresh Twelve Data quote is not available' }, { status: 503 })
+    if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
     return respond(await placePendingOrder({ ...input, quote }))
   } catch (error) {
     return handleError(error)
@@ -32,6 +36,9 @@ export async function PATCH(request: Request) {
     })
     if (!order || order.tradingAccountId !== input.accountId) {
       return NextResponse.json({ error: 'Pending order not found' }, { status: 404 })
+    }
+    if (!isIndexMarketOpen(order.symbol)) {
+      return NextResponse.json({ error: 'This index market is closed' }, { status: 422 })
     }
     const quote = (await getFreshMarketQuotes())[order.symbol]
     if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })

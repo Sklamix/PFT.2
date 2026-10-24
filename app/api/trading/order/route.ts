@@ -4,6 +4,7 @@ import { handleError, readJson, respond } from '@/lib/trading/http'
 import { parseOrderInput } from '@/lib/trading/validation'
 import { authorizeAccount } from '@/lib/trader/guard'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
+import { isIndexMarketOpen } from '@/lib/market/index-sessions'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,9 @@ export async function POST(request: Request) {
     const input = parseOrderInput(await readJson(request))
     const { error } = await authorizeAccount(input.accountId)
     if (error) return error
+    if (!isIndexMarketOpen(input.symbol)) {
+      return NextResponse.json({ error: 'This index market is closed' }, { status: 422 })
+    }
     const quote = (await getFreshMarketQuotes())[input.symbol]
     if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
     return respond(await placeMarketOrder({ ...input, quote }))

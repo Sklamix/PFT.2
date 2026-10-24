@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { SYMBOL_GROUPS, formatPrice, formatSpreadValue, getSymbol, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { isIndexMarketOpen } from '@/lib/market/index-sessions'
 import { formatPct, formatUsd } from '@/lib/dashboard-data'
 import { useNow } from '@/hooks/use-now'
 import { useFavoritesStore } from '@/lib/stores/useFavoritesStore'
@@ -34,7 +35,12 @@ export function TerminalHeader() {
   const feedMode = useTradingStore((state) => state.feedMode)
   const snapshot = useTerminalBook((state) => state.snapshot)
   const account = useTerminalBook((state) => state.account)
+  const now = useNow()
   const live = connectionStatus === 'CONNECTED' && feedMode === 'LIVE'
+  const marketClosed =
+    getSymbol(selectedSymbol).category === 'index' &&
+    !isIndexMarketOpen(selectedSymbol, new Date(now ?? Date.now()))
+  const feedLabel = live ? 'Live · indicative spread' : marketClosed ? 'Market closed' : connectionStatus.toLowerCase()
   const up = change >= 0
   const ddRatio = snapshot.dailyUsedRatio
 
@@ -66,7 +72,7 @@ export function TerminalHeader() {
               className={cn('size-1.5 rounded-full', live ? 'bg-primary' : 'bg-danger')}
               aria-hidden="true"
             />
-            {live ? 'Live · indicative spread' : connectionStatus.toLowerCase()}
+            {feedLabel}
           </span>
         </div>
       </div>
