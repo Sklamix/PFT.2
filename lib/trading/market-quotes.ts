@@ -3,6 +3,7 @@ import { INDEX_SYMBOLS, spreadFromMid, TERMINAL_SYMBOLS, type TerminalSymbolId }
 import { getFxcmQuotes, FXCM_SYMBOLS } from '@/lib/market/fxcm'
 import { recordMarketTick } from '@/lib/market/market-candles'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
+import { isFreshQuote } from '@/lib/market/feed-time'
 import { isIndexMarketOpen } from '@/lib/market/index-sessions'
 import { getMarketQuotes, isCandleSymbol, type CandleSymbol } from '@/lib/market/yahoo'
 import type { Quote, Quotes } from './types'
@@ -48,6 +49,9 @@ export async function getQuoteSnapshots(symbols: readonly string[] = TERMINAL_SY
         if (LIVE_ONLY_SYMBOLS.has(symbol) && !isIndexMarketOpen(symbol)) continue
         const quote = quotes.get(symbol)
         if (!quote) continue
+        if (LIVE_ONLY_SYMBOLS.has(symbol) && !isFreshQuote(quote.feedTime, new Date(quote.providerTime))) {
+          continue
+        }
         snapshots.set(symbol, {
           symbol,
           mid: quote.mid,

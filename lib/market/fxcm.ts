@@ -1,3 +1,5 @@
+import { parseGmtTimeOfDay } from './feed-time'
+
 const FXCM_URL = 'https://rates.fxcm.com/RatesXML'
 const CACHE_TTL_MS = 1_000
 const FETCH_TIMEOUT_MS = 4_000
@@ -56,6 +58,8 @@ export type FxcmQuote = {
   ask: number
   mid: number
   providerTime: number
+  /** Provider's last-update clock time, normalised to a GMT timestamp. */
+  feedTime: number
 }
 
 /** Internal id → FXCM's XML symbol where they differ. */
@@ -80,6 +84,7 @@ const INTERNAL_SYMBOL = new Map<string, FxcmSymbol>(
 
 function parseRates(xml: string): Map<string, FxcmQuote> {
   const quotes = new Map<string, FxcmQuote>()
+  const now = Date.now()
   for (const match of xml.matchAll(/<Rate Symbol="([^"]+)">([\s\S]*?)<\/Rate>/g)) {
     const symbol = INTERNAL_SYMBOL.get(match[1])
     if (!symbol) continue
@@ -92,7 +97,8 @@ function parseRates(xml: string): Map<string, FxcmQuote> {
       bid,
       ask,
       mid: (bid + ask) / 2,
-      providerTime: Date.now(),
+      providerTime: now,
+      feedTime: parseGmtTimeOfDay(body.match(/<Last>([^<]+)<\/Last>/)?.[1], new Date(now)),
     })
   }
   if (!quotes.size) throw new Error('FXCM returned no usable rates')

@@ -1,5 +1,6 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
-import { isIndexMarketOpen } from '../../../lib/market/index-sessions'
+import { isFreshQuote, parseGmtTimeOfDay } from '../../../lib/market/feed-time'
+import { isIndexMarketOpen, isIndexSymbol } from '../../../lib/market/index-sessions'
 
 const FXCM_URL = 'https://rates.fxcm.com/RatesXML'
 const SWISSQUOTE_URL = 'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD'
@@ -52,6 +53,10 @@ function parseFxcm(xml: string): Tick[] {
     if (!finitePrice(bid) || !finitePrice(ask) || ask < bid) continue
     const internal = INTERNAL_SYMBOL[symbol] ?? symbol
     if (!isIndexMarketOpen(internal)) continue
+    if (isIndexSymbol(internal)) {
+      const feedTime = parseGmtTimeOfDay(match[2].match(/<Last>([^<]+)<\/Last>/)?.[1])
+      if (!isFreshQuote(feedTime)) continue
+    }
     ticks.push({ symbol: internal, mid: (bid + ask) / 2 })
   }
   return ticks
