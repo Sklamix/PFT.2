@@ -65,8 +65,9 @@ export async function createDiditSession(input: {
   appUrl?: string
 }): Promise<DiditSession> {
   const workflowId = await resolveDiditWorkflowId()
-  const callback = input.appUrl
-    ? `${input.appUrl.replace(/\/+$/, '')}/profile/settings?kyc=return`
+  const appUrl = input.appUrl?.trim()
+  const callback = appUrl && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(appUrl)
+    ? `${appUrl.replace(/\/+$/, '')}/profile/settings?kyc=return`
     : undefined
 
   const response = await diditFetch('/session/', {
