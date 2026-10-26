@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Activity } from 'lucide-react'
+import { formatSpreadValue } from '@/lib/constants/symbols'
 import { FALLBACK_MARKET_CONDITIONS } from '@/lib/market/conditions-defaults'
 import type { MarketConditionsPayload } from '@/lib/market/conditions-types'
 
@@ -75,7 +76,9 @@ export function TradingConditionsCard() {
           <thead className="bg-white/[0.035] text-[10px] uppercase tracking-[0.14em] text-slate-500">
             <tr>
               <th scope="col" className="px-4 py-2.5 font-medium">Instrument</th>
-              <th scope="col" className="whitespace-nowrap px-4 py-2.5 font-medium">Avg. spread</th>
+              <th scope="col" className="whitespace-nowrap px-4 py-2.5 font-medium">
+                Spread <span className="normal-case tracking-normal text-slate-600">· live / avg</span>
+              </th>
               <th scope="col" className="hidden px-4 py-2.5 text-right font-medium sm:table-cell">Commission / lot</th>
             </tr>
           </thead>
@@ -87,26 +90,47 @@ export function TradingConditionsCard() {
                 </td>
               </tr>
             ) : (
-              instruments.map((row) => (
-                <tr key={row.id} className="transition-colors hover:bg-white/[0.035]">
-                  <td className="px-4 py-2.5 font-mono text-white">
-                    {row.symbol}
-                    <span className="ml-2 hidden text-[9px] uppercase tracking-wider text-slate-600 md:inline">
-                      {row.category}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 font-mono text-primary">
-                    {spreadFormat.format(row.avgSpread)} pips
-                  </td>
-                  <td className="hidden px-4 py-2.5 text-right font-mono text-slate-400 sm:table-cell">
-                    {commissionFormat.format(row.commissionPerLot)}
-                  </td>
-                </tr>
-              ))
+              instruments.map((row) => {
+                const avgUnit = row.category.toLowerCase() === 'indices' ? 'pts' : 'pips'
+                const avgLabel = `${spreadFormat.format(row.avgSpread)} ${avgUnit}`
+                const liveLabel = row.liveSpread
+                  ? formatSpreadValue(row.liveSpread.terminalSymbol, row.liveSpread.spread)
+                  : null
+
+                return (
+                  <tr key={row.id} className="transition-colors hover:bg-white/[0.035]">
+                    <td className="px-4 py-2.5 font-mono text-white">
+                      {row.symbol}
+                      <span className="ml-2 hidden text-[9px] uppercase tracking-wider text-slate-600 md:inline">
+                        {row.category}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 font-mono">
+                      {liveLabel ? (
+                        <>
+                          <span className="text-highlight">{liveLabel}</span>
+                          <span className="ml-2 rounded-full border border-highlight/25 bg-highlight/10 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.12em] text-highlight">
+                            live
+                          </span>
+                          <span className="mt-0.5 block text-[9px] text-slate-600">avg {avgLabel}</span>
+                        </>
+                      ) : (
+                        <span className="text-primary">{avgLabel}</span>
+                      )}
+                    </td>
+                    <td className="hidden px-4 py-2.5 text-right font-mono text-slate-400 sm:table-cell">
+                      {commissionFormat.format(row.commissionPerLot)}
+                    </td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>
       </div>
+      <p className="text-[10px] leading-relaxed text-slate-600">
+        Live quotes refresh every 60 seconds from the terminal feed; averages are desk-maintained fallbacks.
+      </p>
     </article>
   )
 }

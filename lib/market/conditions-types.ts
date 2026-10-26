@@ -1,3 +1,12 @@
+export type LiveSpread = {
+  terminalSymbol: string
+  bid: number
+  ask: number
+  spread: number
+  source: string
+  providerTime: string
+}
+
 export type TradingCondition = {
   id: string
   symbol: string
@@ -6,6 +15,7 @@ export type TradingCondition = {
   category: string
   isActive: boolean
   updatedAt: string
+  liveSpread?: LiveSpread | null
 }
 
 export type ExecutionMetrics = {
