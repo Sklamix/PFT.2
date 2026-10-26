@@ -194,6 +194,22 @@ async function processMarketConditions(env: Env) {
   }
 }
 
+async function processEconomicCalendar(env: Env) {
+  if (!env.PFT_APP_URL || !env.CRON_SECRET) return
+  const url = `${env.PFT_APP_URL.replace(/\/+$/, '')}/api/cron/economic-calendar`
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
+      signal: AbortSignal.timeout(25_000),
+    })
+    if (!response.ok) console.error('[pft market worker] Calendar cron failed', response.status, await response.text())
+    else console.info('[pft market worker] economic calendar cron processed')
+  } catch (error) {
+    console.error('[pft market worker] Calendar cron request failed', error)
+  }
+}
+
 async function run(env: Env) {
   if (!env.DATABASE_URL) throw new Error('DATABASE_URL secret is not configured')
   const sql = neon(env.DATABASE_URL)
@@ -213,6 +229,7 @@ export default {
         }),
         processTrading(env),
         processMarketConditions(env),
+        processEconomicCalendar(env),
       ]),
     )
   },

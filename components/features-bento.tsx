@@ -1,14 +1,9 @@
-import { CalendarRange, Hourglass, Wallet, Newspaper, Moon, type LucideIcon } from 'lucide-react'
+import { Hourglass, Wallet, type LucideIcon } from 'lucide-react'
+import { NewsTradingCard } from '@/components/news-trading-card'
 import { SectionHeading } from '@/components/section-heading'
 import { TradingConditionsCard } from '@/components/trading-conditions-card'
 
 const PAYOUT_METHODS = ['USDT', 'USDC', 'Bank Wire']
-
-const NEWS_EVENTS = [
-  { time: '08:30', event: 'US Non-Farm Payrolls', impact: 'High' },
-  { time: '14:00', event: 'FOMC Rate Decision', impact: 'High' },
-  { time: 'Fri 22:00', event: 'Weekend hold — positions open', impact: 'Allowed' },
-]
 
 function FeatureIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
@@ -113,42 +108,7 @@ export function FeaturesBento() {
             </ul>
           </article>
 
-          <article className="home-card cosmic-card flex flex-col gap-6 rounded-[1.75rem] p-6 lg:col-span-2">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex flex-col gap-4">
-                <div className="flex gap-2">
-                  <FeatureIcon icon={Newspaper} />
-                  <FeatureIcon icon={Moon} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white sm:text-xl">Weekend holding & news trading allowed</h3>
-                  <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-400">
-                    Swing positions through the weekend and trade high-impact releases without restriction windows.
-                  </p>
-                </div>
-              </div>
-              <CalendarRange className="hidden size-5 text-slate-600 sm:block" aria-hidden="true" />
-            </div>
-            <ul className="divide-y divide-white/[0.06] rounded-xl border border-white/10 bg-black/25">
-              {NEWS_EVENTS.map((item) => (
-                <li key={item.event} className="flex items-center justify-between gap-4 px-4 py-3 text-sm">
-                  <span className="flex items-center gap-3">
-                    <span className="w-16 shrink-0 font-mono text-xs text-slate-500">{item.time}</span>
-                    <span className="text-slate-200">{item.event}</span>
-                  </span>
-                  <span
-                    className={
-                      item.impact === 'High'
-                        ? 'shrink-0 rounded-full border border-danger/20 bg-danger/10 px-2 py-0.5 text-xs font-medium text-danger'
-                        : 'shrink-0 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary'
-                    }
-                  >
-                    {item.impact === 'High' ? 'High impact · Tradable' : item.impact}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </article>
+          <NewsTradingCard />
         </div>
       </div>
     </section>

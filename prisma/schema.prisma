@@ -429,6 +429,21 @@ model TradingSpreadSample {
   @@index([sampledAt])
 }
 
+/// Economic-calendar releases synced from the public weekly calendar feed.
+model EconomicEvent {
+  id         String   @id @default(cuid())
+  time       DateTime
+  title      String
+  impact     String
+  isTradable Boolean  @default(true)
+  country    String
+  externalId String?  @unique
+  updatedAt  DateTime @updatedAt
+
+  @@index([time])
+  @@index([impact, time])
+}
+
 /// Singleton row (`id = "global"`) with operational execution metrics.
 model SystemMetrics {
   id                  String   @id @default("global")
