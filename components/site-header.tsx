@@ -74,7 +74,7 @@ export function SiteHeader() {
             aria-hidden={!showCta}
             tabIndex={showCta ? 0 : -1}
             className={cn(
-              'home-header-cta group inline-flex h-10 items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_0_28px_-12px_rgba(59,130,246,0.9)] backdrop-blur-md transition-all duration-300 hover:bg-primary/25',
+              'home-header-cta group hidden h-10 items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_0_28px_-12px_rgba(59,130,246,0.9)] backdrop-blur-md transition-all duration-300 hover:bg-primary/25 lg:inline-flex',
               showCta ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-1 opacity-0',
             )}
           >

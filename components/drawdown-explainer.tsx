@@ -46,9 +46,9 @@ export function DrawdownExplainer() {
   const buffer = EQUITY[lastIndex] - floor[lastIndex]
 
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-border bg-card p-5 sm:p-6">
+    <div className="cosmic-card flex flex-col gap-5 rounded-[1.75rem] p-5 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-base font-semibold text-foreground">Drawdown visual explainer</h3>
+        <h3 className="text-base font-semibold text-white">Drawdown visual explainer</h3>
         <SegmentedControl
           label="Drawdown calculation"
           options={[
@@ -62,7 +62,7 @@ export function DrawdownExplainer() {
         />
       </div>
 
-      <figure className="rounded-lg border border-border bg-background p-2">
+      <figure className="overflow-hidden rounded-xl border border-white/10 bg-black/25 p-2">
         <svg
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           className="h-auto w-full"
@@ -99,22 +99,22 @@ export function DrawdownExplainer() {
           <path d={linePath(EQUITY)} fill="none" stroke="var(--primary)" strokeWidth="2.5" strokeLinejoin="round" />
           <circle cx={toX(lastIndex)} cy={toY(EQUITY[lastIndex])} r="4" fill="var(--primary)" />
         </svg>
-        <figcaption className="flex flex-wrap items-center gap-x-5 gap-y-1 px-2 pt-2 pb-1 text-xs text-muted-foreground">
+        <figcaption className="flex flex-wrap items-center gap-x-5 gap-y-1 px-2 pt-2 pb-1 text-xs text-slate-500">
           <span className="flex items-center gap-2">
             <span className="h-0.5 w-4 rounded bg-primary" /> Equity
           </span>
           <span className="flex items-center gap-2">
             <span className="h-0.5 w-4 rounded bg-danger" /> Breach level
           </span>
-          <span className="ml-auto font-mono text-foreground">
+          <span className="ml-auto font-mono text-slate-300">
             Buffer: <span className="text-primary">${(buffer * 1000).toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
           </span>
         </figcaption>
       </figure>
 
       <div aria-live="polite">
-        <p className="text-sm font-medium text-foreground">{MODE_COPY[mode].title}</p>
-        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{MODE_COPY[mode].body}</p>
+        <p className="text-sm font-medium text-white">{MODE_COPY[mode].title}</p>
+        <p className="mt-1 text-sm leading-relaxed text-slate-400">{MODE_COPY[mode].body}</p>
       </div>
     </div>
   )

@@ -43,10 +43,10 @@ function MetricRow({ label, hint, value, subValue, muted }: MetricRowProps) {
   return (
     <div className="flex items-center justify-between gap-4 py-4">
       <div className="flex items-center gap-1.5">
-        <dt className="text-sm text-muted-foreground">{label}</dt>
+        <dt className="text-sm text-slate-400">{label}</dt>
         <Tooltip>
           <TooltipTrigger
-            className="rounded text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="rounded text-slate-600 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             aria-label={`About ${label}`}
           >
             <Info className="size-3.5" />
@@ -55,10 +55,10 @@ function MetricRow({ label, hint, value, subValue, muted }: MetricRowProps) {
         </Tooltip>
       </div>
       <dd className="text-right">
-        <span className={muted ? 'font-mono text-sm text-muted-foreground' : 'font-mono text-base font-semibold tabular-nums text-foreground'}>
+        <span className={muted ? 'font-mono text-sm text-slate-500' : 'font-mono text-base font-semibold tabular-nums text-white'}>
           {value}
         </span>
-        {subValue && <span className="block font-mono text-xs tabular-nums text-muted-foreground">{subValue}</span>}
+        {subValue && <span className="block font-mono text-xs tabular-nums text-slate-500">{subValue}</span>}
       </dd>
     </div>
   )
@@ -172,9 +172,18 @@ export function ChallengeCalculator({
       id={presentation === 'page' ? 'challenges' : undefined}
       aria-labelledby={presentation === 'page' ? 'challenges-heading' : undefined}
       data-home-reveal={presentation === 'page' ? true : undefined}
-      className={presentation === 'page' ? 'border-b border-border py-20 sm:py-28' : 'w-full py-3'}
+      className={presentation === 'page' ? 'relative overflow-hidden border-b border-white/5 py-24 sm:py-32' : 'w-full py-3'}
     >
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      {presentation === 'page' && (
+        <>
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_0%,rgba(37,99,235,0.16),transparent_52%)]" />
+          <div className="pointer-events-none absolute top-20 -right-52 size-[34rem] rounded-full border border-primary/10" />
+          <div className="pointer-events-none absolute -top-36 right-[6%] size-[26rem] rounded-full border border-highlight/10" />
+          <div className="pointer-events-none absolute -left-40 bottom-10 size-96 rounded-full bg-primary/10 blur-[120px]" />
+          <div className="pointer-events-none absolute inset-0 cosmic-stars opacity-50" />
+        </>
+      )}
+      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 2xl:max-w-[1600px]">
         {presentation === 'page' && (
           <SectionHeading
             id="challenges-heading"
@@ -184,10 +193,16 @@ export function ChallengeCalculator({
           />
         )}
 
-        <div className={cn('home-card overflow-hidden rounded-2xl border border-border bg-card', presentation === 'page' && 'mt-14')}>
-          <div className="grid gap-6 border-b border-border p-5 sm:p-6 lg:grid-cols-[1fr_auto]">
+        <div
+          className={cn(
+            'home-card relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#060d19]/80 shadow-[0_40px_120px_-60px_rgba(59,130,246,0.65)] backdrop-blur-2xl',
+            presentation === 'page' && 'mt-14',
+          )}
+        >
+          <span className="pointer-events-none absolute inset-x-12 top-0 h-px bg-linear-to-r from-transparent via-primary/70 to-transparent" />
+          <div className="grid gap-6 border-b border-white/10 p-5 sm:p-7 lg:grid-cols-[1fr_auto]">
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              <p className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">
                 Account size
               </p>
               <div
@@ -211,23 +226,23 @@ export function ChallengeCalculator({
                       aria-disabled={!tier.isAvailable}
                       onClick={() => handleTierSelect(tier.size, tier.isAvailable)}
                       className={cn(
-                        'home-price-card relative rounded-xl border px-3 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                        'home-price-card relative rounded-xl border px-3.5 py-3 text-left transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                         tier.isAvailable
                           ? selected
-                            ? 'border-primary/50 bg-primary/10 shadow-[inset_0_0_0_1px] shadow-primary/40'
-                            : 'border-border bg-background hover:border-primary/30 hover:bg-accent/40'
-                          : 'cursor-not-allowed border-border bg-background/50 opacity-60',
+                            ? 'border-primary/60 bg-primary/15 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.45),0_0_30px_-16px_rgba(59,130,246,0.9)]'
+                            : 'border-white/10 bg-white/[0.025] hover:border-primary/35 hover:bg-white/[0.05]'
+                          : 'cursor-not-allowed border-white/5 bg-white/[0.015] opacity-55',
                       )}
                     >
                       {!tier.isAvailable && (
-                        <span className="absolute top-2 right-2 rounded-full border border-border bg-muted/80 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+                        <span className="absolute top-2 right-2 rounded-full border border-white/10 bg-black/40 px-1.5 py-0.5 text-[8px] font-medium uppercase tracking-wide text-slate-500">
                           Coming soon
                         </span>
                       )}
-                      <span className="home-price-value block font-mono text-sm font-semibold tabular-nums text-foreground transition-colors">
+                      <span className="home-price-value block font-mono text-[15px] font-semibold tabular-nums text-white transition-colors">
                         {formatCompact(tier.size).replace('K', 'k')}
                       </span>
-                      <span className="mt-1 block font-mono text-xs tabular-nums text-muted-foreground">
+                      <span className="mt-1 block font-mono text-xs tabular-nums text-slate-500">
                         {feeForTier == null ? (tier.isAvailable ? 'Loading…' : '—') : formatPrice(feeForTier)}
                       </span>
                     </button>
@@ -236,24 +251,24 @@ export function ChallengeCalculator({
               </div>
             </div>
             <div>
-              <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Evaluation type</p>
+              <p className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">Evaluation type</p>
               <SegmentedControl label="Evaluation type" options={TYPE_OPTIONS} value={type} onChange={setType} />
             </div>
           </div>
 
-          <div className="grid lg:grid-cols-[1fr_380px]">
-            <div className="p-5 sm:p-6">
+          <div className="grid lg:grid-cols-[1fr_400px]">
+            <div className="p-5 sm:p-7">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-lg font-semibold text-foreground">
+                <h3 className="text-lg font-semibold text-white sm:text-xl">
                   {formatCurrency(size)} · {rules.label}
                 </h3>
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                  <span className="size-1.5 rounded-full bg-primary" />
+                  <span className="size-1.5 rounded-full bg-primary shadow-[0_0_8px_1px_rgba(59,130,246,0.6)]" />
                   Instant credentials
                 </span>
               </div>
 
-              <dl className="mt-4 divide-y divide-border">
+              <dl className="mt-5 divide-y divide-white/[0.07]">
                 <MetricRow
                   label="Phase 1 profit target"
                   hint="Reach this closed profit on your account balance to pass Phase 1."
@@ -276,7 +291,7 @@ export function ChallengeCalculator({
                 />
                 {type === 'two-step' && (
                   <div className="flex flex-wrap items-center justify-between gap-3 py-4">
-                    <span className="text-sm text-muted-foreground">Daily loss limit · 2-Step</span>
+                    <span className="text-sm text-slate-400">Daily loss limit · 2-Step</span>
                     <div className="flex gap-2" role="group" aria-label="Daily loss limit">
                       {([3, 5] as const).map((limit) => (
                         <button
@@ -285,10 +300,10 @@ export function ChallengeCalculator({
                           aria-pressed={dailyLossType === limit}
                           onClick={() => setDailyLossType(limit)}
                           className={cn(
-                            'rounded-md border px-3 py-1.5 text-sm transition-colors',
+                            'rounded-full border px-3 py-1.5 text-sm transition-colors',
                             dailyLossType === limit
                               ? 'border-primary/50 bg-primary/10 text-primary'
-                              : 'border-border text-muted-foreground hover:bg-accent',
+                              : 'border-white/10 bg-white/[0.025] text-slate-500 hover:bg-white/[0.05] hover:text-white',
                           )}
                         >
                           {limit}% ·                           {pricing?.[`2-STEP-${size}-${limit}`] == null
@@ -301,10 +316,10 @@ export function ChallengeCalculator({
                 )}
                 <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex items-center gap-1.5">
-                    <dt className="text-sm text-muted-foreground">Max overall drawdown</dt>
+                    <dt className="text-sm text-slate-400">Max overall drawdown</dt>
                     <Tooltip>
                       <TooltipTrigger
-                        className="rounded text-muted-foreground/60 transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        className="rounded text-slate-600 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                         aria-label="About max overall drawdown"
                       >
                         <Info className="size-3.5" />
@@ -325,22 +340,22 @@ export function ChallengeCalculator({
                       className="w-40"
                     />
                     <span className="text-right">
-                      <span className="font-mono text-base font-semibold tabular-nums text-foreground">
+                      <span className="font-mono text-base font-semibold tabular-nums text-white">
                         {rules.overallDrawdown}%
                       </span>
-                      <span className="block font-mono text-xs tabular-nums text-muted-foreground">
+                      <span className="block font-mono text-xs tabular-nums text-slate-500">
                         {formatCurrency(overallAmount)}
                       </span>
                     </span>
                   </dd>
                 </div>
                 <div className="py-4">
-                  <dt className="text-sm text-muted-foreground">Leverage</dt>
+                  <dt className="text-sm text-slate-400">Leverage</dt>
                   <dd className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                     {LEVERAGE.map((item) => (
-                      <div key={item.market} className="rounded-md border border-border bg-background px-3 py-2">
-                        <p className="text-xs text-muted-foreground">{item.market}</p>
-                        <p className="font-mono text-sm font-semibold text-foreground">{item.value}</p>
+                      <div key={item.market} className="rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2.5">
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{item.market}</p>
+                        <p className="mt-0.5 font-mono text-sm font-semibold text-white">{item.value}</p>
                       </div>
                     ))}
                   </dd>
@@ -350,55 +365,58 @@ export function ChallengeCalculator({
 
             <aside
               aria-label="Checkout summary"
-              className="flex flex-col border-t border-border bg-background/60 p-5 sm:p-6 lg:border-t-0 lg:border-l"
+              className="relative flex flex-col overflow-hidden border-t border-white/10 bg-[radial-gradient(ellipse_at_50%_0%,rgba(59,130,246,0.16),transparent_62%)] p-5 sm:p-7 lg:border-t-0 lg:border-l"
             >
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">One-time refundable fee</p>
-              <p className="mt-2 flex items-baseline gap-2" aria-live="polite">
-                <span className="font-mono text-5xl font-semibold tracking-tight tabular-nums text-foreground">
-                  {fee == null ? '—' : formatPrice(fee)}
-                </span>
-                <span className="text-sm text-muted-foreground">USD</span>
-              </p>
-              {pricingError && (
-                <p role="alert" className="mt-2 text-sm text-destructive">{pricingError}</p>
-              )}
-              <p className="mt-2 text-sm text-muted-foreground">
-                {drawdownMode === 'static' ? 'Includes static drawdown upgrade.' : 'Trailing drawdown — best value.'}
-              </p>
-
-              <div className="mt-6 rounded-lg border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground">Projected first payout at Phase 1 target</p>
-                <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-primary">
-                  {formatCurrency(projectedPayout)}
+              <div className="pointer-events-none absolute -top-16 left-1/2 size-48 -translate-x-1/2 rounded-full bg-primary/15 blur-[70px]" />
+              <div className="relative">
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">One-time refundable fee</p>
+                <p className="mt-2 flex items-baseline gap-2" aria-live="polite">
+                  <span className="font-mono text-[clamp(2.8rem,4vw,3.6rem)] font-semibold leading-none tracking-tight tabular-nums text-white drop-shadow-[0_0_28px_rgba(59,130,246,0.35)]">
+                    {fee == null ? '—' : formatPrice(fee)}
+                  </span>
+                  <span className="text-sm text-slate-500">USD</span>
                 </p>
-                <p className="mt-1 text-xs text-muted-foreground">Based on a 90% profit split</p>
+                {pricingError && (
+                  <p role="alert" className="mt-2 text-sm text-destructive">{pricingError}</p>
+                )}
+                <p className="mt-2 text-sm text-slate-400">
+                  {drawdownMode === 'static' ? 'Includes static drawdown upgrade.' : 'Trailing drawdown — best value.'}
+                </p>
+
+                <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/[0.07] p-4">
+                  <p className="text-xs text-slate-400">Projected first payout at Phase 1 target</p>
+                  <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-highlight">
+                    {formatCurrency(projectedPayout)}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Based on a 90% profit split</p>
+                </div>
+
+                <ul className="mt-6 flex flex-col gap-3 text-sm">
+                  <li className="flex items-center gap-2.5 text-slate-300">
+                    <ShieldCheck className="size-4 text-primary" aria-hidden="true" />
+                    Up to 90% profit split
+                  </li>
+                  <li className="flex items-center gap-2.5 text-slate-300">
+                    <RotateCcw className="size-4 text-primary" aria-hidden="true" />
+                    Fee refunded with first payout
+                  </li>
+                  <li className="flex items-center gap-2.5 text-slate-300">
+                    <Zap className="size-4 text-primary" aria-hidden="true" />
+                    Min. {rules.minTradingDays} trading days · no maximum
+                  </li>
+                </ul>
+
+                <button
+                  type="button"
+                  onClick={openCheckout}
+                  disabled={fee == null}
+                  className="home-button group mt-8 inline-flex h-12 w-full items-center justify-center gap-2 rounded-full bg-linear-to-r from-primary to-highlight px-6 text-[11px] font-bold uppercase tracking-[0.16em] text-primary-foreground shadow-[0_0_45px_-12px_rgba(59,130,246,0.9)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 lg:mt-8"
+                >
+                  Start Challenge — {fee == null ? 'Loading price…' : formatPrice(fee)}
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                </button>
+                <p className="mt-3 text-center text-xs text-slate-500">Card, Apple Pay & crypto accepted</p>
               </div>
-
-              <ul className="mt-6 flex flex-col gap-3 text-sm">
-                <li className="flex items-center gap-2.5 text-foreground">
-                  <ShieldCheck className="size-4 text-primary" aria-hidden="true" />
-                  Up to 90% profit split
-                </li>
-                <li className="flex items-center gap-2.5 text-foreground">
-                  <RotateCcw className="size-4 text-primary" aria-hidden="true" />
-                  Fee refunded with first payout
-                </li>
-                <li className="flex items-center gap-2.5 text-foreground">
-                  <Zap className="size-4 text-primary" aria-hidden="true" />
-                  Min. {rules.minTradingDays} trading days · no maximum
-                </li>
-              </ul>
-
-              <button
-                type="button"
-                onClick={openCheckout}
-                disabled={fee == null}
-                className="home-button group mt-8 inline-flex h-12 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-12px] shadow-primary transition-opacity hover:opacity-90 lg:mt-auto"
-              >
-                Start Challenge — {fee == null ? 'Loading price…' : formatPrice(fee)}
-                <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-              </button>
-              <p className="mt-3 text-center text-xs text-muted-foreground">Card, Apple Pay & crypto accepted</p>
             </aside>
           </div>
         </div>
@@ -408,7 +426,7 @@ export function ChallengeCalculator({
         <div
           role="status"
           aria-live="polite"
-          className="fixed right-4 bottom-4 z-[90] max-w-sm rounded-xl border border-[#1E293B] bg-[#0F172A] px-4 py-3 text-sm text-foreground shadow-[0_16px_48px_-20px_rgba(16,185,129,0.35)]"
+          className="fixed right-4 bottom-4 z-[90] max-w-sm rounded-2xl border border-white/10 bg-[#07101c]/95 px-4 py-3 text-sm text-white shadow-[0_16px_48px_-20px_rgba(59,130,246,0.55)] backdrop-blur-xl"
         >
           {toast}
         </div>

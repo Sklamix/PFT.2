@@ -35,9 +35,9 @@ export function PayoutCountdown() {
   return (
     <div className="grid grid-cols-4 gap-2" role="timer" aria-label="Time until next payout window">
       {['Days', 'Hrs', 'Min', 'Sec'].map((label, index) => (
-        <div key={label} className="rounded-md border border-border bg-background px-2 py-2 text-center">
-          <span className="block font-mono text-xl font-semibold tabular-nums text-foreground">{segments[index]}</span>
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</span>
+        <div key={label} className="rounded-xl border border-white/[0.07] bg-white/[0.035] px-1.5 py-2 text-center">
+          <span className="block font-mono text-lg font-semibold tabular-nums text-white">{segments[index]}</span>
+          <span className="text-[9px] uppercase tracking-[0.14em] text-slate-500">{label}</span>
         </div>
       ))}
     </div>

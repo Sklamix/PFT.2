@@ -43,8 +43,17 @@ const RULES = [
 
 export function RulesSection() {
   return (
-    <section id="rules" aria-labelledby="rules-heading" data-home-reveal className="border-b border-border py-20 sm:py-28">
-      <div className="mx-auto grid max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:gap-16 lg:px-8">
+    <section
+      id="rules"
+      aria-labelledby="rules-heading"
+      data-home-reveal
+      className="relative overflow-hidden border-b border-white/5 py-24 sm:py-32"
+    >
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_20%_0%,rgba(59,130,246,0.14),transparent_48%)]" />
+      <div className="pointer-events-none absolute -left-52 top-28 size-[32rem] rounded-full border border-primary/10" />
+      <div className="pointer-events-none absolute inset-0 cosmic-stars opacity-50" />
+
+      <div className="relative mx-auto grid max-w-7xl gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:gap-16 lg:px-8 2xl:max-w-[1600px]">
         <div className="flex flex-col gap-10">
           <SectionHeading
             id="rules-heading"
@@ -53,16 +62,21 @@ export function RulesSection() {
             description="Every limit is calculated transparently and visible in real time inside your trader portal."
             align="left"
           />
-          <Accordion defaultValue={['drawdown']} className="rounded-2xl border border-border bg-card px-5">
+          <Accordion
+            defaultValue={['drawdown']}
+            className="cosmic-card rounded-[1.75rem] px-5"
+          >
             {RULES.map(({ value, icon: Icon, title, content }) => (
-              <AccordionItem key={value} value={value}>
-                <AccordionTrigger className="py-5 text-base hover:no-underline">
+              <AccordionItem key={value} value={value} className="border-white/[0.07]">
+                <AccordionTrigger className="py-5 text-base text-slate-200 hover:no-underline">
                   <span className="flex items-center gap-3">
-                    <Icon className="size-4 text-primary" aria-hidden="true" />
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary/20 bg-primary/10">
+                      <Icon className="size-3.5 text-primary" aria-hidden="true" />
+                    </span>
                     {title}
                   </span>
                 </AccordionTrigger>
-                <AccordionContent className="pb-5 pl-7 leading-relaxed text-muted-foreground">
+                <AccordionContent className="pb-5 pl-11 leading-relaxed text-slate-400">
                   {content.map((paragraph) => (
                     <p key={paragraph}>{paragraph}</p>
                   ))}
