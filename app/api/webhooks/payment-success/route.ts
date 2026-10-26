@@ -5,6 +5,7 @@ import { appUrl, sendCredentialsEmail } from '@/lib/email/account-credentials'
 import { setPasswordUrl } from '@/lib/email/password-reset'
 import { hasUsablePassword, issuePasswordToken } from '@/lib/trader/accounts'
 import { isEmailConfigured } from '@/lib/email/resend'
+import { claimWebhookEvent, releaseWebhookEvent, webhookEventId } from '@/lib/security/webhook-events'
 import {
   InvalidOrderPayloadError,
   planFromOrderPayload,
@@ -98,17 +99,26 @@ export async function POST(req: Request) {
     return json({ error: 'Order storage unavailable' }, 503)
   }
 
+  const eventId = webhookEventId('nowpayments', rawBody)
+  const claimed = await claimWebhookEvent(eventId, 'nowpayments', paymentStatus)
+  if (!claimed) return json({ ok: true, orderId, duplicate: true })
+
   try {
     const { prisma } = await import('@/lib/prisma')
     const order = await prisma.order.findUnique({ where: { providerOrderId: orderId } })
     if (!order) {
+      await releaseWebhookEvent(eventId)
       console.warn('NOWPayments IPN for unknown order', orderId, paymentStatus)
       return json({ error: 'Order not found' }, 404)
     }
 
     const payload = { ...asObject(order.rawPayload), ipn: ipnRecord(ipn, paymentStatus) }
 
-    if (nextStatus === 'PAID') return await handlePaid(order, payload, paymentStatus)
+    if (nextStatus === 'PAID') {
+      const response = await handlePaid(order, payload, paymentStatus)
+      if (!response.ok) await releaseWebhookEvent(eventId)
+      return response
+    }
 
     // Intermediate states (waiting, confirming, sending, partially_paid) and repeats are acknowledged only.
     if (!nextStatus || order.status === 'PAID' || order.status === nextStatus) {
@@ -124,6 +134,7 @@ export async function POST(req: Request) {
     console.info('NOWPayments IPN applied', orderId, paymentStatus, '->', nextStatus)
     return json({ ok: true, orderId, status: nextStatus, paymentStatus })
   } catch (error) {
+    await releaseWebhookEvent(eventId)
     console.error('NOWPayments IPN processing failed', orderId, error)
     return json({ error: 'Unable to process IPN' }, 500)
   }

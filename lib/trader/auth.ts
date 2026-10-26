@@ -12,6 +12,7 @@ export interface TraderSession {
   sub: string
   email: string
   name: string
+  tokenVersion: number
 }
 
 function sessionSecret() {
@@ -46,7 +47,12 @@ export function verifyTraderSession(token: string | undefined | null): TraderSes
       exp: number
     }
     if (payload.kind !== 'trader' || payload.exp < Math.floor(Date.now() / 1000)) return null
-    return { sub: payload.sub, email: payload.email, name: payload.name }
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      tokenVersion: Number.isInteger(payload.tokenVersion) ? payload.tokenVersion : 0,
+    }
   } catch {
     return null
   }
@@ -54,7 +60,21 @@ export function verifyTraderSession(token: string | undefined | null): TraderSes
 
 export async function getTraderSession(): Promise<TraderSession | null> {
   const store = await cookies()
-  return verifyTraderSession(store.get(TRADER_COOKIE)?.value)
+  const session = verifyTraderSession(store.get(TRADER_COOKIE)?.value)
+  if (!session || !process.env.DATABASE_URL) return session
+
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    const user = await prisma.user.findUnique({
+      where: { id: session.sub },
+      select: { tokenVersion: true, role: true },
+    })
+    if (!user || user.role !== 'TRADER' || user.tokenVersion !== session.tokenVersion) return null
+    return session
+  } catch (error) {
+    console.error('[pft auth] Trader session validation failed', error)
+    return null
+  }
 }
 
 export async function requireTrader() {

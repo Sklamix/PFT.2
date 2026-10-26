@@ -82,6 +82,7 @@ export async function POST(request: Request) {
               dateOfBirth: true,
               phone: true,
               country: true,
+              tokenVersion: true,
             },
           })
         : await tx.user.update({
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
               dateOfBirth: true,
               phone: true,
               country: true,
+              tokenVersion: true,
             },
           })
 
@@ -114,7 +116,12 @@ export async function POST(request: Request) {
       profileComplete: profileComplete(user),
       redirectTo: profileComplete(user) ? '/dashboard' : '/profile/setup',
     })
-    return applyTraderCookie(response, { sub: user.id, email: user.email, name: user.name })
+    return applyTraderCookie(response, {
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      tokenVersion: user.tokenVersion,
+    })
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(

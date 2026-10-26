@@ -46,11 +46,16 @@ export async function POST(request: Request) {
 
     emailLimiter.reset(emailKey)
 
+    const tokenVersionValue = (user as unknown as { tokenVersion?: number }).tokenVersion
+    const tokenVersion = typeof tokenVersionValue === 'number' && Number.isInteger(tokenVersionValue)
+      ? tokenVersionValue
+      : 0
     const token = signSession({
       sub: user.id,
       email: user.email,
       name: user.name,
       role: user.role as Exclude<Role, 'TRADER'>,
+      tokenVersion,
     })
     const response = NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },

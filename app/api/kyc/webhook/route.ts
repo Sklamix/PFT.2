@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { mapDiditStatus, verifyDiditWebhook } from '@/lib/kyc/didit'
 import { setKycStatus } from '@/lib/kyc/state'
+import { claimWebhookEvent, releaseWebhookEvent, webhookEventId } from '@/lib/security/webhook-events'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,36 +32,46 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
-  if (payload.webhook_type !== 'status.updated' && payload.webhook_type !== 'data.updated') {
-    return NextResponse.json({ ok: true })
-  }
+  const eventId = webhookEventId('didit', rawBody)
+  const claimed = await claimWebhookEvent(eventId, 'didit', payload.webhook_type || 'unknown')
+  if (!claimed) return NextResponse.json({ ok: true, duplicate: true })
 
-  const sessionId = payload.session_id?.trim()
-  const vendorId = payload.vendor_data?.trim()
-  if (!sessionId && !vendorId) return NextResponse.json({ ok: true })
+  try {
+    if (payload.webhook_type !== 'status.updated' && payload.webhook_type !== 'data.updated') {
+      return NextResponse.json({ ok: true })
+    }
 
-  const user = sessionId
-    ? await prisma.user.findUnique({
-        where: { kycSessionId: sessionId },
-        select: { id: true, kycSessionId: true },
-      })
-    : vendorId
+    const sessionId = payload.session_id?.trim()
+    const vendorId = payload.vendor_data?.trim()
+    if (!sessionId && !vendorId) return NextResponse.json({ ok: true })
+
+    const user = sessionId
       ? await prisma.user.findUnique({
-          where: { id: vendorId },
+          where: { kycSessionId: sessionId },
           select: { id: true, kycSessionId: true },
         })
-      : null
+      : vendorId
+        ? await prisma.user.findUnique({
+            where: { id: vendorId },
+            select: { id: true, kycSessionId: true },
+          })
+        : null
 
-  if (!user) return NextResponse.json({ ok: true })
-  if (sessionId && user.kycSessionId && user.kycSessionId !== sessionId) return NextResponse.json({ ok: true })
+    if (!user) return NextResponse.json({ ok: true })
+    if (sessionId && user.kycSessionId && user.kycSessionId !== sessionId) return NextResponse.json({ ok: true })
 
-  const mapped = mapDiditStatus(payload.status)
-  if (!mapped) return NextResponse.json({ ok: true })
+    const mapped = mapDiditStatus(payload.status)
+    if (!mapped) return NextResponse.json({ ok: true })
 
-  await setKycStatus(user.id, mapped, {
-    note: mapped === 'REJECTED' ? 'Declined by Didit' : mapped === 'NOT_STARTED' ? 'Didit session expired' : null,
-    clearSession: mapped === 'NOT_STARTED',
-  })
+    await setKycStatus(user.id, mapped, {
+      note: mapped === 'REJECTED' ? 'Declined by Didit' : mapped === 'NOT_STARTED' ? 'Didit session expired' : null,
+      clearSession: mapped === 'NOT_STARTED',
+    })
 
-  return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    await releaseWebhookEvent(eventId)
+    console.error('[pft kyc] Webhook processing failed', error)
+    return NextResponse.json({ error: 'Unable to process webhook' }, { status: 500 })
+  }
 }

@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true, role: true, profileCompletedAt: true },
+    select: { id: true, email: true, name: true, role: true, profileCompletedAt: true, tokenVersion: true },
   })
   if (!user || user.role !== 'TRADER') {
     return NextResponse.redirect(new URL('/auth/login?error=google', request.url))
@@ -27,5 +27,6 @@ export async function GET(request: Request) {
     sub: user.id,
     email: user.email,
     name: user.name,
+    tokenVersion: user.tokenVersion,
   })
 }

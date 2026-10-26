@@ -52,7 +52,13 @@ export function verifySessionToken(token: string | undefined | null): AdminSessi
     }
     if (payload.exp < Math.floor(Date.now() / 1000)) return null
     if (!STAFF_ROLES.includes(payload.role)) return null
-    return { sub: payload.sub, email: payload.email, name: payload.name, role: payload.role }
+    return {
+      sub: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      role: payload.role,
+      tokenVersion: Number.isInteger(payload.tokenVersion) ? payload.tokenVersion : 0,
+    }
   } catch {
     return null
   }
@@ -76,7 +82,21 @@ export function clearSessionCookie(response: NextResponse) {
 
 export async function getAdminSession(): Promise<AdminSession | null> {
   const store = await cookies()
-  return verifySessionToken(store.get(ADMIN_COOKIE)?.value)
+  const session = verifySessionToken(store.get(ADMIN_COOKIE)?.value)
+  if (!session || !process.env.DATABASE_URL) return session
+
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    const user = await prisma.user.findUnique({
+      where: { id: session.sub },
+      select: { tokenVersion: true, role: true },
+    })
+    if (!user || user.role !== session.role || user.tokenVersion !== session.tokenVersion) return null
+    return session
+  } catch (error) {
+    console.error('[pft admin auth] Admin session validation failed', error)
+    return null
+  }
 }
 
 export async function requireStaff() {

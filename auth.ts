@@ -15,12 +15,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       ? [Google({ clientId: googleClientId, clientSecret: googleClientSecret })]
       : [],
   callbacks: {
-    async signIn({ user, account }) {
+    async signIn({ user, account, profile }) {
       if (account?.provider !== 'google' || !user.email) return false
+      if ((profile as { email_verified?: unknown } | undefined)?.email_verified !== true) return false
+
       const email = user.email.trim().toLowerCase()
       const existing = await prisma.user.findUnique({
         where: { email },
-        select: { id: true, role: true },
+        select: { id: true, role: true, tokenVersion: true },
       })
       if (existing && existing.role !== 'TRADER') return false
 
@@ -31,7 +33,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               emailVerifiedAt: new Date(),
               ...(user.image ? { avatarUrl: user.image } : {}),
             },
-            select: { id: true },
+            select: { id: true, tokenVersion: true },
           })
         : await prisma.user.create({
             data: {
@@ -42,13 +44,27 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               emailVerifiedAt: new Date(),
               avatarUrl: user.image,
             },
-            select: { id: true },
+            select: { id: true, tokenVersion: true },
           })
       user.id = trader.id
+      ;(user as typeof user & { tokenVersion?: number }).tokenVersion = trader.tokenVersion
       return true
     },
     async jwt({ token, user }) {
-      if (user?.id) token.sub = user.id
+      if (user?.id) {
+        token.sub = user.id
+        const version = (user as typeof user & { tokenVersion?: number }).tokenVersion
+        if (typeof version === 'number') token.tokenVersion = version
+      }
+
+      if (token.sub) {
+        const current = await prisma.user.findUnique({
+          where: { id: token.sub },
+          select: { tokenVersion: true, role: true },
+        })
+        const tokenVersion = typeof token.tokenVersion === 'number' ? token.tokenVersion : 0
+        if (!current || current.role !== 'TRADER' || current.tokenVersion !== tokenVersion) return null
+      }
       return token
     },
     async session({ session, token }) {

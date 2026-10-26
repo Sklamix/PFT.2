@@ -27,6 +27,7 @@ export type AdminSession = {
   email: string
   name: string
   role: Exclude<Role, 'TRADER'>
+  tokenVersion: number
 }
 
 export type TraderRow = {

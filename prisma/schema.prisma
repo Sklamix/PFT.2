@@ -139,6 +139,7 @@ model User {
   kycUpdatedAt  DateTime?
   challengeStatus ChallengeStatus @default(IN_PROGRESS)
   favoriteSymbols String[] @default([])
+  tokenVersion  Int       @default(0)
   telegram      String?
   discord       String?
   createdAt     DateTime  @default(now())
@@ -361,6 +362,16 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+/// Durable idempotency records for signed inbound webhooks.
+model WebhookEvent {
+  id         String   @id
+  provider   String
+  eventType  String
+  receivedAt DateTime @default(now())
+
+  @@index([provider, receivedAt])
 }
 
 model TelemetrySync {
