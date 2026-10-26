@@ -1,10 +1,8 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useEffect, useState } from 'react'
 import { ArrowRight, CalendarClock, Clock, KeyRound, MousePointer2, Sparkles, Star } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { HeroSceneVariant } from '@/components/home/hero-space-scene'
 
 const HeroSpaceScene = dynamic(
   () => import('@/components/home/hero-space-scene').then((mod) => mod.HeroSpaceScene),
@@ -18,12 +16,6 @@ const HeroSpaceScene = dynamic(
   },
 )
 
-const SCENES: { id: HeroSceneVariant; label: string }[] = [
-  { id: 'orbit', label: 'Orbit' },
-  { id: 'nebula', label: 'Nebula' },
-  { id: 'solar', label: 'Solar' },
-]
-
 const HIGHLIGHTS = [
   { icon: Clock, label: 'Zero time limits' },
   { icon: KeyRound, label: 'Instant credentials' },
@@ -32,46 +24,13 @@ const HIGHLIGHTS = [
 
 const PLATFORMS = ['MT4', 'MT5', 'cTrader', 'DXtrade']
 
-function storedScene(): HeroSceneVariant {
-  try {
-    const value = window.localStorage.getItem('pft_hero_scene')
-    if (value === 'orbit' || value === 'nebula' || value === 'solar') return value
-  } catch {
-    // Storage is optional.
-  }
-  return 'orbit'
-}
-
 export function Hero() {
-  const [scene, setScene] = useState<HeroSceneVariant>('orbit')
-
-  useEffect(() => {
-    setScene(storedScene())
-  }, [])
-
-  function chooseScene(next: HeroSceneVariant) {
-    setScene(next)
-    try {
-      window.localStorage.setItem('pft_hero_scene', next)
-    } catch {
-      // Storage is optional.
-    }
-  }
-
   return (
     <section id="top" className="relative isolate min-h-[100svh] overflow-hidden border-b border-white/5 bg-[#02040a]">
       <div className="pointer-events-none absolute inset-0 z-0">
+        <div className="absolute -left-52 top-1/2 size-[42rem] -translate-y-1/2 rounded-full bg-amber-300/30 blur-[90px]" />
         <div
-          className={cn(
-            'absolute -left-52 top-1/2 size-[42rem] -translate-y-1/2 rounded-full blur-[90px] transition-colors duration-700',
-            scene === 'solar' ? 'bg-amber-300/30' : scene === 'nebula' ? 'bg-cyan-400/15' : 'bg-blue-500/20',
-          )}
-        />
-        <div
-          className={cn(
-            'absolute -left-24 top-1/2 size-[34rem] -translate-y-1/2 rounded-full blur-2xl transition-opacity duration-700',
-            scene === 'solar' ? 'opacity-90' : scene === 'nebula' ? 'opacity-50' : 'opacity-75',
-          )}
+          className="absolute -left-24 top-1/2 size-[34rem] -translate-y-1/2 rounded-full opacity-90 blur-2xl"
           style={{ background: 'radial-gradient(circle, rgba(255,190,92,0.58) 0%, rgba(255,122,26,0.22) 40%, transparent 70%)' }}
         />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_44%,rgba(37,99,235,0.16),transparent_34%),radial-gradient(circle_at_56%_68%,rgba(14,165,233,0.09),transparent_28%)]" />
@@ -80,15 +39,12 @@ export function Hero() {
       </div>
 
       <div className="absolute inset-0 z-10">
-        <HeroSpaceScene variant={scene} />
+        <HeroSpaceScene variant="solar" />
       </div>
 
       <div className="pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(90deg,rgba(2,4,10,0.84)_0%,rgba(2,4,10,0.78)_26%,rgba(2,4,10,0.36)_54%,transparent_80%)] max-lg:bg-[linear-gradient(180deg,#02040a_0%,rgba(2,4,10,0.82)_34%,rgba(2,4,10,0.12)_70%,#02040a_100%)]" />
       <div
-        className={cn(
-          'pointer-events-none absolute top-1/2 -left-64 z-20 size-[30rem] -translate-y-1/2 rounded-full blur-2xl mix-blend-screen transition-opacity duration-700',
-          scene === 'solar' ? 'opacity-80' : scene === 'nebula' ? 'opacity-45' : 'opacity-60',
-        )}
+        className="pointer-events-none absolute top-1/2 -left-64 z-20 size-[30rem] -translate-y-1/2 rounded-full opacity-80 blur-2xl mix-blend-screen"
         style={{ background: 'radial-gradient(circle, rgba(255,190,92,0.6) 0%, rgba(255,122,26,0.22) 42%, transparent 70%)' }}
       />
 
@@ -187,22 +143,6 @@ export function Hero() {
         </div>
       </div>
 
-      <div className="absolute top-24 right-5 z-40 hidden items-center gap-1 rounded-full border border-white/10 bg-black/30 p-1 backdrop-blur-md sm:flex">
-        <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-600">Scene</span>
-        {SCENES.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => chooseScene(item.id)}
-            className={cn(
-              'rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition',
-              scene === item.id ? 'bg-primary text-primary-foreground' : 'text-slate-500 hover:text-white',
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
     </section>
   )
 }

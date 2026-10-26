@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Sparkles, Stars } from '@react-three/drei'
 import * as THREE from 'three'
+import { Astronaut } from './hero-astronaut'
 
 export type HeroSceneVariant = 'orbit' | 'nebula' | 'solar'
 
@@ -19,21 +20,21 @@ const SCENES: Record<
 > = {
   orbit: {
     earth: [1.45, 0, -0.25],
-    astronaut: [3.55, 0.15, 1],
+    astronaut: [3.65, 0.05, 0.9],
     ring: '#f5c76a',
     sun: [-9.2, 1.4, -4],
     star: '#bae6fd',
   },
   nebula: {
     earth: [1.55, -0.35, -0.8],
-    astronaut: [3.4, 1.15, 0.7],
+    astronaut: [3.45, 0.8, 0.6],
     ring: '#67e8f9',
     sun: [-10, 2.4, -5],
     star: '#c4b5fd',
   },
   solar: {
     earth: [2.05, 0.2, -1.2],
-    astronaut: [3.8, -0.7, 1.1],
+    astronaut: [3.8, -0.35, 1],
     ring: '#fbbf24',
     sun: [-8.6, 0.4, -3.8],
     star: '#fde68a',
@@ -146,121 +147,6 @@ function Earth({
   )
 }
 
-function Astronaut({
-  position,
-  scale,
-  pointer,
-}: {
-  position: [number, number, number]
-  scale: number
-  pointer: RefObject<{ x: number; y: number }>
-}) {
-  const group = useRef<THREE.Group>(null)
-  const waveArm = useRef<THREE.Group>(null)
-
-  useFrame((state, delta) => {
-    if (!group.current) return
-    const time = state.clock.elapsedTime
-    const p = pointer.current
-    const floatX = Math.sin(time * 0.52) * 0.16
-    const floatY = Math.sin(time * 0.74 + 1.2) * 0.24
-
-    group.current.position.x = THREE.MathUtils.damp(
-      group.current.position.x,
-      position[0] + floatX + p.x * 0.42,
-      3.2,
-      delta,
-    )
-    group.current.position.y = THREE.MathUtils.damp(
-      group.current.position.y,
-      position[1] + floatY + p.y * 0.24,
-      3.2,
-      delta,
-    )
-    group.current.rotation.y = THREE.MathUtils.damp(
-      group.current.rotation.y,
-      Math.sin(time * 0.35) * 0.18 + p.x * 0.1,
-      2.5,
-      delta,
-    )
-    group.current.rotation.z = Math.sin(time * 0.42) * 0.04
-
-    if (waveArm.current) {
-      const phase = time % 9
-      const waving = phase > 6.1 && phase < 8.5
-      const target = waving ? -1.55 + Math.sin((phase - 6.1) * 8) * 0.18 : -0.55
-      waveArm.current.rotation.z = THREE.MathUtils.damp(waveArm.current.rotation.z, target, 5.5, delta)
-      waveArm.current.rotation.x = THREE.MathUtils.damp(waveArm.current.rotation.x, waving ? 0.35 : 0, 5.5, delta)
-    }
-  })
-
-  return (
-    <group ref={group} position={position} scale={scale} rotation={[0.05, -0.25, 0.08]}>
-      <mesh position={[0, 0.02, 0]} scale={[0.78, 1.05, 0.62]}>
-        <icosahedronGeometry args={[0.48, 1]} />
-        <meshStandardMaterial color="#dbeafe" flatShading roughness={0.55} metalness={0.12} />
-      </mesh>
-
-      <mesh position={[0, 0.63, 0]}>
-        <icosahedronGeometry args={[0.36, 2]} />
-        <meshStandardMaterial color="#e2e8f0" flatShading roughness={0.42} metalness={0.15} />
-      </mesh>
-      <mesh position={[0, 0.64, 0.25]} scale={[0.9, 0.68, 0.42]}>
-        <sphereGeometry args={[0.27, 20, 14]} />
-        <meshStandardMaterial color="#050b14" metalness={0.85} roughness={0.08} emissive="#0ea5e9" emissiveIntensity={0.32} />
-      </mesh>
-      <mesh position={[0, 0.64, 0.255]} scale={[0.72, 0.5, 0.4]}>
-        <sphereGeometry args={[0.27, 20, 14]} />
-        <meshBasicMaterial color="#38bdf8" transparent opacity={0.12} blending={THREE.AdditiveBlending} depthWrite={false} />
-      </mesh>
-
-      <mesh position={[0, 0.04, -0.38]} scale={[0.52, 0.66, 0.24]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#94a3b8" flatShading roughness={0.65} metalness={0.25} />
-      </mesh>
-      <mesh position={[0, 0.04, 0.33]} scale={[0.25, 0.15, 0.05]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#fbbf24" emissive="#f59e0b" emissiveIntensity={0.35} />
-      </mesh>
-
-      <group position={[-0.47, 0.2, 0]} rotation={[0, 0, 0.56]}>
-        <mesh position={[0, -0.28, 0]}>
-          <capsuleGeometry args={[0.085, 0.38, 4, 7]} />
-          <meshStandardMaterial color="#dbeafe" flatShading roughness={0.55} />
-        </mesh>
-        <mesh position={[0, -0.55, 0]}>
-          <icosahedronGeometry args={[0.105, 1]} />
-          <meshStandardMaterial color="#f8fafc" flatShading roughness={0.5} />
-        </mesh>
-      </group>
-
-      <group ref={waveArm} position={[0.47, 0.2, 0]} rotation={[0, 0, -0.55]}>
-        <mesh position={[0, -0.28, 0]}>
-          <capsuleGeometry args={[0.085, 0.38, 4, 7]} />
-          <meshStandardMaterial color="#dbeafe" flatShading roughness={0.55} />
-        </mesh>
-        <mesh position={[0, -0.55, 0]}>
-          <icosahedronGeometry args={[0.105, 1]} />
-          <meshStandardMaterial color="#f8fafc" flatShading roughness={0.5} />
-        </mesh>
-      </group>
-
-      <group position={[-0.22, -0.5, 0]} rotation={[0, 0, -0.15]}>
-        <mesh position={[0, -0.27, 0]}>
-          <capsuleGeometry args={[0.11, 0.4, 4, 7]} />
-          <meshStandardMaterial color="#cbd5e1" flatShading roughness={0.6} />
-        </mesh>
-      </group>
-      <group position={[0.22, -0.5, 0]} rotation={[0, 0, 0.15]}>
-        <mesh position={[0, -0.27, 0]}>
-          <capsuleGeometry args={[0.11, 0.4, 4, 7]} />
-          <meshStandardMaterial color="#cbd5e1" flatShading roughness={0.6} />
-        </mesh>
-      </group>
-    </group>
-  )
-}
-
 function Sun({ position }: { position: [number, number, number] }) {
   return (
     <group position={position}>
@@ -290,7 +176,7 @@ function Scene({
   const earthPosition: [number, number, number] = mobile ? [1.05, -1.15, -0.8] : scene.earth
   const astronautPosition: [number, number, number] = mobile ? [1.8, 1.55, 0.4] : scene.astronaut
   const earthScale = mobile ? 0.66 : 0.92
-  const astronautScale = mobile ? 0.64 : 1.16
+  const astronautScale = mobile ? 0.48 : 0.72
   const sunPosition: [number, number, number] = mobile ? [-7.8, 2.3, -5] : scene.sun
 
   return (
