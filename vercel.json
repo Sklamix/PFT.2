@@ -3,10 +3,6 @@
     {
       "path": "/api/stats/recalculate",
       "schedule": "0 0 1,15 * *"
-    },
-    {
-      "path": "/api/cron/market-conditions",
-      "schedule": "*/10 * * * *"
     }
   ]
 }

@@ -8,6 +8,7 @@ import { spreadToDisplayUnits, terminalSymbolForCondition } from '@/lib/market/c
 export const dynamic = 'force-dynamic'
 
 const RETENTION_MS = 24 * 60 * 60_000
+const SAMPLE_INTERVAL_MS = 10 * 60_000
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
@@ -20,6 +21,18 @@ export async function GET(request: Request) {
   const cutoff = new Date(now.getTime() - RETENTION_MS)
 
   try {
+    const latestSample = await prisma.tradingSpreadSample.findFirst({
+      orderBy: { sampledAt: 'desc' },
+      select: { sampledAt: true },
+    })
+    if (latestSample && now.getTime() - latestSample.sampledAt.getTime() < SAMPLE_INTERVAL_MS) {
+      return NextResponse.json({
+        skipped: true,
+        reason: 'Sample interval has not elapsed',
+        lastSampledAt: latestSample.sampledAt.toISOString(),
+      })
+    }
+
     const instruments = await prisma.tradingInstrument.findMany({ where: { isActive: true } })
     const terminalSymbols = [...new Set(
       instruments
