@@ -386,6 +386,33 @@ model MarketQuote {
   @@index([providerTime])
 }
 
+/// Public payout feed shown on the marketing site. The existing `Payout` model
+/// remains the source of truth for trader payout requests and disbursements.
+model PayoutProof {
+  id             String   @id @default(cuid())
+  traderName     String
+  countryCode    String   @db.VarChar(2)
+  accountSize    Decimal  @db.Decimal(14, 2)
+  payoutAmount   Decimal  @db.Decimal(14, 2)
+  payoutMethod   String
+  sourcePayoutId String?  @unique
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Singleton row (`id = "global"`) with the public marketing counters.
+model PlatformStats {
+  id                  String   @id @default("global")
+  totalRewardsPaid    Decimal  @default(0) @db.Decimal(16, 2)
+  fundedTradersCount  Int      @default(0)
+  avgPayoutTimeHours  Float    @default(0)
+  countriesServedCount Int     @default(0)
+  lastUpdatedAt       DateTime @default(now())
+
+  @@map("PlatformStats")
+}
+
 model ChallengePricing {
   id            String   @id @default(cuid())
   accountSize   Int

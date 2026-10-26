@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/stats/recalculate",
+      "schedule": "0 0 1,15 * *"
+    }
+  ]
+}

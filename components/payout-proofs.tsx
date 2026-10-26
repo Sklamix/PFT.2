@@ -1,25 +1,35 @@
+'use client'
+
+import { useCallback, useEffect, useState } from 'react'
 import { BadgeCheck } from 'lucide-react'
 import { SectionHeading } from '@/components/section-heading'
+import { FALLBACK_PUBLIC_STATS } from '@/lib/stats/defaults'
+import type { PublicPayout, PublicStatsPayload } from '@/lib/stats/types'
 
-const PAYOUTS = [
-  { trader: 'Marcus T.', country: 'UK', amount: '$12,480', method: 'USDT', account: '$200K' },
-  { trader: 'Aiko S.', country: 'JP', amount: '$4,210', method: 'Bank Wire', account: '$50K' },
-  { trader: 'Daniel R.', country: 'DE', amount: '$28,950', method: 'USDC', account: '$400K' },
-  { trader: 'Priya N.', country: 'IN', amount: '$2,870', method: 'USDT', account: '$25K' },
-  { trader: 'Lucas M.', country: 'BR', amount: '$9,640', method: 'Bank Wire', account: '$100K' },
-  { trader: 'Omar K.', country: 'AE', amount: '$16,300', method: 'USDC', account: '$200K' },
-  { trader: 'Sofia L.', country: 'ES', amount: '$1,150', method: 'USDT', account: '$10K' },
-  { trader: 'Ethan W.', country: 'US', amount: '$7,425', method: 'Bank Wire', account: '$100K' },
-]
+const usd = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  maximumFractionDigits: 0,
+})
 
-const STATS = [
-  { value: '$38.6M+', label: 'Total rewards paid' },
-  { value: '14,900+', label: 'Funded traders' },
-  { value: '8 hrs', label: 'Avg. payout time' },
-  { value: '170+', label: 'Countries served' },
-]
+const compactUsd = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  notation: 'compact',
+  maximumFractionDigits: 1,
+})
 
-function PayoutCard({ payout, duplicate }: { payout: (typeof PAYOUTS)[number]; duplicate?: boolean }) {
+const integer = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
+
+function formatRewards(value: number) {
+  return `${compactUsd.format(value)}+`
+}
+
+function formatAvgPayout(hours: number) {
+  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hrs`
+}
+
+function PayoutCard({ payout, duplicate }: { payout: PublicPayout; duplicate?: boolean }) {
   return (
     <li
       aria-hidden={duplicate || undefined}
@@ -27,26 +37,69 @@ function PayoutCard({ payout, duplicate }: { payout: (typeof PAYOUTS)[number]; d
     >
       <span className="pointer-events-none absolute inset-x-6 top-0 h-px bg-linear-to-r from-transparent via-primary/70 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-primary/10 font-mono text-[11px] text-primary shadow-[inset_0_0_20px_rgba(59,130,246,0.14)]">
-        {payout.country}
+        {payout.countryCode}
       </span>
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1 text-sm font-semibold text-white">
-          {payout.trader}
+          {payout.traderName}
           <BadgeCheck className="size-3.5 text-highlight" aria-label="Verified payout" />
         </p>
         <p className="mt-0.5 truncate text-[11px] text-slate-500">
-          {payout.account} account · {payout.method}
+          {compactUsd.format(payout.accountSize)} account · {payout.payoutMethod}
         </p>
       </div>
       <div className="text-right">
-        <p className="font-mono text-[15px] font-semibold tabular-nums text-highlight">{payout.amount}</p>
+        <p className="font-mono text-[15px] font-semibold tabular-nums text-highlight">{usd.format(payout.payoutAmount)}</p>
         <p className="mt-0.5 text-[9px] uppercase tracking-[0.18em] text-slate-600">paid</p>
       </div>
     </li>
   )
 }
 
+function usePublicStats() {
+  const [payload, setPayload] = useState<PublicStatsPayload>(FALLBACK_PUBLIC_STATS)
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch('/api/stats', { cache: 'no-store' })
+      if (!response.ok) return
+      const next = (await response.json()) as PublicStatsPayload
+      if (next?.stats && Array.isArray(next.payouts)) setPayload(next)
+    } catch {
+      // Keep the last successful snapshot; the bundled fallback is used on first load.
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+    const interval = window.setInterval(() => void load(), 60_000)
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [load])
+
+  return payload
+}
+
 export function PayoutProofs() {
+  const { stats, payouts } = usePublicStats()
+  const cards = payouts.slice(0, 12)
+  const repeatCount = cards.length ? Math.max(1, Math.ceil(8 / cards.length)) : 0
+  const repeated = Array.from({ length: repeatCount }, () => cards).flat()
+  const marquee = [...repeated, ...repeated]
+
+  const tiles = [
+    { value: formatRewards(stats.totalRewardsPaid), label: 'Total rewards paid' },
+    { value: `${integer.format(stats.fundedTradersCount)}+`, label: 'Funded traders' },
+    { value: formatAvgPayout(stats.avgPayoutTimeHours), label: 'Avg. payout time' },
+    { value: `${integer.format(stats.countriesServedCount)}+`, label: 'Countries served' },
+  ]
+
   return (
     <section
       id="payouts"
@@ -68,15 +121,15 @@ export function PayoutProofs() {
             align="left"
           />
           <dl className="grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4 lg:w-auto lg:min-w-[560px]">
-            {STATS.map((stat) => (
+            {tiles.map((tile) => (
               <div
-                key={stat.label}
+                key={tile.label}
                 className="relative flex flex-col-reverse gap-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 backdrop-blur-md"
               >
                 <span className="absolute top-3.5 right-3.5 size-1.5 rounded-full bg-primary shadow-[0_0_10px_2px_rgba(59,130,246,0.45)]" />
-                <dt className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{stat.label}</dt>
+                <dt className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{tile.label}</dt>
                 <dd className="font-mono text-[clamp(1.15rem,1.35vw,1.55rem)] font-semibold tabular-nums text-white">
-                  {stat.value}
+                  {tile.value}
                 </dd>
               </div>
             ))}
@@ -92,13 +145,19 @@ export function PayoutProofs() {
         </div>
       </div>
 
-      <div className="relative mt-4 overflow-hidden mask-[linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]">
-        <ul className="animate-marquee flex w-max gap-3.5" aria-label="Recent payouts">
-          {[...PAYOUTS, ...PAYOUTS].map((payout, index) => (
-            <PayoutCard key={`${payout.trader}-${index}`} payout={payout} duplicate={index >= PAYOUTS.length} />
-          ))}
-        </ul>
-      </div>
+      {marquee.length > 0 ? (
+        <div className="relative mt-4 overflow-hidden mask-[linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]">
+          <ul className="animate-marquee flex w-max gap-3.5" aria-label="Recent payouts">
+            {marquee.map((payout, index) => (
+              <PayoutCard key={`${payout.id}-${index}`} payout={payout} duplicate={index >= repeated.length} />
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="relative mx-4 mt-4 rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-8 text-center text-sm text-slate-500 sm:mx-6 lg:mx-8">
+          No payouts have been published yet.
+        </div>
+      )}
     </section>
   )
 }
