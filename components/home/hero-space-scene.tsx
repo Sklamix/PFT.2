@@ -171,13 +171,35 @@ function Scene({
 }) {
   const { size } = useThree()
   const mobile = size.width < 768
+  const portrait = !mobile && size.width / size.height < 1.05
+  const wide = size.width >= 1600
+  const large = size.width >= 1200
+  const medium = size.width >= 900
   const scene = SCENES[variant]
 
-  const earthPosition: [number, number, number] = mobile ? [1.05, -1.15, -0.8] : scene.earth
-  const astronautPosition: [number, number, number] = mobile ? [1.8, 1.55, 0.4] : scene.astronaut
-  const earthScale = mobile ? 0.66 : 0.92
-  const astronautScale = mobile ? 0.48 : 0.72
-  const sunPosition: [number, number, number] = mobile ? [-7.8, 2.3, -5] : scene.sun
+  const earthPosition: [number, number, number] = mobile
+    ? [1.05, -1.15, -0.8]
+    : portrait
+      ? [1.4, -0.95, -0.8]
+      : wide
+        ? [2.55, -0.08, -0.45]
+        : large || medium
+          ? [2.25, -0.1, -0.55]
+          : scene.earth
+  const astronautPosition: [number, number, number] = mobile
+    ? [1.8, 1.55, 0.4]
+    : portrait
+      ? [2.35, 1.25, 0.4]
+      : wide
+        ? [4.55, -0.35, 1]
+        : large
+          ? [4.05, -0.38, 1]
+          : medium
+            ? [3.75, -0.36, 1]
+            : scene.astronaut
+  const earthScale = mobile ? 0.66 : portrait ? 0.72 : wide ? 1.16 : large ? 1 : medium ? 0.92 : 0.88
+  const astronautScale = mobile ? 0.48 : portrait ? 0.54 : wide ? 0.92 : large ? 0.8 : medium ? 0.72 : 0.7
+  const sunPosition: [number, number, number] = mobile || portrait ? [-7.8, 2.3, -5] : scene.sun
 
   return (
     <>
@@ -187,8 +209,8 @@ function Scene({
       <pointLight position={[-4, 0, 3]} intensity={22} distance={16} color="#fbbf24" />
       <pointLight position={[4, -2, 2]} intensity={10} distance={12} color="#38bdf8" />
 
-      <Stars radius={85} depth={50} count={mobile ? 1400 : 2600} factor={3.1} saturation={0} fade speed={0.2} />
-      <Sparkles count={mobile ? 35 : 70} scale={[16, 9, 8]} size={1.4} speed={0.18} color={scene.star} opacity={0.55} />
+      <Stars radius={85} depth={50} count={mobile ? 1400 : wide ? 3400 : 2600} factor={3.1} saturation={0} fade speed={0.2} />
+      <Sparkles count={mobile ? 35 : wide ? 90 : 70} scale={[16, 9, 8]} size={1.4} speed={0.18} color={scene.star} opacity={0.55} />
 
       <Sun position={sunPosition} />
       <Earth position={earthPosition} scale={earthScale} ringColor={scene.ring} pointer={pointer} />
