@@ -140,7 +140,7 @@ export function TradingConditionsCard() {
         </table>
       </div>
       <p className="text-[10px] leading-relaxed text-slate-600">
-        Live quotes refresh every 60 seconds from the terminal feed; averages are desk-maintained fallbacks.
+        Live quotes refresh every 60 seconds from the terminal feed; averages are rolling 24h samples.
       </p>
     </article>
   )
