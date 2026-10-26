@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client'
-import { isTerminalSymbol, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { getSymbol, isTerminalSymbol, type TerminalSymbolId } from '@/lib/constants/symbols'
 import { prisma } from '@/lib/prisma'
 import { getQuoteSnapshots } from '@/lib/trading/market-quotes'
 import { DEFAULT_TRADING_CONDITIONS, FALLBACK_MARKET_CONDITIONS } from './conditions-defaults'
@@ -63,11 +63,25 @@ function sortInstruments<T extends { symbol: string; category: string }>(rows: T
   })
 }
 
-function terminalSymbolFor(symbol: string): TerminalSymbolId | null {
+export function terminalSymbolForCondition(symbol: string): TerminalSymbolId | null {
   const override = TERMINAL_SYMBOL_OVERRIDES[symbol]
   if (override) return override
   const compact = symbol.replace(/[^A-Z0-9]/gi, '').toUpperCase()
   return isTerminalSymbol(compact) ? compact : null
+}
+
+/**
+ * Convert a raw price spread into the unit used by TradingInstrument.avgSpread:
+ * pips for FX, points for indices, quote currency for metals/crypto.
+ */
+export function spreadToDisplayUnits(symbol: string, rawSpread: number) {
+  const terminal = terminalSymbolForCondition(symbol)
+  if (!terminal) return rawSpread
+  const meta = getSymbol(terminal)
+  if (meta.category === 'forex' || meta.category === 'index') {
+    return meta.pipSize > 0 ? rawSpread / meta.pipSize : rawSpread
+  }
+  return rawSpread
 }
 
 async function getLiveSpreads() {
@@ -77,7 +91,7 @@ async function getLiveSpreads() {
   try {
     const terminalBySymbol = new Map(
       [...new Set(FALLBACK_MARKET_CONDITIONS.instruments.map((instrument) => instrument.symbol))]
-        .map((symbol) => [symbol, terminalSymbolFor(symbol)] as const)
+        .map((symbol) => [symbol, terminalSymbolForCondition(symbol)] as const)
         .filter((entry): entry is readonly [string, TerminalSymbolId] => Boolean(entry[1])),
     )
     const snapshots = await getQuoteSnapshots([...new Set(terminalBySymbol.values())])

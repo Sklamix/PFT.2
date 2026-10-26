@@ -412,7 +412,21 @@ model TradingInstrument {
   isActive         Boolean  @default(true)
   updatedAt        DateTime @updatedAt
 
+  spreadSamples TradingSpreadSample[]
+
   @@index([isActive, category])
+}
+
+/// Raw live-spread samples used to maintain the rolling 24h average.
+model TradingSpreadSample {
+  id           String            @id @default(cuid())
+  instrumentId String
+  instrument   TradingInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  spread       Decimal           @db.Decimal(18, 8)
+  sampledAt    DateTime          @default(now())
+
+  @@index([instrumentId, sampledAt])
+  @@index([sampledAt])
 }
 
 /// Singleton row (`id = "global"`) with operational execution metrics.

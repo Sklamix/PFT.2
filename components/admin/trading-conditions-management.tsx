@@ -148,7 +148,7 @@ export function TradingConditionsManagement({ canManage }: { canManage: boolean 
             <tr>
               <th scope="col" className="px-3 py-2 font-medium">Instrument</th>
               <th scope="col" className="px-3 py-2 font-medium">Category</th>
-              <th scope="col" className="px-3 py-2 font-medium">Avg. spread</th>
+              <th scope="col" className="px-3 py-2 font-medium">Avg. spread (24h)</th>
               <th scope="col" className="px-3 py-2 font-medium">Commission / lot</th>
               <th scope="col" className="px-3 py-2 text-center font-medium">Active</th>
             </tr>
@@ -207,6 +207,9 @@ export function TradingConditionsManagement({ canManage }: { canManage: boolean 
           </tbody>
         </table>
       </div>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        The 24h average is recalculated from live terminal spreads every 10 minutes. Manual values are used until samples arrive.
+      </p>
     </section>
   )
 }

@@ -18,6 +18,13 @@ const commissionFormat = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
+const metalSpreadFormat = new Intl.NumberFormat('en-US', {
+  style: 'currency',
+  currency: 'USD',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 function useMarketConditions() {
   const [payload, setPayload] = useState<MarketConditionsPayload>(FALLBACK_MARKET_CONDITIONS)
 
@@ -91,8 +98,12 @@ export function TradingConditionsCard() {
               </tr>
             ) : (
               instruments.map((row) => {
-                const avgUnit = row.category.toLowerCase() === 'indices' ? 'pts' : 'pips'
-                const avgLabel = `${spreadFormat.format(row.avgSpread)} ${avgUnit}`
+                const category = row.category.toLowerCase()
+                const avgLabel = category === 'forex'
+                  ? `${spreadFormat.format(row.avgSpread)} pips`
+                  : category === 'indices'
+                    ? `${spreadFormat.format(row.avgSpread)} pts`
+                    : metalSpreadFormat.format(row.avgSpread)
                 const liveLabel = row.liveSpread
                   ? formatSpreadValue(row.liveSpread.terminalSymbol, row.liveSpread.spread)
                   : null
