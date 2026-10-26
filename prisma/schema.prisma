@@ -138,6 +138,7 @@ model User {
   kycNote       String?
   kycUpdatedAt  DateTime?
   challengeStatus ChallengeStatus @default(IN_PROGRESS)
+  favoriteSymbols String[] @default([])
   telegram      String?
   discord       String?
   createdAt     DateTime  @default(now())

@@ -61,7 +61,7 @@ export function TerminalWorkspace() {
 
   useEffect(() => {
     loadStoredTimeZone()
-    loadStoredFavorites()
+    void loadStoredFavorites()
   }, [])
 
   const loadOrders = useCallback(async () => {

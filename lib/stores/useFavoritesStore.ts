@@ -5,16 +5,32 @@ import { TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols
 
 export const FAVORITES_STORAGE_KEY = 'pft_favorite_symbols'
 
-function isTerminalSymbol(value: string): value is TerminalSymbolId {
-  return (TERMINAL_SYMBOLS as readonly string[]).includes(value)
+function sanitizeFavorites(value: unknown): TerminalSymbolId[] {
+  if (!Array.isArray(value)) return []
+  const valid = new Set<string>(TERMINAL_SYMBOLS)
+  return [...new Set(value.filter((item): item is string => typeof item === 'string' && valid.has(item)))] as TerminalSymbolId[]
 }
 
-function persist(favorites: string[]) {
+function persistLocal(favorites: TerminalSymbolId[]) {
   try {
     window.localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites))
   } catch {
     // Storage can be unavailable (private mode); favorites still work for this session.
   }
+}
+
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+function persistServer(favorites: TerminalSymbolId[]) {
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(() => {
+    void fetch('/api/trading/favorites', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ favorites }),
+    }).catch((error) => {
+      console.warn('[pft favorites] Failed to save on server', error)
+    })
+  }, 250)
 }
 
 type FavoritesStore = {
@@ -27,21 +43,38 @@ export const useFavoritesStore = create<FavoritesStore>((set, get) => ({
   toggleFavorite: (symbol) => {
     const current = get().favorites
     const next = current.includes(symbol) ? current.filter((item) => item !== symbol) : [...current, symbol]
-    persist(next)
+    persistLocal(next)
+    persistServer(next)
     set({ favorites: next })
   },
 }))
 
-/** Restores saved favorites once the client is mounted. Safe to call from an effect. */
-export function loadStoredFavorites() {
+/**
+ * Restores favorites from the account first (cross-device), falling back to the
+ * browser cache and seeding the account with existing local favorites once.
+ */
+export async function loadStoredFavorites() {
+  let local: TerminalSymbolId[] = []
   try {
-    const raw = window.localStorage.getItem(FAVORITES_STORAGE_KEY)
-    if (!raw) return
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return
-    const favorites = parsed.filter((value): value is TerminalSymbolId => typeof value === 'string' && isTerminalSymbol(value))
-    useFavoritesStore.setState({ favorites: [...new Set(favorites)] })
+    local = sanitizeFavorites(JSON.parse(window.localStorage.getItem(FAVORITES_STORAGE_KEY) ?? '[]'))
+    if (local.length > 0) useFavoritesStore.setState({ favorites: local })
   } catch {
     // Ignore malformed or unavailable storage.
+  }
+
+  try {
+    const response = await fetch('/api/trading/favorites', { cache: 'no-store' })
+    if (!response.ok) return
+    const data = (await response.json()) as { favorites?: unknown }
+    const remote = sanitizeFavorites(data.favorites)
+    if (remote.length > 0) {
+      useFavoritesStore.setState({ favorites: remote })
+      persistLocal(remote)
+    } else if (local.length > 0) {
+      // First load after server-side favorites were introduced: migrate the browser list.
+      persistServer(local)
+    }
+  } catch {
+    // Keep the local cache when offline or unauthenticated.
   }
 }
