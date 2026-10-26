@@ -401,6 +401,29 @@ model PayoutProof {
   @@index([createdAt])
 }
 
+/// Public trading conditions shown on the marketing homepage and managed from
+/// the operations desk. A future liquidity-bridge sync can update these rows.
+model TradingInstrument {
+  id               String   @id @default(cuid())
+  symbol           String   @unique
+  avgSpread        Decimal  @db.Decimal(10, 3)
+  commissionPerLot Decimal  @db.Decimal(10, 2)
+  category         String
+  isActive         Boolean  @default(true)
+  updatedAt        DateTime @updatedAt
+
+  @@index([isActive, category])
+}
+
+/// Singleton row (`id = "global"`) with operational execution metrics.
+model SystemMetrics {
+  id                  String   @id @default("global")
+  avgExecutionSpeedMs Int      @default(28)
+  lastUpdated         DateTime @default(now())
+
+  @@map("SystemMetrics")
+}
+
 /// Singleton row (`id = "global"`) with the public marketing counters.
 model PlatformStats {
   id                  String   @id @default("global")

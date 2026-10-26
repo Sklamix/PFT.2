@@ -1,12 +1,6 @@
-import { Activity, CalendarRange, Hourglass, Wallet, Newspaper, Moon } from 'lucide-react'
+import { CalendarRange, Hourglass, Wallet, Newspaper, Moon, type LucideIcon } from 'lucide-react'
 import { SectionHeading } from '@/components/section-heading'
-
-const SPREADS = [
-  { pair: 'EUR/USD', spread: '0.0', commission: '$3' },
-  { pair: 'GBP/USD', spread: '0.1', commission: '$3' },
-  { pair: 'XAU/USD', spread: '0.8', commission: '$3' },
-  { pair: 'NAS100', spread: '0.4', commission: '$0' },
-]
+import { TradingConditionsCard } from '@/components/trading-conditions-card'
 
 const PAYOUT_METHODS = ['USDT', 'USDC', 'Bank Wire']
 
@@ -16,7 +10,7 @@ const NEWS_EVENTS = [
   { time: 'Fri 22:00', event: 'Weekend hold — positions open', impact: 'Allowed' },
 ]
 
-function FeatureIcon({ icon: Icon }: { icon: typeof Activity }) {
+function FeatureIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <span className="flex size-10 items-center justify-center rounded-xl border border-primary/25 bg-primary/10 text-primary shadow-[inset_0_0_20px_rgba(59,130,246,0.12)]">
       <Icon className="size-5" aria-hidden="true" />
@@ -44,43 +38,7 @@ export function FeaturesBento() {
         />
 
         <div className="mt-14 grid gap-4 lg:grid-cols-3">
-          <article className="home-card cosmic-card flex flex-col gap-6 rounded-[1.75rem] p-6 lg:col-span-2">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex flex-col gap-4">
-                <FeatureIcon icon={Activity} />
-                <div>
-                  <h3 className="text-lg font-semibold text-white sm:text-xl">Raw spreads & zero slippage</h3>
-                  <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-400">
-                    Direct tier-1 liquidity feeds aggregated from top-tier banks. Institutional pricing on every
-                    instrument, with execution under 30ms.
-                  </p>
-                </div>
-              </div>
-              <span className="hidden rounded-full border border-highlight/30 bg-highlight/10 px-2.5 py-1 font-mono text-xs text-highlight sm:inline">
-                avg. 28ms
-              </span>
-            </div>
-            <div className="overflow-hidden rounded-xl border border-white/10 bg-black/25">
-              <table className="w-full text-left text-xs sm:text-sm">
-                <thead className="bg-white/[0.035] text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                  <tr>
-                    <th scope="col" className="px-4 py-2.5 font-medium">Instrument</th>
-                    <th scope="col" className="whitespace-nowrap px-4 py-2.5 font-medium">Avg. spread</th>
-                    <th scope="col" className="hidden px-4 py-2.5 text-right font-medium sm:table-cell">Commission / lot</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/[0.06]">
-                  {SPREADS.map((row) => (
-                    <tr key={row.pair} className="transition-colors hover:bg-white/[0.035]">
-                      <td className="px-4 py-2.5 font-mono text-white">{row.pair}</td>
-                      <td className="whitespace-nowrap px-4 py-2.5 font-mono text-primary">{row.spread} pips</td>
-                      <td className="hidden px-4 py-2.5 text-right font-mono text-slate-400 sm:table-cell">{row.commission}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
+          <TradingConditionsCard />
 
           <article className="home-card cosmic-card flex flex-col justify-between gap-6 rounded-[1.75rem] p-6">
             <div className="flex flex-col gap-4">

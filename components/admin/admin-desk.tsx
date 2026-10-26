@@ -11,6 +11,7 @@ import { OrdersQueue } from '@/components/admin/orders-queue'
 import { PayoutQueue } from '@/components/admin/payout-queue'
 import { PayoutsManagement } from '@/components/admin/payouts-management'
 import { RiskTable } from '@/components/admin/risk-table'
+import { TradingConditionsManagement } from '@/components/admin/trading-conditions-management'
 import { TelemetryController } from '@/components/admin/telemetry-controller'
 import { TradeHistoryModal } from '@/components/admin/trade-history-modal'
 import { Button } from '@/components/ui/button'
@@ -140,6 +141,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       <KpiBar metrics={metrics} />
       <TelemetryController state={telemetry} />
       <PayoutsManagement canManage={user.role === 'ADMIN'} />
+      <TradingConditionsManagement canManage={user.role === 'ADMIN'} />
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
