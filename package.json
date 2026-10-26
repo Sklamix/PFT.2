@@ -5,6 +5,7 @@
   "packageManager": "pnpm@12.3.4",
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/bootstrap-production.mjs",
     "build": "next build",
     "start": "next start",
     "postinstall": "prisma generate",
