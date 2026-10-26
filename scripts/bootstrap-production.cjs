@@ -29,8 +29,16 @@ for (const file of sqlFiles) {
   const fullPath = path.join(sqlDir, file)
   console.log(`[pft bootstrap] applying ${path.relative(root, fullPath)}`)
   execFileSync(
-    process.platform === 'win32' ? 'npx.cmd' : 'npx',
-    ['--no-install', 'prisma', 'db', 'execute', '--file', fullPath, '--schema', path.join(root, 'prisma', 'schema.prisma')],
+    process.execPath,
+    [
+      require.resolve('prisma/build/index.js'),
+      'db',
+      'execute',
+      '--file',
+      fullPath,
+      '--schema',
+      path.join(root, 'prisma', 'schema.prisma'),
+    ],
     { cwd: root, env: process.env, stdio: 'inherit' },
   )
 }
