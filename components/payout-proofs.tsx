@@ -5,6 +5,7 @@ import { BadgeCheck } from 'lucide-react'
 import { SectionHeading } from '@/components/section-heading'
 import { FALLBACK_PUBLIC_STATS } from '@/lib/stats/defaults'
 import type { PublicPayout, PublicStatsPayload } from '@/lib/stats/types'
+import { cn } from '@/lib/utils'
 
 const usd = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -16,7 +17,7 @@ const compactUsd = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
   notation: 'compact',
-  maximumFractionDigits: 1,
+  maximumFractionDigits: 2,
 })
 
 const integer = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
@@ -29,11 +30,22 @@ function formatAvgPayout(hours: number) {
   return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hrs`
 }
 
-function PayoutCard({ payout, duplicate }: { payout: PublicPayout; duplicate?: boolean }) {
+function PayoutCard({
+  payout,
+  duplicate,
+  fluid,
+}: {
+  payout: PublicPayout
+  duplicate?: boolean
+  fluid?: boolean
+}) {
   return (
     <li
       aria-hidden={duplicate || undefined}
-      className="home-card group relative flex w-[19rem] shrink-0 items-center gap-3.5 overflow-hidden rounded-2xl border border-white/10 bg-[#07101c]/70 px-4 py-4 backdrop-blur-xl sm:w-[20rem]"
+      className={cn(
+        'home-card group relative flex items-center gap-3.5 overflow-hidden rounded-2xl border border-white/10 bg-[#07101c]/70 px-4 py-4 backdrop-blur-xl',
+        fluid ? 'w-full' : 'w-[19rem] shrink-0 sm:w-[20rem]',
+      )}
     >
       <span className="pointer-events-none absolute inset-x-6 top-0 h-px bg-linear-to-r from-transparent via-primary/70 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
       <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-primary/25 bg-primary/10 font-mono text-[11px] text-primary shadow-[inset_0_0_20px_rgba(59,130,246,0.14)]">
@@ -89,9 +101,8 @@ function usePublicStats() {
 export function PayoutProofs() {
   const { stats, payouts } = usePublicStats()
   const cards = payouts.slice(0, 12)
-  const repeatCount = cards.length ? Math.max(1, Math.ceil(8 / cards.length)) : 0
-  const repeated = Array.from({ length: repeatCount }, () => cards).flat()
-  const marquee = [...repeated, ...repeated]
+  const useMarquee = cards.length >= 5
+  const marquee = [...cards, ...cards]
 
   const tiles = [
     { value: formatRewards(stats.totalRewardsPaid), label: 'Total rewards paid' },
@@ -124,6 +135,7 @@ export function PayoutProofs() {
             {tiles.map((tile) => (
               <div
                 key={tile.label}
+                title={tile.label === 'Total rewards paid' ? usd.format(stats.totalRewardsPaid) : undefined}
                 className="relative flex flex-col-reverse gap-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 backdrop-blur-md"
               >
                 <span className="absolute top-3.5 right-3.5 size-1.5 rounded-full bg-primary shadow-[0_0_10px_2px_rgba(59,130,246,0.45)]" />
@@ -145,17 +157,25 @@ export function PayoutProofs() {
         </div>
       </div>
 
-      {marquee.length > 0 ? (
+      {cards.length === 0 ? (
+        <div className="relative mx-4 mt-4 rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-8 text-center text-sm text-slate-500 sm:mx-6 lg:mx-8">
+          No payouts have been published yet.
+        </div>
+      ) : useMarquee ? (
         <div className="relative mt-4 overflow-hidden mask-[linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]">
           <ul className="animate-marquee flex w-max gap-3.5" aria-label="Recent payouts">
             {marquee.map((payout, index) => (
-              <PayoutCard key={`${payout.id}-${index}`} payout={payout} duplicate={index >= repeated.length} />
+              <PayoutCard key={`${payout.id}-${index}`} payout={payout} duplicate={index >= cards.length} />
             ))}
           </ul>
         </div>
       ) : (
-        <div className="relative mx-4 mt-4 rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-8 text-center text-sm text-slate-500 sm:mx-6 lg:mx-8">
-          No payouts have been published yet.
+        <div className="relative mx-auto mt-4 max-w-7xl px-4 sm:px-6 lg:px-8 2xl:max-w-[1600px]">
+          <ul className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" aria-label="Recent payouts">
+            {cards.map((payout) => (
+              <PayoutCard key={payout.id} payout={payout} fluid />
+            ))}
+          </ul>
         </div>
       )}
     </section>
