@@ -54,43 +54,43 @@
 
 :root {
   color-scheme: dark;
-  --background: #090d16;
-  --foreground: #e2e8f0;
-  --surface: #0b111d;
+  --background: #02040a;
+  --foreground: #e0f2fe;
+  --surface: #0a0e27;
   --card: #0f172a;
-  --card-foreground: #e2e8f0;
+  --card-foreground: #f8fafc;
   --popover: #0f172a;
-  --popover-foreground: #e2e8f0;
-  --primary: #10b981;
-  --primary-foreground: #03130d;
+  --popover-foreground: #f8fafc;
+  --primary: #3b82f6;
+  --primary-foreground: #02040a;
   --highlight: #06b6d4;
-  --highlight-foreground: #021318;
-  --secondary: #131c2f;
-  --secondary-foreground: #e2e8f0;
-  --muted: #131c2f;
-  --muted-foreground: #8a97ad;
-  --accent: #172238;
-  --accent-foreground: #f1f5f9;
+  --highlight-foreground: #02040a;
+  --secondary: #1e293b;
+  --secondary-foreground: #e0f2fe;
+  --muted: #1e293b;
+  --muted-foreground: #94a3b8;
+  --accent: #1e1b4b;
+  --accent-foreground: #e0f2fe;
   --destructive: #f43f5e;
   --danger: #f43f5e;
   --warning: #f59e0b;
-  --border: #1e293b;
-  --input: #1e293b;
-  --ring: #10b981;
-  --chart-1: #10b981;
+  --border: #2c3e50;
+  --input: #2c3e50;
+  --ring: #3b82f6;
+  --chart-1: #3b82f6;
   --chart-2: #06b6d4;
   --chart-3: #f43f5e;
-  --chart-4: #64748b;
+  --chart-4: #94a3b8;
   --chart-5: #334155;
   --radius: 0.625rem;
   --sidebar: #0f172a;
-  --sidebar-foreground: #e2e8f0;
-  --sidebar-primary: #10b981;
-  --sidebar-primary-foreground: #03130d;
-  --sidebar-accent: #172238;
-  --sidebar-accent-foreground: #f1f5f9;
-  --sidebar-border: #1e293b;
-  --sidebar-ring: #10b981;
+  --sidebar-foreground: #f8fafc;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #02040a;
+  --sidebar-accent: #1e1b4b;
+  --sidebar-accent-foreground: #e0f2fe;
+  --sidebar-border: #2c3e50;
+  --sidebar-ring: #3b82f6;
 }
 
 @layer base {
@@ -109,12 +109,78 @@
 @layer utilities {
   .bg-grid {
     background-image:
-      linear-gradient(to right, rgb(30 41 59 / 0.45) 1px, transparent 1px),
-      linear-gradient(to bottom, rgb(30 41 59 / 0.45) 1px, transparent 1px);
+      linear-gradient(to right, rgb(44 62 80 / 0.35) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(44 62 80 / 0.35) 1px, transparent 1px);
     background-size: 56px 56px;
   }
+
   .text-gradient {
     @apply bg-linear-to-r from-primary to-highlight bg-clip-text text-transparent;
+  }
+
+  .bg-stars {
+    position: relative;
+    overflow: hidden;
+  }
+  .bg-stars::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(#e0f2fe 1px, transparent 1px);
+    background-size: 40px 40px;
+    background-position: 0 0, 20px 20px;
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .planet {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(30px);
+    opacity: 0.35;
+    animation: planet-pulse 14s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  @keyframes planet-pulse {
+    0%, 100% {
+      transform: translate(0, 0) scale(1);
+      opacity: 0.3;
+    }
+    50% {
+      transform: translate(20px, -30px) scale(1.15);
+      opacity: 0.5;
+    }
+  }
+
+  .shooting-star {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 120px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #e0f2fe, transparent);
+    opacity: 0;
+    animation: shooting-star 10s linear infinite;
+    pointer-events: none;
+  }
+
+  @keyframes shooting-star {
+    0% {
+      transform: translateX(-120px) translateY(-100px);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.8;
+    }
+    30% {
+      opacity: 0;
+    }
+    100% {
+      transform: translateX(120vw) translateY(200px);
+      opacity: 0;
+    }
   }
 }
 
@@ -129,6 +195,12 @@
 
 .animate-marquee {
   animation: marquee 40s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none;
+  }
 }
 
 /* Step transition for the in-dashboard challenge purchase flow (opacity/transform only, GPU-friendly). */
@@ -220,37 +292,33 @@
   .home-motion-scope .home-button:hover {
     transform: translateY(-2px);
     filter: brightness(1.06);
-    box-shadow: 0 0 28px -10px rgb(16 185 129 / 0.75);
+    box-shadow: 0 0 28px -10px rgb(59 130 246 / 0.75);
   }
 
   .home-motion-scope .home-card:hover {
     transform: translateY(-4px);
-    border-color: rgb(16 185 129 / 0.5);
-    box-shadow: 0 16px 40px -28px rgb(16 185 129 / 0.6);
+    border-color: rgb(59 130 246 / 0.5);
+    box-shadow: 0 16px 40px -28px rgb(59 130 246 / 0.6);
   }
 
   .home-motion-scope .home-price-card:hover {
     transform: translateY(-2px);
-    border-color: rgb(16 185 129 / 0.55);
-    box-shadow: 0 0 22px -12px rgb(16 185 129 / 0.7);
+    border-color: rgb(59 130 246 / 0.55);
+    box-shadow: 0 0 22px -12px rgb(59 130 246 / 0.7);
   }
 
   .home-header-cta:hover {
     transform: translateY(-1px);
-    box-shadow: 0 0 28px -8px rgb(163 230 53 / 0.9);
+    box-shadow: 0 0 32px -8px rgb(59 130 246 / 0.9);
   }
 
   .home-floating-cta:hover {
     transform: translateY(-2px);
-    box-shadow: 0 10px 32px -8px rgb(163 230 53 / 0.9);
+    box-shadow: 0 10px 32px -8px rgb(59 130 246 / 0.9);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-marquee {
-    animation: none;
-  }
-
   .home-motion-scope.home-motion-ready [data-home-reveal] {
     opacity: 1;
     transform: none;

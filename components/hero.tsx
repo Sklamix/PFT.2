@@ -1,126 +1,207 @@
-import { ArrowRight, Clock, MessageCircle, Star, Timer, KeyRound, CalendarClock } from 'lucide-react'
+'use client'
 
-const PLATFORMS = ['MT4', 'MT5', 'cTrader', 'DXtrade']
+import dynamic from 'next/dynamic'
+import { useEffect, useState } from 'react'
+import { ArrowRight, CalendarClock, Clock, KeyRound, MousePointer2, Sparkles, Star } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import type { HeroSceneVariant } from '@/components/home/hero-space-scene'
+
+const HeroSpaceScene = dynamic(
+  () => import('@/components/home/hero-space-scene').then((mod) => mod.HeroSpaceScene),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="absolute inset-0 grid place-items-center">
+        <div className="size-40 animate-pulse rounded-full border border-primary/20 bg-primary/5 blur-sm" />
+      </div>
+    ),
+  },
+)
+
+const SCENES: { id: HeroSceneVariant; label: string }[] = [
+  { id: 'orbit', label: 'Orbit' },
+  { id: 'nebula', label: 'Nebula' },
+  { id: 'solar', label: 'Solar' },
+]
 
 const HIGHLIGHTS = [
-  { icon: Timer, label: 'Zero time limits' },
+  { icon: Clock, label: 'Zero time limits' },
   { icon: KeyRound, label: 'Instant credentials' },
   { icon: CalendarClock, label: 'Bi-weekly payouts' },
 ]
 
-function TrustpilotRating() {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex gap-0.5" aria-hidden="true">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <span
-            key={index}
-            className={index < 4 ? 'flex size-5 items-center justify-center bg-primary' : 'relative flex size-5 items-center justify-center overflow-hidden bg-border'}
-          >
-            {index === 4 && <span className="absolute inset-y-0 left-0 w-4/5 bg-primary" />}
-            <Star className="relative size-3 fill-primary-foreground text-primary-foreground" />
-          </span>
-        ))}
-      </div>
-      <p className="text-sm text-muted-foreground">
-        <span className="font-semibold text-foreground">4.8/5</span> on Trustpilot
-        <span className="sr-only">, rated 4.8 out of 5 stars</span>
-        <span className="hidden sm:inline"> · 3,200+ reviews</span>
-      </p>
-    </div>
-  )
+const PLATFORMS = ['MT4', 'MT5', 'cTrader', 'DXtrade']
+
+function storedScene(): HeroSceneVariant {
+  try {
+    const value = window.localStorage.getItem('pft_hero_scene')
+    if (value === 'orbit' || value === 'nebula' || value === 'solar') return value
+  } catch {
+    // Storage is optional.
+  }
+  return 'orbit'
 }
 
 export function Hero() {
+  const [scene, setScene] = useState<HeroSceneVariant>('orbit')
+
+  useEffect(() => {
+    setScene(storedScene())
+  }, [])
+
+  function chooseScene(next: HeroSceneVariant) {
+    setScene(next)
+    try {
+      window.localStorage.setItem('pft_hero_scene', next)
+    } catch {
+      // Storage is optional.
+    }
+  }
+
   return (
-    <section id="top" data-home-reveal="delayed" className="relative overflow-hidden border-b border-border">
-      <div className="bg-grid pointer-events-none absolute inset-0 mask-[radial-gradient(ellipse_70%_60%_at_50%_0%,#000_40%,transparent_100%)]" />
-      <div className="pointer-events-none absolute -top-40 left-1/2 h-[480px] w-[900px] -translate-x-1/2 rounded-full bg-primary/10 blur-3xl" />
+    <section id="top" className="relative isolate min-h-[100svh] overflow-hidden border-b border-white/5 bg-[#02040a]">
+      <div className="pointer-events-none absolute inset-0 z-0">
+        <div
+          className={cn(
+            'absolute -left-52 top-1/2 size-[42rem] -translate-y-1/2 rounded-full blur-[90px] transition-colors duration-700',
+            scene === 'solar' ? 'bg-amber-300/30' : scene === 'nebula' ? 'bg-cyan-400/15' : 'bg-blue-500/20',
+          )}
+        />
+        <div
+          className={cn(
+            'absolute -left-24 top-1/2 size-[34rem] -translate-y-1/2 rounded-full blur-2xl transition-opacity duration-700',
+            scene === 'solar' ? 'opacity-90' : scene === 'nebula' ? 'opacity-50' : 'opacity-75',
+          )}
+          style={{ background: 'radial-gradient(circle, rgba(255,190,92,0.58) 0%, rgba(255,122,26,0.22) 40%, transparent 70%)' }}
+        />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_44%,rgba(37,99,235,0.16),transparent_34%),radial-gradient(circle_at_56%_68%,rgba(14,165,233,0.09),transparent_28%)]" />
+        <div className="absolute inset-0 opacity-[0.22] [background-image:radial-gradient(#e0f2fe_1px,transparent_1px)] [background-size:42px_42px]" />
+        <div className="absolute inset-0 opacity-[0.14] [background-image:linear-gradient(rgba(148,163,184,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,.18)_1px,transparent_1px)] [background-size:72px_72px]" />
+      </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 pt-20 pb-16 sm:px-6 sm:pt-28 lg:px-8 lg:pb-24">
-        <div className="mx-auto max-w-4xl text-center">
-          <a
-            href="#dashboard"
-            className="home-button group inline-flex items-center gap-2 rounded-full border border-border bg-card/60 py-1 pr-3 pl-1 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-          >
-            <span className="rounded-full bg-primary/15 px-2 py-0.5 font-medium text-primary">New</span>
-            Trader portal v2 with real-time risk buffers
-            <ArrowRight className="size-3 transition-transform group-hover:translate-x-0.5" />
-          </a>
+      <div className="absolute inset-0 z-10">
+        <HeroSpaceScene variant={scene} />
+      </div>
 
-          <h1 className="mt-6 text-balance text-4xl font-semibold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            Trade up to <span className="text-gradient">$400,000</span> in simulated capital. Keep up to{' '}
-            <span className="text-gradient">90%</span> of your profits.
-          </h1>
+      <div className="pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(90deg,rgba(2,4,10,0.84)_0%,rgba(2,4,10,0.78)_26%,rgba(2,4,10,0.36)_54%,transparent_80%)] max-lg:bg-[linear-gradient(180deg,#02040a_0%,rgba(2,4,10,0.82)_34%,rgba(2,4,10,0.12)_70%,#02040a_100%)]" />
+      <div
+        className={cn(
+          'pointer-events-none absolute top-1/2 -left-64 z-20 size-[30rem] -translate-y-1/2 rounded-full blur-2xl mix-blend-screen transition-opacity duration-700',
+          scene === 'solar' ? 'opacity-80' : scene === 'nebula' ? 'opacity-45' : 'opacity-60',
+        )}
+        style={{ background: 'radial-gradient(circle, rgba(255,190,92,0.6) 0%, rgba(255,122,26,0.22) 42%, transparent 70%)' }}
+      />
 
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Institutional-grade evaluations built for disciplined traders. No calendar pressure, credentials delivered the
-            moment you check out, and payouts processed every two weeks.
+      <div className="relative z-30 mx-auto flex min-h-[100svh] max-w-7xl flex-col justify-center px-4 pt-24 pb-20 sm:px-6 sm:pt-28 lg:px-8">
+        <div className="max-w-2xl">
+          <p className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-primary shadow-[0_0_30px_-16px_rgba(59,130,246,0.9)] backdrop-blur-md">
+            <Sparkles className="size-3.5" />
+            Funded trading · next frontier
           </p>
 
-          <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+          <h1 className="mt-7 text-balance text-5xl font-semibold leading-[0.95] tracking-[-0.04em] text-white sm:text-6xl lg:text-7xl">
+            Trade up to
+            <span className="mt-2 block bg-linear-to-r from-primary via-sky-300 to-highlight bg-clip-text text-transparent">
+              $400,000.
+            </span>
+            <span className="mt-2 block text-[0.58em] font-medium leading-tight tracking-[-0.02em] text-slate-300">
+              Keep up to 90% of the upside.
+            </span>
+          </h1>
+
+          <p className="mt-6 max-w-xl text-pretty text-base leading-7 text-slate-400 sm:text-lg">
+            Institutional-grade evaluations for disciplined traders. No calendar pressure, instant credentials, and
+            payouts processed every two weeks.
+          </p>
+
+          <ul className="mt-6 flex flex-wrap gap-2.5">
             {HIGHLIGHTS.map(({ icon: Icon, label }) => (
-              <li key={label} className="flex items-center gap-2 text-sm text-foreground">
-                <Icon className="size-4 text-primary" aria-hidden="true" />
+              <li
+                key={label}
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs text-slate-300 backdrop-blur-md"
+              >
+                <Icon className="size-3.5 text-primary" aria-hidden="true" />
                 {label}
               </li>
             ))}
           </ul>
 
-          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
             <a
               href="#challenges"
-              className="home-button group inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary to-highlight px-6 text-sm font-semibold text-primary-foreground shadow-[0_0_40px_-10px] shadow-primary transition-opacity hover:opacity-90 sm:w-auto"
+              className="home-button group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-linear-to-r from-primary to-highlight px-7 text-xs font-bold uppercase tracking-[0.18em] text-primary-foreground shadow-[0_0_45px_-12px_rgba(59,130,246,0.9)] transition hover:brightness-110"
             >
-              Choose Challenge
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+              Get Funded
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-1" />
             </a>
             <a
-              href="https://discord.com"
-              target="_blank"
-              rel="noreferrer"
-              className="home-button inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card/60 px-6 text-sm font-medium text-foreground transition-colors hover:border-highlight/50 hover:bg-accent sm:w-auto"
+              href="/auth/login"
+              className="home-button inline-flex h-12 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.035] px-7 text-xs font-bold uppercase tracking-[0.18em] text-white backdrop-blur-md transition hover:border-primary/50 hover:bg-primary/10"
             >
-              <MessageCircle className="size-4 text-highlight" />
-              Join Discord Community
+              Get Started
+              <ArrowRight className="size-4 text-primary transition-transform group-hover:translate-x-1" />
             </a>
+          </div>
+
+          <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-500">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="flex gap-0.5" aria-hidden="true">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <Star key={index} className={cn('size-3', index < 4 ? 'fill-primary text-primary' : 'fill-slate-700 text-slate-700')} />
+                ))}
+              </span>
+              <span className="font-semibold text-slate-300">4.8/5</span> · 3,200+ reviews
+            </span>
+            <span className="hidden h-3 w-px bg-white/10 sm:block" />
+            <span className="inline-flex items-center gap-1.5">
+              <MousePointer2 className="size-3.5 text-primary" />
+              Move your cursor to explore
+            </span>
           </div>
         </div>
 
-        <div
-          id="platforms"
-          className="mx-auto mt-16 grid max-w-5xl gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3"
-        >
-          <div className="flex flex-col gap-3 bg-card/80 p-5">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Supported platforms</p>
-            <ul className="flex flex-wrap gap-2">
-              {PLATFORMS.map((platform) => (
-                <li
-                  key={platform}
-                  className="rounded-md border border-border bg-background px-2.5 py-1 font-mono text-xs text-foreground"
-                >
-                  {platform}
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="flex flex-col gap-3 bg-card/80 p-5">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Payout turnaround</p>
-            <div className="flex items-center gap-3">
-              <span className="flex size-9 items-center justify-center rounded-md bg-highlight/10 text-highlight">
-                <Clock className="size-4" />
-              </span>
-              <p className="text-sm text-muted-foreground">
-                <span className="block text-lg font-semibold text-foreground">8-hour average</span>
-                from request to wallet
-              </p>
+        <div className="mt-auto grid max-w-3xl grid-cols-2 gap-2 pt-14 sm:grid-cols-4">
+          {[
+            ['$400K', 'Max simulated capital'],
+            ['90%', 'Profit split'],
+            ['0', 'Time limits'],
+            ['8h', 'Avg. payout'],
+          ].map(([value, label]) => (
+            <div key={label} className="rounded-xl border border-white/10 bg-black/20 px-3 py-3 backdrop-blur-md">
+              <p className="font-mono text-lg font-semibold text-white">{value}</p>
+              <p className="mt-0.5 text-[10px] uppercase tracking-wider text-slate-500">{label}</p>
             </div>
-          </div>
-          <div className="flex flex-col gap-3 bg-card/80 p-5">
-            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Trader reviews</p>
-            <TrustpilotRating />
-          </div>
+          ))}
         </div>
+
+        <div id="platforms" className="mt-5 flex flex-wrap items-center gap-2">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-slate-600">Platforms</span>
+          {PLATFORMS.map((platform) => (
+            <span
+              key={platform}
+              className="rounded-full border border-white/10 bg-white/[0.025] px-2.5 py-1 font-mono text-[10px] text-slate-400"
+            >
+              {platform}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="absolute top-24 right-5 z-40 hidden items-center gap-1 rounded-full border border-white/10 bg-black/30 p-1 backdrop-blur-md sm:flex">
+        <span className="px-2 text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-600">Scene</span>
+        {SCENES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => chooseScene(item.id)}
+            className={cn(
+              'rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition',
+              scene === item.id ? 'bg-primary text-primary-foreground' : 'text-slate-500 hover:text-white',
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
       </div>
     </section>
   )
