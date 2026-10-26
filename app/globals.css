@@ -304,15 +304,21 @@
 
 .home-header-cta {
   transition:
+    opacity 280ms ease,
+    translate 280ms ease,
     transform 180ms ease,
     background-color 220ms ease,
+    border-color 220ms ease,
     box-shadow 220ms ease;
 }
 
 .home-floating-cta {
   transition:
+    opacity 280ms ease,
+    translate 280ms ease,
     transform 180ms ease,
     background-color 220ms ease,
+    border-color 220ms ease,
     box-shadow 220ms ease;
 }
 
