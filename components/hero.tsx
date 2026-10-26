@@ -82,7 +82,7 @@ export function Hero() {
             ))}
           </ul>
 
-          <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+          <div data-hero-cta className="mt-9 flex flex-col gap-3 sm:flex-row">
             <a
               href="#challenges"
               className="home-button group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-linear-to-r from-primary to-highlight px-7 text-xs font-bold uppercase tracking-[0.18em] text-primary-foreground shadow-[0_0_45px_-12px_rgba(59,130,246,0.9)] transition hover:brightness-110"

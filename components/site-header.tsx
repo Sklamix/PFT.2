@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Menu, X } from 'lucide-react'
 import { BrandLogo } from '@/components/brand-logo'
 import { cn } from '@/lib/utils'
@@ -15,6 +15,37 @@ const NAV_LINKS = [
 
 export function SiteHeader() {
   const [open, setOpen] = useState(false)
+  const [showCta, setShowCta] = useState(false)
+
+  useEffect(() => {
+    const heroCta = document.querySelector('[data-hero-cta]')
+    const rect = heroCta?.getBoundingClientRect()
+    let ctaVisible = Boolean(rect && rect.top < window.innerHeight && rect.bottom > 0)
+
+    const update = () => setShowCta(window.scrollY > 120 && !ctaVisible)
+
+    if (!heroCta) {
+      setShowCta(true)
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        ctaVisible = entries[0]?.isIntersecting ?? false
+        update()
+      },
+      { threshold: 0.01 },
+    )
+
+    observer.observe(heroCta)
+    window.addEventListener('scroll', update, { passive: true })
+    update()
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('scroll', update)
+    }
+  }, [])
 
   return (
     <>
@@ -40,7 +71,12 @@ export function SiteHeader() {
         <div className="flex items-center gap-2">
           <a
             href="/auth/login"
-            className="home-header-cta group inline-flex h-10 items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_0_28px_-12px_rgba(59,130,246,0.9)] backdrop-blur-md transition-colors hover:bg-primary/25"
+            aria-hidden={!showCta}
+            tabIndex={showCta ? 0 : -1}
+            className={cn(
+              'home-header-cta group inline-flex h-10 items-center gap-2 rounded-full border border-primary/40 bg-primary/15 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_0_28px_-12px_rgba(59,130,246,0.9)] backdrop-blur-md transition-all duration-300 hover:bg-primary/25',
+              showCta ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-1 opacity-0',
+            )}
           >
             Get Started <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
           </a>
@@ -77,12 +113,14 @@ export function SiteHeader() {
         </ul>
       </nav>
     </header>
-    <a
-      href="#challenges"
-      className="home-floating-cta group fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] inline-flex h-12 items-center gap-2 rounded-full border border-primary/40 bg-[#07101c]/90 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_8px_32px_-10px_rgba(59,130,246,0.9)] backdrop-blur-xl transition-colors hover:border-primary hover:bg-primary/15"
-    >
-      Get Funded <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
-    </a>
+    {showCta && (
+      <a
+        href="#challenges"
+        className="home-floating-cta group fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] inline-flex h-12 items-center gap-2 rounded-full border border-primary/40 bg-[#07101c]/90 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_8px_32px_-10px_rgba(59,130,246,0.9)] backdrop-blur-xl transition-colors hover:border-primary hover:bg-primary/15"
+      >
+        Get Funded <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+      </a>
+    )}
     </>
   )
 }
