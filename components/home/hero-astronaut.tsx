@@ -38,10 +38,12 @@ export function Astronaut({
   position,
   scale,
   pointer,
+  motionScale,
 }: {
   position: [number, number, number]
   scale: number
   pointer: RefObject<{ x: number; y: number }>
+  motionScale: number
 }) {
   const group = useRef<THREE.Group>(null)
   const waveShoulder = useRef<THREE.Group>(null)
@@ -51,24 +53,24 @@ export function Astronaut({
     if (!group.current) return
     const time = state.clock.elapsedTime
     const p = pointer.current
-    const floatX = Math.sin(time * 0.45) * 0.14
-    const floatY = Math.sin(time * 0.68 + 1.1) * 0.2
+    const floatX = Math.sin(time * 0.45) * 0.14 * motionScale
+    const floatY = Math.sin(time * 0.68 + 1.1) * 0.2 * motionScale
 
     group.current.position.x = THREE.MathUtils.damp(
       group.current.position.x,
-      position[0] + floatX + p.x * 0.34,
+      position[0] + floatX + p.x * 0.34 * motionScale,
       2.8,
       delta,
     )
     group.current.position.y = THREE.MathUtils.damp(
       group.current.position.y,
-      position[1] + floatY + p.y * 0.2,
+      position[1] + floatY + p.y * 0.2 * motionScale,
       2.8,
       delta,
     )
     group.current.rotation.y = THREE.MathUtils.damp(
       group.current.rotation.y,
-      -0.18 + Math.sin(time * 0.3) * 0.08 + p.x * 0.06,
+      -0.18 + Math.sin(time * 0.3) * 0.08 + p.x * 0.06 * motionScale,
       2.2,
       delta,
     )

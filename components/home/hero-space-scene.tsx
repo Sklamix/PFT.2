@@ -11,30 +11,22 @@ export type HeroSceneVariant = 'orbit' | 'nebula' | 'solar'
 const SCENES: Record<
   HeroSceneVariant,
   {
-    earth: [number, number, number]
-    astronaut: [number, number, number]
     ring: string
     sun: [number, number, number]
     star: string
   }
 > = {
   orbit: {
-    earth: [1.45, 0, -0.25],
-    astronaut: [3.65, 0.05, 0.9],
     ring: '#f5c76a',
     sun: [-9.2, 1.4, -4],
     star: '#bae6fd',
   },
   nebula: {
-    earth: [1.55, -0.35, -0.8],
-    astronaut: [3.45, 0.8, 0.6],
     ring: '#67e8f9',
     sun: [-10, 2.4, -5],
     star: '#c4b5fd',
   },
   solar: {
-    earth: [2.05, 0.2, -1.2],
-    astronaut: [3.8, -0.35, 1],
     ring: '#fbbf24',
     sun: [-8.6, 0.4, -3.8],
     star: '#fde68a',
@@ -96,11 +88,13 @@ function Earth({
   scale,
   ringColor,
   pointer,
+  motionScale,
 }: {
   position: [number, number, number]
   scale: number
   ringColor: string
   pointer: RefObject<{ x: number; y: number }>
+  motionScale: number
 }) {
   const group = useRef<THREE.Group>(null)
   const earth = useRef<THREE.Mesh>(null)
@@ -113,8 +107,18 @@ function Earth({
     }
     if (!group.current) return
     const p = pointer.current
-    group.current.position.x = THREE.MathUtils.damp(group.current.position.x, position[0] + p.x * 0.13, 3, delta)
-    group.current.position.y = THREE.MathUtils.damp(group.current.position.y, position[1] + p.y * 0.08, 3, delta)
+    group.current.position.x = THREE.MathUtils.damp(
+      group.current.position.x,
+      position[0] + p.x * 0.13 * motionScale,
+      3,
+      delta,
+    )
+    group.current.position.y = THREE.MathUtils.damp(
+      group.current.position.y,
+      position[1] + p.y * 0.08 * motionScale,
+      3,
+      delta,
+    )
   })
 
   return (
@@ -169,36 +173,66 @@ function Scene({
   variant: HeroSceneVariant
   pointer: RefObject<{ x: number; y: number }>
 }) {
-  const { size } = useThree()
+  const { size, camera } = useThree()
   const mobile = size.width < 768
-  const portrait = !mobile && size.width / size.height < 1.05
+  const aspect = size.width / Math.max(size.height, 1)
+  const portrait = !mobile && aspect < 1.05
   const wide = size.width >= 1600
   const large = size.width >= 1200
-  const medium = size.width >= 900
   const scene = SCENES[variant]
 
-  const earthPosition: [number, number, number] = mobile
-    ? [1.05, -1.15, -0.8]
+  const perspectiveCamera = camera as THREE.PerspectiveCamera
+  const tangent = Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov / 2))
+  const positionAt = (x: number, y: number, z: number): [number, number, number] => {
+    const viewHeight = 2 * tangent * (perspectiveCamera.position.z - z)
+    return [(x - 0.5) * viewHeight * aspect, (0.5 - y) * viewHeight, z]
+  }
+  const pixelsPerWorldUnitAt = (z: number) =>
+    size.height / (2 * tangent * (perspectiveCamera.position.z - z))
+
+  const earthZ = mobile || portrait ? -0.8 : wide ? -0.45 : -0.55
+  const astronautZ = mobile || portrait ? 0.4 : 1
+  const earthPoint: [number, number] = mobile
+    ? [0.52, 0.7]
     : portrait
-      ? [1.4, -0.95, -0.8]
+      ? [0.62, 0.7]
       : wide
-        ? [2.55, -0.08, -0.45]
-        : large || medium
-          ? [2.25, -0.1, -0.55]
-          : scene.earth
-  const astronautPosition: [number, number, number] = mobile
-    ? [1.8, 1.55, 0.4]
-    : portrait
-      ? [2.35, 1.25, 0.4]
-      : wide
-        ? [4.55, -0.35, 1]
+        ? [0.61, 0.54]
         : large
-          ? [4.05, -0.38, 1]
-          : medium
-            ? [3.75, -0.36, 1]
-            : scene.astronaut
-  const earthScale = mobile ? 0.66 : portrait ? 0.72 : wide ? 1.16 : large ? 1 : medium ? 0.92 : 0.88
-  const astronautScale = mobile ? 0.48 : portrait ? 0.54 : wide ? 0.92 : large ? 0.8 : medium ? 0.72 : 0.7
+          ? [0.65, 0.54]
+          : [0.78, 0.7]
+  const astronautPoint: [number, number] = mobile
+    ? [0.62, 0.3]
+    : portrait
+      ? [0.76, 0.28]
+      : wide
+        ? [0.88, 0.52]
+        : large
+          ? [0.88, 0.52]
+          : [0.8, 0.25]
+  const earthRadiusPx = mobile
+    ? Math.min(size.height * 0.15, size.width * 0.28)
+    : portrait
+      ? Math.min(size.height * 0.19, size.width * 0.22)
+      : wide
+        ? Math.min(size.height * 0.33, size.width * 0.16)
+        : large
+          ? Math.min(size.height * 0.29, size.width * 0.12)
+          : Math.min(size.height * 0.22, size.width * 0.15)
+  const astronautHeightPx = mobile
+    ? Math.min(size.height * 0.14, size.width * 0.3)
+    : portrait
+      ? Math.min(size.height * 0.16, size.width * 0.2)
+      : wide
+        ? Math.min(size.height * 0.34, size.width * 0.16)
+        : large
+          ? Math.min(size.height * 0.24, size.width * 0.13)
+          : Math.min(size.height * 0.18, size.width * 0.17)
+  const earthPosition = positionAt(earthPoint[0], earthPoint[1], earthZ)
+  const astronautPosition = positionAt(astronautPoint[0], astronautPoint[1], astronautZ)
+  const earthScale = earthRadiusPx / (2.62 * pixelsPerWorldUnitAt(earthZ))
+  const astronautScale = astronautHeightPx / (3 * pixelsPerWorldUnitAt(astronautZ))
+  const motionScale = Math.min(1, 900 / Math.max(size.height, 1)) * 0.65
   const sunPosition: [number, number, number] = mobile || portrait ? [-7.8, 2.3, -5] : scene.sun
 
   return (
@@ -213,8 +247,14 @@ function Scene({
       <Sparkles count={mobile ? 35 : wide ? 90 : 70} scale={[16, 9, 8]} size={1.4} speed={0.18} color={scene.star} opacity={0.55} />
 
       <Sun position={sunPosition} />
-      <Earth position={earthPosition} scale={earthScale} ringColor={scene.ring} pointer={pointer} />
-      <Astronaut position={astronautPosition} scale={astronautScale} pointer={pointer} />
+      <Earth
+        position={earthPosition}
+        scale={earthScale}
+        ringColor={scene.ring}
+        pointer={pointer}
+        motionScale={motionScale}
+      />
+      <Astronaut position={astronautPosition} scale={astronautScale} pointer={pointer} motionScale={motionScale} />
     </>
   )
 }
