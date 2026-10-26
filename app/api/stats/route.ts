@@ -8,7 +8,7 @@ export async function GET() {
   try {
     const payload = await getPublicStats(16)
     return NextResponse.json(payload, {
-      headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120' },
+      headers: { 'Cache-Control': 'no-store' },
     })
   } catch (error) {
     console.error('[pft stats] Falling back to bundled payout data', error)
