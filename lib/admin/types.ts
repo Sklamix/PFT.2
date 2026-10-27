@@ -185,6 +185,7 @@ export type AbuseUserScore = {
   level: 'high' | 'medium' | 'low'
   counts: Record<AbuseCategory, number>
   riskReviewOpen: boolean
+  history: { bucketAt: string; score: number; level: 'high' | 'medium' | 'low' }[]
 }
 
 export type AbuseEvent = {

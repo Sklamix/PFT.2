@@ -3,7 +3,7 @@
 **Дата:** 27 жовтня 2026  
 **Джерело правил:** `docs/PFT-rulebook-v1.md` v1.6  
 **Статус:** P0/P1 код і QA завершено; production-міграції P1 ще не застосовано; legal review — **не завершено**, потрібен зовнішній юрист.  
-**Код:** локальний commit P0-3 leftovers, локальний production build QA — 93/93. Останній production deployment: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (до P1-5…P1-9, P1-12).
+**Код:** локальний commit P0-3 leftovers, локальний production build QA — 96/96. Останній production deployment: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (до P1-5…P1-9, P1-12).
 
 ---
 
@@ -39,7 +39,7 @@
 
 - `npx tsc --noEmit` — passed.
 - `npm run build` — passed.
-- `npm run qa:smoke` — 93/93 на локальному production build.
+- `npm run qa:smoke` — 96/96 на локальному production build.
 - `npm run doctor` — readiness self-check (env, schema columns, cron freshness).
 
 ---
@@ -105,7 +105,7 @@ npx prisma db execute --file prisma/sql/rules-versioning.sql --schema prisma/sch
 
 ## 3. Manual QA перед запуском
 
-**Статус: локальний production-build QA пройдено — 93/93.**
+**Статус: локальний production-build QA пройдено — 96/96.**
 
 Запуск:
 
@@ -243,6 +243,8 @@ appeals, paid reset, frozen backups, risk flags, session risk, rules notices, п
 7. Панель показує тижневі тренди (`trends`) і кількість подій (`evidenceTotal`).
 8. Фільтр за категорією (`category=NEWS` тощо) звужує `recent` і тренди; фільтр за трейдером (`trader`) звужує список трейдерів.
 9. `Export CSV` (`GET /api/admin/abuse/export`) віддає CSV з усіма подіями поточного фільтра.
+10. Score адаптивний (recency + escalation); у таблиці трейдерів є sparkline історії score.
+11. Щотижня cron пише `ABUSE_SCORE_SNAPSHOT`; score ≥12 → `ABUSE_SCORE_AUTO_REVIEW` (ручний review, без авто-наслідку).
 
 ### 3.14. Passing, auto-funding і target lock
 
@@ -317,7 +319,7 @@ appeals, paid reset, frozen backups, risk flags, session risk, rules notices, п
 | TypeScript + production build | ✅ |
 | Усі 6 базових SQL-міграцій застосовані на production | ✅ 27.10.2026 |
 | P1-міграції застосовані на production | ⏳ `account-appeals`, `risk-flags-and-backups`, `session-risk`, `rules-versioning` |
-| Manual QA §3 пройдено | ✅ 93/93 (локальний production build) |
+| Manual QA §3 пройдено | ✅ 96/96 (локальний production build) |
 | Readiness self-check `npm run doctor` | ✅ локально; production — після міграцій |
 | Production deployment оновлено | ⏳ після P1-міграцій |
 | Legal pages опубліковані | ⏳ очікує counsel |

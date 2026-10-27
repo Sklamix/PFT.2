@@ -2,7 +2,7 @@
 
 **Статус:** P0 і P1 закрито; запуск блокується лише legal review і operator-задачами.  
 **Джерело:** `docs/PFT-rulebook-v1.md` v1.6.  
-**Код:** локальний commit P0-3 leftovers; QA — 93/93 на локальному production build. Handoff: `docs/PFT-production-rollout.md`.  
+**Код:** локальний commit P0-3 leftovers; QA — 96/96 на локальному production build. Handoff: `docs/PFT-production-rollout.md`.  
 **Мета:** закрити P0-лазівки до публічного запуску, потім P1/P2.
 
 ---
@@ -35,7 +35,7 @@
 - [x] Regression + build (`npx tsc --noEmit`, `npm run build`)
 - [x] Production migrations — 6 SQL files застосовано через guarded deploy 27.10.2026
 - [ ] Production migrations P1 — `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql`
-- [x] Manual QA — 93/93 на локальному production build (`npm run qa:smoke`)
+- [x] Manual QA — 96/96 на локальному production build (`npm run qa:smoke`)
 - [x] Readiness self-check — `npm run doctor` (env, schema columns, cron freshness)
 - [x] Cloudflare cron — schedule `* * * * *`, secrets присутні, живий цикл підтверджено `wrangler tail`
 - [x] Backup / rollback plan — `docs/PFT-operations-runbook.md`, `npm run db:backup` перевірено
@@ -799,7 +799,7 @@
 - [x] Періодичний reconciliation related accounts: `findRelatedAccountClusters()` (phone або IP + device), годинний cron-скан, денний audit `RELATED_ACCOUNT_CLUSTER`.
 - [x] Базовий risk-score: зрозумілі ваги (news 3, overnight/hedge 2, void/hold/session 1, shared access +2), рівні low/medium/high; рішення ухвалює людина або breach matrix.
 - [x] Більш детальна аналітика аб’юзу: тренди по тижнях (`trends`), export CSV (`GET /api/admin/abuse/export`), фільтри за типом/трейдером (`category`, `trader`).
-- [ ] Автоматичні risk-score евристики: адаптивні ваги, історія score, пороги для авто-review.
+- [x] Адаптивний risk-score: рекапітуляція (recency) + escalation, тижневі снапшоти score (`ABUSE_SCORE_SNAPSHOT`), поріг авто-review (`ABUSE_SCORE_AUTO_REVIEW`, high ≥12).
 - [ ] Розширений news-календар (medium events).
 - [ ] Публічна сторінка “Rules changelog” (після legal sign-off).
 - [x] Dashboards для news/copy/hedging flags — тижневий графік і drill-down за категорією (filter) на abuse desk.

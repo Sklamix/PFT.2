@@ -25,6 +25,16 @@ function weekLabel(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
+const SPARK_BLOCKS = '▁▂▃▄▅▆▇█'
+function sparkline(history: { score: number }[]) {
+  if (history.length < 2) return null
+  const scores = history.map((entry) => entry.score)
+  const max = Math.max(...scores)
+  const min = Math.min(...scores)
+  const range = max - min || 1
+  return history.map((entry) => SPARK_BLOCKS[Math.round(((entry.score - min) / range) * (SPARK_BLOCKS.length - 1))]).join('')
+}
+
 export function AbusePanel({ report: initial }: { report: AbuseOverview | null }) {
   const [report, setReport] = useState<AbuseOverview | null>(initial)
   const [category, setCategory] = useState<AbuseCategory | ''>('')
@@ -242,6 +252,18 @@ export function AbusePanel({ report: initial }: { report: AbuseOverview | null }
                       <p className="text-[11px] text-muted-foreground">{user.email}</p>
                       {user.riskReviewOpen ? (
                         <p className="text-[10px] font-semibold text-destructive">RISK REVIEW OPEN</p>
+                      ) : null}
+                      {user.history.length > 0 ? (
+                        <p
+                          className="mt-0.5 font-mono text-[11px] text-muted-foreground"
+                          title={user.history
+                            .map((entry) => `${weekLabel(entry.bucketAt)}: ${entry.score}`)
+                            .join(' · ')}
+                        >
+                          {sparkline(user.history)}{' '}
+                          <span className="text-foreground">{user.history[user.history.length - 1].score}</span>
+                          <span className="text-[10px]">/week</span>
+                        </p>
                       ) : null}
                     </td>
                     <td className="py-1.5 pr-2">

@@ -3,7 +3,7 @@
 **Дата:** 27 жовтня 2026  
 **Код:** `P0-3 leftovers` (local), `4975284` (P2), `58f70e5` (P1-6/P1-7)  
 **Призначення:** покроковий handoff для оператора з доступом до Vercel/Neon.  
-**Стан:** локально `npx tsc --noEmit`, `npm run build`, `npm run qa:smoke` (93/93) — зелені.
+**Стан:** локально `npx tsc --noEmit`, `npm run build`, `npm run qa:smoke` (96/96) — зелені.
 
 > Production `DATABASE_URL` у Vercel має тип **Secret** і не витягується через `vercel env pull`.
 > Тому міграції та deploy виконує оператор із доступом до Neon/Vercel.
@@ -95,7 +95,7 @@ $env:QA_BASE = 'http://127.0.0.1:3100'
 npm run qa:smoke
 ```
 
-Очікувано: `93/93 checks passed`.
+Очікувано: `96/96 checks passed`.
 
 Readiness (з production env, після міграцій):
 

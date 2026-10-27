@@ -279,6 +279,11 @@ signals.
 
 - `Traders to review` — score за зрозумілими вагами; high ≥12, medium ≥6. Це черга для
   ручної перевірки, не автоматичний вердикт.
+- Score адаптивний: recency (свіжі події важать більше) + escalation (повтори тієї
+  ж категорії). Щотижня cron пише снапшот `ABUSE_SCORE_SNAPSHOT`; трейдер зі score
+  ≥12 отримує `ABUSE_SCORE_AUTO_REVIEW` (один на тиждень) — це лише прапорець для
+  ручного review, наслідки застосовує breach matrix.
+- У таблиці трейдерів є sparkline з історії score (`user.history`).
 - `Related-account clusters` — користувачі, пов'язані телефоном або IP + device hash;
   `OVER LIMIT`, якщо разом >3 акаунтів або >$200k.
 - `Latest evidence` — останні 12 подій із причиною й display ID.
@@ -311,7 +316,7 @@ Handoff для оператора: `docs/PFT-production-rollout.md` (backup → 
 
 1. `npx tsc --noEmit`
 2. `npm run build`
-3. `npm run qa:smoke` на локальному production build (очікувано 93/93)
+3. `npm run qa:smoke` на локальному production build (очікувано 96/96)
 4. `npm run doctor` — усі schema/environment блокери закрито
 5. `npm run db:backup -- --out backups/pre-deploy-<date>`
 6. Застосувати нові `prisma/sql/*.sql` через `npx prisma db execute` (не `db push`)

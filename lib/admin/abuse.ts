@@ -10,6 +10,19 @@ import type {
   AbuseUserScore,
 } from './types'
 import type { Prisma } from '@prisma/client'
+import {
+  ABUSE_CATEGORIES as CATEGORIES,
+  ABUSE_SCORE_SNAPSHOT_ACTION,
+  ACTION_CATEGORY,
+  ACTION_WEIGHT,
+  SHARED_ACCESS_WEIGHT,
+  adaptiveScore,
+  emptyCounts,
+  levelFor,
+  metadataSignal,
+  metadataUserId,
+  type ScoreEvent,
+} from './abuse-score'
 
 /**
  * Abuse analytics for the operations desk (rulebook P2).
@@ -20,53 +33,7 @@ import type { Prisma } from '@prisma/client'
  * ranks traders for manual review, it never decides a consequence on its own.
  */
 
-const ACTION_CATEGORY: Record<string, AbuseCategory> = {
-  NEWS_WINDOW_EXPOSURE: 'NEWS',
-  OVERNIGHT_HOLDING_VIOLATION: 'OVERNIGHT',
-  CROSS_ACCOUNT_HEDGE: 'HEDGING',
-  TRADE_VOIDED: 'VOID',
-  PAYOUT_HOLD: 'PAYOUT_HOLD',
-  PAYOUT_ABNORMAL_PROFIT: 'PAYOUT_HOLD',
-  USER_RISK_FLAG: 'RISK_FLAG',
-  SESSION_RISK_SIGNAL: 'SESSION',
-}
-
-const ACTION_WEIGHT: Record<string, number> = {
-  NEWS_WINDOW_EXPOSURE: 3,
-  OVERNIGHT_HOLDING_VIOLATION: 2,
-  CROSS_ACCOUNT_HEDGE: 2,
-  TRADE_VOIDED: 1,
-  PAYOUT_HOLD: 1,
-  PAYOUT_ABNORMAL_PROFIT: 2,
-  USER_RISK_FLAG: 2,
-  SESSION_RISK_SIGNAL: 1,
-}
-
-const SHARED_ACCESS_WEIGHT = 2
-const CATEGORIES: AbuseCategory[] = ['NEWS', 'OVERNIGHT', 'HEDGING', 'VOID', 'PAYOUT_HOLD', 'RISK_FLAG', 'SESSION']
 const ALL_ACTIONS = Object.keys(ACTION_CATEGORY)
-
-function emptyCounts(): Record<AbuseCategory, number> {
-  return { NEWS: 0, OVERNIGHT: 0, HEDGING: 0, VOID: 0, PAYOUT_HOLD: 0, RISK_FLAG: 0, SESSION: 0 }
-}
-
-function levelFor(score: number): AbuseUserScore['level'] {
-  if (score >= 12) return 'high'
-  if (score >= 6) return 'medium'
-  return 'low'
-}
-
-function metadataUserId(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
-  const value = (metadata as { userId?: unknown }).userId
-  return typeof value === 'string' ? value : null
-}
-
-function metadataSignal(metadata: unknown): string | null {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
-  const value = (metadata as { signal?: unknown }).signal
-  return typeof value === 'string' ? value : null
-}
 
 function clampDays(days: number) {
   return Math.min(90, Math.max(1, Math.floor(days)))
@@ -174,7 +141,7 @@ export async function getAbuseOverview(days = 30, rawFilters: AbuseFilters = {})
     if (category) counts[category] += group._count._all
   }
 
-  const scores = new Map<string, { score: number; counts: Record<AbuseCategory, number> }>()
+  const eventsByUser = new Map<string, ScoreEvent[]>()
   const names = new Map<string, { name: string; email: string }>()
   const signalCounts = new Map<string, number>()
 
@@ -190,16 +157,15 @@ export async function getAbuseOverview(days = 30, rawFilters: AbuseFilters = {})
     if (!userId) continue
     if (log.account?.user) names.set(userId, log.account.user)
 
-    const entry = scores.get(userId) ?? { score: 0, counts: emptyCounts() }
     const weight =
       (ACTION_WEIGHT[log.action] ?? 1) +
       (category === 'SESSION' && metadataSignal(log.metadata) === 'SHARED_ACCESS' ? SHARED_ACCESS_WEIGHT : 0)
-    entry.score += weight
-    entry.counts[category] += 1
-    scores.set(userId, entry)
+    const events = eventsByUser.get(userId) ?? []
+    events.push({ category, weight, createdAt: log.createdAt })
+    eventsByUser.set(userId, events)
   }
 
-  const missingNames = [...scores.keys()].filter((id) => !names.has(id))
+  const missingNames = [...eventsByUser.keys()].filter((id) => !names.has(id))
   if (missingNames.length > 0) {
     const users = await prisma.user.findMany({
       where: { id: { in: missingNames } },
@@ -211,27 +177,64 @@ export async function getAbuseOverview(days = 30, rawFilters: AbuseFilters = {})
   const flaggedUsers = new Set(
     (
       await prisma.user.findMany({
-        where: { id: { in: [...scores.keys()] }, riskFlaggedAt: { not: null } },
+        where: { id: { in: [...eventsByUser.keys()] }, riskFlaggedAt: { not: null } },
         select: { id: true },
       })
     ).map((user) => user.id),
   )
 
-  const users: AbuseUserScore[] = [...scores.entries()]
-    // A deleted trader has no profile left to review; keep their audit rows out
-    // of the queue instead of showing an "Unknown trader" card.
+  const now = new Date()
+  const scored = [...eventsByUser.entries()]
     .filter(([userId]) => names.has(userId))
-    .map(([userId, entry]) => ({
-      userId,
-      name: names.get(userId)?.name ?? 'Unknown trader',
-      email: names.get(userId)?.email ?? '',
-      score: entry.score,
-      level: levelFor(entry.score),
-      counts: entry.counts,
-      riskReviewOpen: flaggedUsers.has(userId),
-    }))
+    .map(([userId, events]) => {
+      const { score, counts: userCounts } = adaptiveScore(events, now)
+      return {
+        userId,
+        name: names.get(userId)?.name ?? 'Unknown trader',
+        email: names.get(userId)?.email ?? '',
+        score,
+        level: levelFor(score),
+        counts: userCounts,
+        riskReviewOpen: flaggedUsers.has(userId),
+        history: [],
+      }
+    })
     .sort((a, b) => b.score - a.score || a.email.localeCompare(b.email))
-    .slice(0, filters.trader ? 50 : 10)
+
+  const users: AbuseUserScore[] = scored.slice(0, filters.trader ? 50 : 10)
+
+  // Weekly score history for the traders shown, so the desk can see the trend.
+  const historyRows =
+    users.length > 0
+      ? await prisma.auditLog.findMany({
+          where: {
+            action: ABUSE_SCORE_SNAPSHOT_ACTION,
+            createdAt: { gte: new Date(Date.now() - 8 * 7 * 24 * 60 * 60_000) },
+          },
+          orderBy: { createdAt: 'asc' },
+          select: { metadata: true, createdAt: true },
+        })
+      : []
+  const historyByUser = new Map<string, { bucketAt: string; score: number; level: AbuseUserScore['level'] }[]>()
+  for (const row of historyRows) {
+    const metadata = row.metadata
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) continue
+    const userId = metadataUserId(metadata)
+    if (!userId) continue
+    const score = (metadata as { score?: unknown }).score
+    const level = (metadata as { level?: unknown }).level
+    const bucketAt = (metadata as { bucketAt?: unknown }).bucketAt
+    if (typeof score !== 'number') continue
+    if (typeof bucketAt !== 'string') continue
+    const list = historyByUser.get(userId) ?? []
+    list.push({
+      bucketAt,
+      score,
+      level: level === 'high' || level === 'medium' || level === 'low' ? level : levelFor(score),
+    })
+    historyByUser.set(userId, list)
+  }
+  for (const user of users) user.history = historyByUser.get(user.userId) ?? []
 
   const recent: AbuseEvent[] = logs.slice(0, 12).map((log) => ({
     id: log.id,

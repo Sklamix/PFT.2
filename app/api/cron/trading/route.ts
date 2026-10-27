@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { scanInactiveAccounts } from '@/lib/accounts/inactivity'
 import { reconcileAccountLimits, reconcileRelatedAccounts } from '@/lib/accounts/reconciliation'
+import { snapshotAbuseScores } from '@/lib/admin/abuse-score'
 import { notifyBookEvents } from '@/lib/email/trade-events'
 import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
@@ -20,6 +21,7 @@ async function run() {
   const riskFlags = await refreshUserRiskFlags()
   await pruneAccessEvents()
   const rules = await announceRuleChanges()
+  const abuseScores = await snapshotAbuseScores()
 
   const lastRelatedRun = await prisma.auditLog.findFirst({
     where: { action: 'RELATED_ACCOUNT_CLUSTER_RUN' },
@@ -50,6 +52,7 @@ async function run() {
       riskFlags,
       rules,
       relatedAccounts,
+      abuseScores,
     })
   }
 
@@ -160,6 +163,7 @@ async function run() {
     riskFlags,
     rules,
     relatedAccounts,
+    abuseScores,
     limitReconciliation,
     crossAccountHedges,
     inactivity,

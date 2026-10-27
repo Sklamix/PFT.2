@@ -103,6 +103,12 @@ async function cleanup() {
       createdAt: { gte: RUN_START },
     },
   })
+  await prisma.auditLog.deleteMany({
+    where: {
+      action: { in: ['ABUSE_SCORE_SNAPSHOT', 'ABUSE_SCORE_AUTO_REVIEW'] },
+      createdAt: { gte: RUN_START },
+    },
+  })
   await prisma.user.deleteMany({ where: { id: { in: userIds } } })
 }
 
@@ -1238,6 +1244,21 @@ async function main() {
     'Abuse export returns CSV',
     abuseExport.status === 200 && abuseExportText.startsWith('category,action,'),
     `HTTP ${abuseExport.status}`,
+  )
+
+  check(
+    'Cron snapshots weekly abuse scores',
+    typeof cron.json?.abuseScores?.snapshots === 'number',
+    `snapshots ${cron.json?.abuseScores?.snapshots ?? 'n/a'}`,
+  )
+  const snapshotAudits = await prisma.auditLog.count({
+    where: { action: 'ABUSE_SCORE_SNAPSHOT', createdAt: { gte: RUN_START } },
+  })
+  check('Abuse score snapshots are persisted', snapshotAudits > 0, `${snapshotAudits} snapshot(s)`)
+  check(
+    'Abuse users expose weekly score history',
+    Array.isArray(abuseReport.json?.users?.[0]?.history),
+    `${abuseReport.json?.users?.[0]?.history?.length ?? 'n/a'} entries`,
   )
 
   check(
