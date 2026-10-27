@@ -1,8 +1,11 @@
+import type { Prisma, PrismaClient } from '@prisma/client'
 import type { AccountSize, ChallengeType as PlanChallengeType, DrawdownMode } from '@/lib/challenges'
 import { CHALLENGES, getChallengeFee } from '@/lib/challenges'
 import { actionReviewRequestData } from '@/lib/admin/action-review'
 import { prisma } from '@/lib/prisma'
 import { provisionChallengeAccounts } from '@/lib/provisioning/challenge-account'
+
+type Db = PrismaClient | Prisma.TransactionClient
 
 const RESET_INTERVAL_MS = 30 * 24 * 60 * 60 * 1000
 const RESET_DISCOUNT_MS = 2 * 24 * 60 * 60 * 1000
@@ -48,8 +51,8 @@ function planType(type: 'ONE_STEP' | 'TWO_STEP'): PlanChallengeType {
   return type === 'ONE_STEP' ? 'one-step' : 'two-step'
 }
 
-export async function getResetEligibility(accountId: string): Promise<ResetEligibility> {
-  const account = await prisma.tradingAccount.findUnique({
+export async function getResetEligibility(accountId: string, db: Db = prisma): Promise<ResetEligibility> {
+  const account = await db.tradingAccount.findUnique({
     where: { id: accountId },
     select: {
       id: true,
@@ -78,7 +81,7 @@ export async function getResetEligibility(accountId: string): Promise<ResetEligi
     throw new ResetError('Reset is not available for this breach type.', 'abuse')
   }
 
-  const resets = await prisma.tradingAccount.count({
+  const resets = await db.tradingAccount.count({
     where: {
       userId: account.userId,
       challengeType: account.challengeType,
@@ -118,7 +121,7 @@ export async function getResetEligibility(accountId: string): Promise<ResetEligi
   }
 }
 
-/** Admin-granted reset after a breach. Payment collection remains a separate checkout flow. */
+/** Admin-granted reset after a breach. Paid resets go through `resetAccountForPayment`. */
 export async function resetAccount(accountId: string, actorId: string) {
   const eligibility = await getResetEligibility(accountId)
   const account = await prisma.tradingAccount.findUniqueOrThrow({
@@ -127,56 +130,140 @@ export async function resetAccount(accountId: string, actorId: string) {
   })
 
   try {
-    return await prisma.$transaction(async (tx) => {
-      const result = await provisionChallengeAccounts(tx, {
+    return await prisma.$transaction((tx) =>
+      provisionReset(tx, {
+        accountId,
         userId: account.userId,
+        displayId: account.displayId,
         orderId: `admin-reset-${accountId}-${Date.now()}`,
-        providerOrderId: `admin-reset-${accountId}-${Date.now()}`,
-        plan: {
-          planSize: eligibility.planSize,
-          challengeType: eligibility.challengeType,
-          drawdownMode: eligibility.drawdownMode,
-          dailyLossType: eligibility.dailyLossType,
-          hasFrozenBackup: false,
-        },
-      })
-      await tx.tradingAccount.update({
-        where: { id: result.primary.id },
-        data: { resetSourceAccountId: accountId },
-      })
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          accountId: result.primary.id,
-          action: 'ACCOUNT_RESET',
-          reason: `Reset from account ${accountId}`,
-          metadata: {
-            sourceAccountId: accountId,
-            discountPct: eligibility.discountPct,
-            price: eligibility.price,
-          },
-        },
-      })
-      await tx.auditLog.create({
-        data: actionReviewRequestData({
-          accountId: result.primary.id,
-          actorId,
-          kind: 'RESET',
-          reason: `Reset from account ${accountId}`,
-          summary: `Admin reset from ${account.displayId}`,
-          details: {
-            sourceAccountId: accountId,
-            discountPct: eligibility.discountPct,
-            price: eligibility.price,
-          },
-        }),
-      })
-      return result.primary
-    })
+        eligibility,
+        actorId,
+        requestReview: true,
+      }),
+    )
   } catch (error) {
-    if (error instanceof Error) {
-      throw new ResetError(error.message, 'provisioning')
-    }
+    if (error instanceof ResetError) throw error
+    if (error instanceof Error) throw new ResetError(error.message, 'provisioning')
     throw error
   }
 }
+
+/**
+ * Provisions a fresh Phase 1 account after a paid reset. Called from the payment
+ * webhook, so eligibility is re-checked inside the same transaction: two paid
+ * invoices cannot both consume the single reset slot of a product.
+ */
+export async function resetAccountForPayment(
+  tx: Prisma.TransactionClient,
+  input: {
+    accountId: string
+    userId: string
+    orderId: string
+    providerOrderId: string
+  },
+) {
+  const account = await tx.tradingAccount.findUnique({
+    where: { id: input.accountId },
+    select: { userId: true, displayId: true },
+  })
+  if (!account || account.userId !== input.userId) {
+    throw new ResetError('Account not found for this order.', 'not_found')
+  }
+
+  const eligibility = await getResetEligibility(input.accountId, tx)
+  return provisionReset(tx, {
+    accountId: input.accountId,
+    userId: account.userId,
+    displayId: account.displayId,
+    orderId: input.orderId,
+    eligibility,
+    actorId: null,
+    requestReview: false,
+  })
+}
+
+async function provisionReset(
+  tx: Prisma.TransactionClient,
+  input: {
+    accountId: string
+    userId: string
+    displayId: string
+    orderId: string
+    eligibility: ResetEligibility
+    actorId: string | null
+    requestReview: boolean
+  },
+) {
+  const result = await provisionChallengeAccounts(tx, {
+    userId: input.userId,
+    orderId: input.orderId,
+    providerOrderId: input.orderId,
+    plan: {
+      planSize: input.eligibility.planSize,
+      challengeType: input.eligibility.challengeType,
+      drawdownMode: input.eligibility.drawdownMode,
+      dailyLossType: input.eligibility.dailyLossType,
+      hasFrozenBackup: false,
+    },
+  })
+  await tx.tradingAccount.update({
+    where: { id: result.primary.id },
+    data: { resetSourceAccountId: input.accountId },
+  })
+  await tx.auditLog.create({
+    data: {
+      actorId: input.actorId,
+      accountId: result.primary.id,
+      action: 'ACCOUNT_RESET',
+      reason: `Reset from account ${input.accountId}`,
+      metadata: {
+        sourceAccountId: input.accountId,
+        sourceDisplayId: input.displayId,
+        discountPct: input.eligibility.discountPct,
+        price: input.eligibility.price,
+        paid: input.actorId === null,
+      },
+    },
+  })
+  if (input.requestReview) {
+    await tx.auditLog.create({
+      data: actionReviewRequestData({
+        accountId: result.primary.id,
+        actorId: input.actorId,
+        kind: 'RESET',
+        reason: `Reset from account ${input.accountId}`,
+        summary: `Admin reset from ${input.displayId}`,
+        details: {
+          sourceAccountId: input.accountId,
+          discountPct: input.eligibility.discountPct,
+          price: input.eligibility.price,
+        },
+      }),
+    })
+  }
+  return result.primary
+}
+
+/** Shape stored in `Order.rawPayload` so the webhook can provision a paid reset. */
+export type ResetOrderPayload = {
+  product: 'RESET'
+  resetAccountId: string
+  planSize: number
+  evaluationType: string
+  drawdownMode: DrawdownMode
+  dailyLossType: number
+  discountPct: number
+  basePrice: number
+  totalAmount: number
+}
+
+export function isResetOrderPayload(payload: Prisma.JsonValue | null): payload is Prisma.JsonObject {
+  return Boolean(
+    payload &&
+      typeof payload === 'object' &&
+      !Array.isArray(payload) &&
+      (payload as { product?: unknown }).product === 'RESET' &&
+      typeof (payload as { resetAccountId?: unknown }).resetAccountId === 'string',
+  )
+}
+

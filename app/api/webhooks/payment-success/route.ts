@@ -6,6 +6,7 @@ import { setPasswordUrl } from '@/lib/email/password-reset'
 import { hasUsablePassword, issuePasswordToken } from '@/lib/trader/accounts'
 import { isEmailConfigured } from '@/lib/email/resend'
 import { AccountLimitError } from '@/lib/accounts/limits'
+import { ResetError, isResetOrderPayload, resetAccountForPayment } from '@/lib/accounts/reset'
 import { claimWebhookEvent, releaseWebhookEvent, webhookEventId } from '@/lib/security/webhook-events'
 import {
   InvalidOrderPayloadError,
@@ -181,6 +182,7 @@ async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatu
     if (!(error instanceof InvalidOrderPayloadError)) throw error
     console.error('Paid order cannot be provisioned automatically', orderId, error.message)
   }
+  const resetAccountId = isResetOrderPayload(order.rawPayload) ? String(order.rawPayload.resetAccountId) : null
 
   let provisioned
   try {
@@ -197,12 +199,22 @@ async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatu
       })
       if (claim.count === 0) return null
 
-      const result = await provisionChallengeAccounts(tx, {
-        userId: order.userId,
-        orderId: order.id,
-        providerOrderId: orderId,
-        plan,
-      })
+      const result = resetAccountId
+        ? {
+            primary: await resetAccountForPayment(tx, {
+              accountId: resetAccountId,
+              userId: order.userId,
+              orderId: order.id,
+              providerOrderId: orderId,
+            }),
+            standby: null,
+          }
+        : await provisionChallengeAccounts(tx, {
+            userId: order.userId,
+            orderId: order.id,
+            providerOrderId: orderId,
+            plan,
+          })
       await tx.order.update({
         where: { id: order.id },
         data: {
@@ -236,6 +248,26 @@ async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatu
       })
       console.error('[pft provisioning] Account limit blocked paid order', orderId, error.message)
       return json({ ok: true, orderId, status: 'PAID', provisioningBlocked: true })
+    }
+    if (error instanceof ResetError) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'PAID',
+          provisionedAt: new Date(),
+          credentialsEmailStatus: 'SKIPPED',
+          rawPayload: {
+            ...payload,
+            provisioningBlocked: {
+              reason: error.message,
+              code: error.code,
+              blockedAt: new Date().toISOString(),
+            },
+          },
+        },
+      })
+      console.error('[pft provisioning] Paid reset could not be provisioned', orderId, error.code, error.message)
+      return json({ ok: true, orderId, status: 'PAID', provisioningBlocked: true, reason: error.message })
     }
     throw error
   }

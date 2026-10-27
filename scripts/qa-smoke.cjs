@@ -1,14 +1,32 @@
 /* Local staging smoke QA for the PFT stress-test release. */
 const { PrismaClient } = require('@prisma/client')
-const { randomBytes, scryptSync } = require('node:crypto')
+const { createHmac, randomBytes, scryptSync } = require('node:crypto')
 
 const BASE = process.env.QA_BASE || 'http://127.0.0.1:3100'
 const suffix = Date.now().toString(36)
 const ADMIN_A = `qa-admin-a-${suffix}@pft.local`
 const ADMIN_B = `qa-admin-b-${suffix}@pft.local`
 const TRADER = `qa-trader-${suffix}@pft.local`
+const RESET_TRADER = `qa-reset-${suffix}@pft.local`
+const IPN_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || 'qa-ipn-secret'
 const PASSWORD = 'Qa-Password-123!'
 const prisma = new PrismaClient()
+
+function sortKeysDeep(value) {
+  if (Array.isArray(value)) return value.map(sortKeysDeep)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, sortKeysDeep(value[key])]),
+    )
+  }
+  return value
+}
+
+function signIpn(body) {
+  return createHmac('sha512', IPN_SECRET).update(JSON.stringify(sortKeysDeep(body))).digest('hex')
+}
 
 function hashPassword(password) {
   const salt = randomBytes(16)
@@ -50,7 +68,7 @@ async function loginAdmin(email) {
 
 async function cleanup() {
   const users = await prisma.user.findMany({
-    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER] } },
+    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER, RESET_TRADER] } },
     select: { id: true },
   })
   const userIds = users.map((user) => user.id)
@@ -420,6 +438,152 @@ async function main() {
   check(
     'Decided appeal leaves the queue',
     !appealsAfterDecision.json?.items?.some((item) => item.id === queueItem?.id),
+  )
+
+  // Paid reset: eligibility, webhook provisioning and the 30-day cap.
+  // Detach the reset trader from the other QA accounts so the account-count limit
+  // (same IP + device fingerprint) cannot mask the reset rules under test.
+  await prisma.user.update({
+    where: { id: trader.id },
+    data: { lastLoginIp: null, lastDeviceHash: null },
+  })
+  await prisma.user.create({
+    data: {
+      email: RESET_TRADER,
+      name: 'QA Reset Trader',
+      passwordHash: hashPassword(PASSWORD),
+      role: 'TRADER',
+      kycStatus: 'APPROVED',
+    },
+  })
+  const resetTrader = await prisma.user.findUniqueOrThrow({ where: { email: RESET_TRADER } })
+  const resetLogin = await request('/api/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: RESET_TRADER, password: PASSWORD }),
+  })
+  check('Reset trader login', resetLogin.status === 200 && Boolean(resetLogin.cookie), `HTTP ${resetLogin.status}`)
+
+  const resetSource = await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-RESET-${suffix}`,
+      userId: resetTrader.id,
+      mt5Login: `QAR${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 100000,
+      challengeType: 'TWO_STEP',
+      phase: 'PHASE_1',
+      status: 'BREACHED_MAX',
+      breachReason: 'Max trailing drawdown breached: equity 89000 fell below floor 90000',
+      frozenAt: new Date(),
+      drawdownMode: 'trailing',
+      initialBalance: 100000,
+      dailyStartingBalance: 100000,
+      dailyStartingEquity: 100000,
+      dailyStartedAt: new Date(),
+      currentBalance: 89000,
+      currentEquity: 89000,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 11,
+      dailyDrawdownLimitPct: 5,
+      maxDrawdownLimitPct: 10,
+      profitPct: 0,
+      balance: 89000,
+      equity: 89000,
+      startingBalance: 100000,
+      peakEquity: 100000,
+    },
+  })
+
+  const resetEligibility = await request(`/api/accounts/${resetSource.id}/reset`, {}, resetLogin.cookie)
+  check(
+    'Breached account is reset-eligible',
+    resetEligibility.status === 200 && resetEligibility.json?.eligible === true,
+    `HTTP ${resetEligibility.status}`,
+  )
+  check(
+    'Reset applies the 20% breach-week discount',
+    resetEligibility.json?.discountPct === 20 && resetEligibility.json?.price > 0,
+    `${resetEligibility.json?.discountPct}% · $${resetEligibility.json?.price}`,
+  )
+
+  const resetPrice = Number(resetEligibility.json?.price ?? 0)
+  const resetPayload = {
+    product: 'RESET',
+    resetAccountId: resetSource.id,
+    planSize: 100000,
+    evaluationType: '2-Step',
+    drawdownMode: 'trailing',
+    dailyLossType: 5,
+    discountPct: 20,
+    basePrice: Math.round((resetPrice / 0.8) * 100) / 100,
+    totalAmount: resetPrice,
+  }
+  const resetOrderId = `QA-RESET-${suffix}`
+  await prisma.order.create({
+    data: {
+      userId: resetTrader.id,
+      provider: 'nowpayments',
+      providerOrderId: resetOrderId,
+      amount: resetPrice.toString(),
+      currency: 'USD',
+      status: 'PENDING',
+      rawPayload: resetPayload,
+    },
+  })
+
+  const resetIpn = {
+    order_id: resetOrderId,
+    payment_status: 'finished',
+    price_amount: resetPrice,
+    price_currency: 'usd',
+    payment_id: `qa-reset-${suffix}`,
+  }
+  const resetWebhook = await request('/api/webhooks/payment-success', {
+    method: 'POST',
+    headers: { 'x-nowpayments-sig': signIpn(resetIpn) },
+    body: JSON.stringify(resetIpn),
+  })
+  check(
+    'Paid reset webhook provisions a fresh account',
+    resetWebhook.status === 200 && !resetWebhook.json?.provisioningBlocked,
+    `HTTP ${resetWebhook.status} ${resetWebhook.json?.reason ?? ''}`,
+  )
+
+  const freshReset = await prisma.tradingAccount.findFirst({
+    where: { resetSourceAccountId: resetSource.id },
+    select: { id: true, status: true, phase: true },
+  })
+  check(
+    'Reset account starts a fresh Phase 1',
+    freshReset?.status === 'ACTIVE' && freshReset?.phase === 'PHASE_1',
+    `${freshReset?.status}/${freshReset?.phase}`,
+  )
+
+  const resetOrder = await prisma.order.findUniqueOrThrow({ where: { providerOrderId: resetOrderId } })
+  check('Reset order is marked provisioned', resetOrder.status === 'PAID' && Boolean(resetOrder.provisionedAt))
+
+  const secondOrderId = `QA-RESET2-${suffix}`
+  await prisma.order.create({
+    data: {
+      userId: resetTrader.id,
+      provider: 'nowpayments',
+      providerOrderId: secondOrderId,
+      amount: resetPrice.toString(),
+      currency: 'USD',
+      status: 'PENDING',
+      rawPayload: resetPayload,
+    },
+  })
+  const secondIpn = { ...resetIpn, order_id: secondOrderId, payment_id: `qa-reset2-${suffix}` }
+  const secondWebhook = await request('/api/webhooks/payment-success', {
+    method: 'POST',
+    headers: { 'x-nowpayments-sig': signIpn(secondIpn) },
+    body: JSON.stringify(secondIpn),
+  })
+  check(
+    'Second paid reset within 30 days is blocked',
+    secondWebhook.status === 200 && secondWebhook.json?.provisioningBlocked === true,
+    secondWebhook.json?.reason ?? `HTTP ${secondWebhook.status}`,
   )
 
   // Automated enforcement: the cron applies the breach matrix to engine-closed accounts.

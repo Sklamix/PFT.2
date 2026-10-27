@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils'
 import { AppealDialog } from './AppealDialog'
 import { OrderPanel } from './OrderPanel'
 import { PositionsTable } from './PositionsTable'
+import { ResetAccountDialog } from './ResetAccountDialog'
 import { TerminalHeader } from './TerminalHeader'
 import { TradingChart } from './TradingChart'
 
@@ -387,6 +388,7 @@ function NoticeBar() {
   const account = useTerminalBook((state) => state.account)
   const dismiss = useTerminalBook((state) => state.dismissNotice)
   const [appealOpen, setAppealOpen] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
 
   if (loadState === 'error') {
     return <Banner tone="danger" message={`Trading account unavailable: ${loadError ?? 'unknown error'}`} />
@@ -401,20 +403,31 @@ function NoticeBar() {
           tone="danger"
           message={`Account ${account.id} is ${account.status}${account.breachReason ? ` — ${account.breachReason}` : ''}. Trading is disabled.`}
           action={
-            account.activeSiblingAccountId ? (
-              <Button size="sm" variant="outline" onClick={() => switchAccount(account.activeSiblingAccountId!)}>
-                Switch to {account.activeSiblingAccountId}
-              </Button>
-            ) : breached ? (
-              <Button size="sm" variant="outline" onClick={() => setAppealOpen(true)}>
-                Appeal decision
-              </Button>
-            ) : null
+            <div className="flex flex-wrap items-center gap-2">
+              {account.activeSiblingAccountId ? (
+                <Button size="sm" variant="outline" onClick={() => switchAccount(account.activeSiblingAccountId!)}>
+                  Switch to {account.activeSiblingAccountId}
+                </Button>
+              ) : null}
+              {breached ? (
+                <>
+                  <Button size="sm" variant="outline" onClick={() => setResetOpen(true)}>
+                    Reset account
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setAppealOpen(true)}>
+                    Appeal decision
+                  </Button>
+                </>
+              ) : null}
+            </div>
           }
         />
       ) : null}
       {breached ? (
         <AppealDialog accountId={account.id} open={appealOpen} onOpenChange={setAppealOpen} />
+      ) : null}
+      {breached ? (
+        <ResetAccountDialog accountId={account.id} open={resetOpen} onOpenChange={setResetOpen} />
       ) : null}
       {notice ? (
         <Banner
