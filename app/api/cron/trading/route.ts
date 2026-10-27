@@ -4,6 +4,7 @@ import { reconcileAccountLimits } from '@/lib/accounts/reconciliation'
 import { notifyBookEvents } from '@/lib/email/trade-events'
 import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
+import { enforceBreachMatrix } from '@/lib/rules/enforcement'
 import { syncAccount } from '@/lib/trading/engine'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
 import { detectCrossAccountHedges } from '@/lib/trading/net-exposure'
@@ -15,8 +16,10 @@ export const dynamic = 'force-dynamic'
 async function run() {
   const quotes = await getFreshMarketQuotes()
   if (Object.keys(quotes).length === 0) {
-    // Weekend or a stalled feed. There is nothing to mark or fill, but the cron itself succeeded.
-    return NextResponse.json({ status: 'market_closed', accounts: 0 })
+    // Weekend or a stalled feed. There is nothing to mark or fill, but closure
+    // consequences still have to be written, and the cron itself succeeded.
+    const enforcement = await enforceBreachMatrix()
+    return NextResponse.json({ status: 'market_closed', accounts: 0, enforcement })
   }
 
   const warnedAccounts = await warnFundedAccountsBeforeNews()
@@ -56,6 +59,7 @@ async function run() {
     }),
   )
 
+  const enforcement = await enforceBreachMatrix()
   const progression = await evaluateActiveAccountsPassing()
 
   const lastReconciliation = await prisma.auditLog.findFirst({
@@ -112,11 +116,16 @@ async function run() {
   return NextResponse.json({
     accounts: accounts.length,
     newsWindows: { warnedAccounts },
-    sessionCutoff: { cancelledPending: cancelledAtCutoff, closedAccounts: cutoffResults.length },
+    sessionCutoff: {
+      cancelledPending: cancelledAtCutoff,
+      closedAccounts: cutoffResults.length,
+      violations: cutoffResults.filter((result) => result.violation).length,
+    },
     results: results.map((result) =>
       result.status === 'fulfilled' ? result.value : { status: 'failed' as const },
     ),
     progression: progression.filter((item) => item.result.status !== 'noop'),
+    enforcement,
     limitReconciliation,
     crossAccountHedges,
     inactivity,

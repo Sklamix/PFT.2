@@ -1,6 +1,5 @@
 import type { AccountStatus, Prisma } from '@prisma/client'
 import { actionReviewRequestData } from '@/lib/admin/action-review'
-import { startOfBerlinDay } from '@/lib/trading/time'
 
 /**
  * Deterministic breach matrix (rulebook v1.6, section 19).
@@ -27,8 +26,7 @@ export type BreachKind =
 
 export type BreachSeverity = 'hard' | 'soft'
 
-/** `offending-trade` is applied by the execution engine, which knows the trade. */
-export type VoidProfitScope = 'none' | 'breach-day' | 'offending-trade'
+export type VoidProfitScope = 'none' | 'offending-trade'
 
 export type BreachConsequences = {
   kind: BreachKind
@@ -57,8 +55,8 @@ export const BREACH_MATRIX: Record<BreachKind, BreachConsequences> = {
     accountStatus: 'BREACHED_DAILY',
     liquidatePositions: true,
     cancelPendingOrders: true,
-    voidProfit: 'breach-day',
-    cancelPayouts: false,
+    voidProfit: 'none',
+    cancelPayouts: true,
     payoutHoldDays: null,
     refundFee: false,
     appealWindowDays: HARD_BREACH_APPEAL_DAYS,
@@ -71,8 +69,8 @@ export const BREACH_MATRIX: Record<BreachKind, BreachConsequences> = {
     accountStatus: 'BREACHED_MAX',
     liquidatePositions: true,
     cancelPendingOrders: true,
-    voidProfit: 'breach-day',
-    cancelPayouts: false,
+    voidProfit: 'none',
+    cancelPayouts: true,
     payoutHoldDays: null,
     refundFee: false,
     appealWindowDays: HARD_BREACH_APPEAL_DAYS,
@@ -114,7 +112,7 @@ export const BREACH_MATRIX: Record<BreachKind, BreachConsequences> = {
     liquidatePositions: true,
     cancelPendingOrders: true,
     voidProfit: 'offending-trade',
-    cancelPayouts: false,
+    cancelPayouts: true,
     payoutHoldDays: 7,
     refundFee: false,
     appealWindowDays: HARD_BREACH_APPEAL_DAYS,
@@ -142,7 +140,7 @@ export const BREACH_MATRIX: Record<BreachKind, BreachConsequences> = {
     liquidatePositions: true,
     cancelPendingOrders: true,
     voidProfit: 'offending-trade',
-    cancelPayouts: false,
+    cancelPayouts: true,
     payoutHoldDays: 7,
     refundFee: false,
     appealWindowDays: HARD_BREACH_APPEAL_DAYS,
@@ -183,7 +181,7 @@ export const BREACH_MATRIX: Record<BreachKind, BreachConsequences> = {
     accountStatus: 'BREACHED',
     liquidatePositions: true,
     cancelPendingOrders: true,
-    voidProfit: 'breach-day',
+    voidProfit: 'none',
     cancelPayouts: true,
     payoutHoldDays: null,
     refundFee: false,
@@ -256,6 +254,18 @@ export function isBreachKind(value: unknown): value is BreachKind {
   return typeof value === 'string' && value in BREACH_MATRIX
 }
 
+/** Human-readable consequence list used in emails and the trader-facing notice. */
+export function consequenceSummary(entry: BreachConsequences): string[] {
+  const items: string[] = []
+  if (entry.accountStatus) items.push('This trading account is closed and no longer trades.')
+  if (entry.liquidatePositions) items.push('Open positions are liquidated at market prices.')
+  if (entry.cancelPendingOrders) items.push('Pending orders are cancelled.')
+  if (entry.cancelPayouts) items.push('Unpaid profit on this account is cancelled.')
+  if (entry.payoutHoldDays) items.push(`Payouts from this account are on hold for ${entry.payoutHoldDays} days.`)
+  if (entry.severity === 'hard') items.push('The evaluation fee is not refunded.')
+  return items
+}
+
 /** Maps a legacy account status to the breach kind that produced it. */
 export function breachKindFromStatus(status: AccountStatus): BreachKind | null {
   if (status === 'BREACHED_DAILY') return 'DAILY_LOSS'
@@ -321,29 +331,12 @@ export async function applyBreach(
     })
   }
 
-  if (entry.voidProfit === 'breach-day') {
-    const dayStart = startOfBerlinDay(now)
-    const profitable = await tx.tradeHistory.findMany({
-      where: {
-        tradingAccountId: account.id,
-        closedAt: { gte: dayStart },
-        voidedAt: null,
-        pnl: { gt: 0 },
-      },
-      select: { id: true, pnl: true },
+  if (entry.voidProfit === 'offending-trade') {
+    // The execution engine already zeroed the offending trade's PnL and adjusted the
+    // balance when it closed the position; only the audit count is reported here.
+    voidedTrades = await tx.tradeHistory.count({
+      where: { tradingAccountId: account.id, voidedAt: { gte: new Date(now.getTime() - 5 * 60_000) } },
     })
-    for (const trade of profitable) {
-      await tx.tradeHistory.update({
-        where: { id: trade.id },
-        data: {
-          originalPnl: trade.pnl,
-          pnl: 0,
-          voidedAt: now,
-          voidReason: `Breach-day profit removed: ${input.reason}`,
-        },
-      })
-    }
-    voidedTrades = profitable.length
   }
 
   if (entry.cancelPayouts) {

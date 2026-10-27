@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { recordOvernightHolding } from '@/lib/rules/enforcement'
 import type { BookPayload, Quotes } from './types'
 import { closePositionsBySymbols } from './engine'
 import { isCloseOnlyForSymbol, shouldAutoCloseSymbol } from './session-cutoff'
@@ -6,6 +7,8 @@ import { isCloseOnlyForSymbol, shouldAutoCloseSymbol } from './session-cutoff'
 export type CutoffResult = {
   accountId: string
   book: BookPayload
+  /** Set when the cut-off close counted as an overnight/weekend holding violation. */
+  violation: 'OVERNIGHT_FIRST' | 'OVERNIGHT_SECOND' | null
 }
 
 /** Closes positions that reached the daily/weekend/index session cutoff. */
@@ -30,9 +33,22 @@ export async function enforceSessionCutoff(quotes: Quotes, now = new Date()): Pr
     )
     if (due.size === 0) continue
     const result = await closePositionsBySymbols(account.id, due, quotes)
-    if (result.ok && result.book) {
-      results.push({ accountId: account.id, book: result.book })
+    if (!result.ok || !result.book) continue
+
+    // Positions closed by the cut-off itself are the overnight/weekend violation;
+    // protective stops that happened to trigger at the same tick are not.
+    const heldThroughCutoff = result.book.events.closed.filter((trade) => trade.closeReason === 'MANUAL')
+    let violation: CutoffResult['violation'] = null
+    if (heldThroughCutoff.length > 0) {
+      const applied = await recordOvernightHolding({
+        accountId: account.id,
+        reason: `Positions held through the session cutoff: ${[...due].join(', ')}`,
+        closedTrades: heldThroughCutoff.map((trade) => ({ id: trade.id, pnl: trade.pnl })),
+      })
+      violation = applied?.kind ?? null
     }
+
+    results.push({ accountId: account.id, book: result.book, violation })
   }
   return results
 }

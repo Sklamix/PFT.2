@@ -422,6 +422,77 @@ async function main() {
     !appealsAfterDecision.json?.items?.some((item) => item.id === queueItem?.id),
   )
 
+  // Automated enforcement: the cron applies the breach matrix to engine-closed accounts.
+  const cronAccount = await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-CRON-${suffix}`,
+      userId: trader.id,
+      mt5Login: `QAC${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 100000,
+      challengeType: 'TWO_STEP',
+      phase: 'FUNDED',
+      status: 'BREACHED_MAX',
+      breachReason: 'Max trailing drawdown breached: equity 89000 fell below floor 90000',
+      frozenAt: new Date(),
+      initialBalance: 100000,
+      dailyStartingBalance: 100000,
+      dailyStartingEquity: 100000,
+      dailyStartedAt: new Date(),
+      currentBalance: 89000,
+      currentEquity: 89000,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 11,
+      dailyDrawdownLimitPct: 5,
+      maxDrawdownLimitPct: 10,
+      profitPct: 0,
+      balance: 89000,
+      equity: 89000,
+      startingBalance: 100000,
+      peakEquity: 100000,
+    },
+  })
+  const cronPayout = await prisma.payout.create({
+    data: {
+      userId: trader.id,
+      accountId: cronAccount.id,
+      amount: 500,
+      walletAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE',
+      network: 'USDT_TRC20',
+      status: 'PENDING',
+    },
+  })
+
+  const cronHeaders = { authorization: `Bearer ${process.env.CRON_SECRET ?? ''}` }
+  const cron = await request('/api/cron/trading', { headers: cronHeaders })
+  check('Trading cron runs', cron.status === 200, `HTTP ${cron.status}`)
+
+  const appliedEntry = cron.json?.enforcement?.applied?.find((item) => item.accountId === cronAccount.id)
+  check('Cron applies the breach matrix to a closed account', Boolean(appliedEntry), appliedEntry?.kind)
+
+  const enforcedPayout = await prisma.payout.findUniqueOrThrow({ where: { id: cronPayout.id } })
+  check('Automated breach cancels unpaid profit', enforcedPayout.status === 'REJECTED', enforcedPayout.status)
+
+  const breachAudit = await prisma.auditLog.findFirst({
+    where: { accountId: cronAccount.id, action: 'ACCOUNT_BREACH', actorId: null },
+    select: { id: true, metadata: true },
+  })
+  check('Automated breach is audited as a system action', Boolean(breachAudit?.id))
+
+  const reviewsWithAutomated = await request('/api/admin/action-reviews', {}, adminB.cookie)
+  const automatedReview = reviewsWithAutomated.json?.items?.find((item) => item.accountId === cronAccount.id)
+  check(
+    'Automated breach requires a post-action review',
+    Boolean(automatedReview?.automated),
+    automatedReview?.performedBy,
+  )
+
+  const cronAgain = await request('/api/cron/trading', { headers: cronHeaders })
+  check(
+    'Automated enforcement is idempotent',
+    !cronAgain.json?.enforcement?.applied?.some((item) => item.accountId === cronAccount.id),
+  )
+
   await cleanup()
   const failed = results.filter((result) => !result.ok)
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`)
