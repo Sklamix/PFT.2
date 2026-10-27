@@ -3,7 +3,7 @@
 **Дата:** 27 жовтня 2026  
 **Джерело правил:** `docs/PFT-rulebook-v1.md` v1.6  
 **Статус:** P0/P1 код і QA завершено; production-міграції P1 ще не застосовано; legal review — **не завершено**, потрібен зовнішній юрист.  
-**Код:** git `4975284`, локальний production build QA — 83/83. Останній production deployment: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (до P1-5…P1-9, P1-12).
+**Код:** локальний commit P0-3 leftovers, локальний production build QA — 90/90. Останній production deployment: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (до P1-5…P1-9, P1-12).
 
 ---
 
@@ -13,7 +13,7 @@
 |---|---|---|
 | Payout eligibility | KYC, 7 днів, flat book, 3 profitable days, consistency 20%, min amount, one pending, holds | ✅ |
 | Payout drawdown | `riskEquity = equity + withdrawnProfit`, fixed-dollar trailing, static floor | ✅ |
-| Passing | server-side target + min days + flat + KYC; target lock; auto pass у cron | ✅ |
+| Passing | server-side target + min days + flat + KYC; target lock cancels existing pending orders; auto pass + auto-funding після KYC | ✅ |
 | Static / trailing | `drawdownMode` з checkout до engine і термінала | ✅ |
 | News | ±5 хв блокування, 5–60 хв exposure, 60+ warning, annulment, second closure, 7-day hold | ✅ |
 | Overnight / weekend | close-only вікно, auto-close, cancel pending | ✅ |
@@ -39,7 +39,7 @@
 
 - `npx tsc --noEmit` — passed.
 - `npm run build` — passed.
-- `npm run qa:smoke` — 83/83 на локальному production build.
+- `npm run qa:smoke` — 90/90 на локальному production build.
 - `npm run doctor` — readiness self-check (env, schema columns, cron freshness).
 
 ---
@@ -105,7 +105,7 @@ npx prisma db execute --file prisma/sql/rules-versioning.sql --schema prisma/sch
 
 ## 3. Manual QA перед запуском
 
-**Статус: локальний production-build QA пройдено — 83/83.**
+**Статус: локальний production-build QA пройдено — 90/90.**
 
 Запуск:
 
@@ -241,6 +241,14 @@ appeals, paid reset, frozen backups, risk flags, session risk, rules notices, п
 5. `RISK_MANAGER` не має доступу до `/api/admin/abuse` (`403`), `ADMIN` — `200`.
 6. Cron повертає `relatedAccounts` і раз на добу пише audit `RELATED_ACCOUNT_CLUSTER`.
 
+### 3.14. Passing, auto-funding і target lock
+
+1. Акаунт досяг closed-P&L target і min trading days → нові ордери відхиляються (`409`).
+2. Pending-ордери, створені до target lock, скасовуються (`CANCELLED`) з audit `PENDING_ORDERS_CANCELLED`; вони не можуть заповнитися.
+3. Passing у cron переводить Phase 1 → Phase 2 або фінальну фазу; залишкові pending-ордери скасовуються.
+4. KYC approval для passed-акаунта автоматично переводить його в `FUNDED` без адмінського override; balance = `initialBalance`.
+5. Auto-funding пише audit `ACCOUNT_AUTO_FUNDED` з `actorId = null`; повторний KYC callback не створює дубль.
+
 ---
 
 ## 4. Legal review — блокер запуску
@@ -306,7 +314,7 @@ appeals, paid reset, frozen backups, risk flags, session risk, rules notices, п
 | TypeScript + production build | ✅ |
 | Усі 6 базових SQL-міграцій застосовані на production | ✅ 27.10.2026 |
 | P1-міграції застосовані на production | ⏳ `account-appeals`, `risk-flags-and-backups`, `session-risk`, `rules-versioning` |
-| Manual QA §3 пройдено | ✅ 83/83 (локальний production build) |
+| Manual QA §3 пройдено | ✅ 90/90 (локальний production build) |
 | Readiness self-check `npm run doctor` | ✅ локально; production — після міграцій |
 | Production deployment оновлено | ⏳ після P1-міграцій |
 | Legal pages опубліковані | ⏳ очікує counsel |

@@ -330,6 +330,26 @@ function pendingOrderMessage(order: PendingTradeOrder, message: string) {
 }
 
 async function processPendingOrders(w: Working, quotes: Quotes) {
+  if (w.status === 'ACTIVE' && (await w.tx.targetLocked(w.balance, w.startingBalance))) {
+    if (w.pendingOrders.length > 0) {
+      const cancelled = w.pendingOrders.length
+      await w.tx.cancelPendingOrders(
+        'Profit target reached: pending orders cancelled because only closing is allowed',
+      )
+      await w.tx.recordAudit({
+        action: 'PENDING_ORDERS_CANCELLED',
+        reason: 'Profit target reached: pending orders cancelled',
+        metadata: { cancelled, trigger: 'TARGET_LOCK' },
+      })
+      w.orderUpdates.push({
+        status: 'CANCELLED',
+        message: `Cancelled ${cancelled} pending order${cancelled === 1 ? '' : 's'}: profit target reached`,
+      })
+      w.pendingOrders = []
+    }
+    return
+  }
+
   for (const order of [...w.pendingOrders]) {
     const quote = quotes[order.symbol]
     if (!quote) continue

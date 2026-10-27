@@ -1,5 +1,6 @@
 import type { ChallengeStatus, KycStatus, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { autoFundApprovedAccounts } from '@/lib/trading/funding'
 import { getDiditSessionStatus, mapDiditStatus } from './didit'
 
 const KYC_SELECT = {
@@ -74,7 +75,22 @@ export async function setKycStatus(
   if (options.note !== undefined) data.kycNote = options.note?.trim() || null
   if (options.clearSession) data.kycSessionId = null
 
-  return prisma.user.update({ where: { id: userId }, data, select: KYC_SELECT })
+  const user = await prisma.user.update({ where: { id: userId }, data, select: KYC_SELECT })
+
+  if (status === 'APPROVED') {
+    try {
+      const funded = await autoFundApprovedAccounts(userId)
+      if (funded.length > 0) {
+        console.info(`[pft kyc] Auto-funded ${funded.length} passed account(s) for user ${userId}`)
+      }
+    } catch (error) {
+      // KYC approval itself must not fail if funding hits a transient DB issue.
+      // The cron/admin funding path can retry because the passed account stays eligible.
+      console.error('[pft kyc] Failed to auto-fund passed accounts', error)
+    }
+  }
+
+  return user
 }
 
 /**

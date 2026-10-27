@@ -287,13 +287,29 @@ signals.
 
 ---
 
+### 5.6. Funding і target lock
+
+- KYC `APPROVED` автоматично фандить passed-акаунти (`PASSED` / `PASSED_PHASE_2`,
+  phase `FUNDED`). Окремий admin override більше не потрібен.
+- Audit: `ACCOUNT_AUTO_FUNDED`, `actorId = null`, metadata `trigger: kyc_approved`.
+  Повторний KYC callback не створює дубль — статус уже `FUNDED`.
+- Funding скидає balance до `initialBalance` і скасовує pending-ордери з evaluation.
+- Коли досягнуто target + min trading days, акаунт стає close-only; усі наявні
+  pending-ордери скасовуються з audit `PENDING_ORDERS_CANCELLED` (`TARGET_LOCK`).
+- Якщо passed-акаунт не став `FUNDED` після KYC approval — перевірити, чи
+  `phase = FUNDED`, статус `PASSED*`, `User.kycStatus = APPROVED`, і логи
+  `[pft kyc] Failed to auto-fund passed accounts`; funding повторюється наступним
+  KYC callback або admin override.
+
+---
+
 ## 6. Release checklist
 
 Handoff для оператора: `docs/PFT-production-rollout.md` (backup → migrations → env → deploy → verify → rollback).
 
 1. `npx tsc --noEmit`
 2. `npm run build`
-3. `npm run qa:smoke` на локальному production build (очікувано 80/80)
+3. `npm run qa:smoke` на локальному production build (очікувано 90/90)
 4. `npm run doctor` — усі schema/environment блокери закрито
 5. `npm run db:backup -- --out backups/pre-deploy-<date>`
 6. Застосувати нові `prisma/sql/*.sql` через `npx prisma db execute` (не `db push`)

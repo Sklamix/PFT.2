@@ -7,6 +7,7 @@ const suffix = Date.now().toString(36)
 const ADMIN_A = `qa-admin-a-${suffix}@pft.local`
 const ADMIN_B = `qa-admin-b-${suffix}@pft.local`
 const TRADER = `qa-trader-${suffix}@pft.local`
+const AUTO_TRADER = `qa-autofund-${suffix}@pft.local`
 const RESET_TRADER = `qa-reset-${suffix}@pft.local`
 const SHARE_TRADER = `qa-share-${suffix}@pft.local`
 const RUN_START = new Date()
@@ -71,7 +72,7 @@ async function loginAdmin(email) {
 
 async function cleanup() {
   const users = await prisma.user.findMany({
-    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER, RESET_TRADER, SHARE_TRADER] } },
+    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER, AUTO_TRADER, RESET_TRADER, SHARE_TRADER] } },
     select: { id: true },
   })
   const userIds = users.map((user) => user.id)
@@ -155,6 +156,77 @@ async function main() {
   check('Admin A login', adminA.status === 200 && Boolean(adminA.cookie), `HTTP ${adminA.status}`)
   const adminB = await loginAdmin(ADMIN_B)
   check('Admin B login', adminB.status === 200 && Boolean(adminB.cookie), `HTTP ${adminB.status}`)
+
+  // Automatic funding: KYC approval funds a passed evaluation without an admin override.
+  const autoTrader = await prisma.user.create({
+    data: {
+      email: AUTO_TRADER,
+      name: 'QA Auto Fund',
+      passwordHash: hashPassword(PASSWORD),
+      role: 'TRADER',
+      kycStatus: 'PENDING',
+    },
+  })
+  const autoAccount = await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-AUTO-${suffix}`,
+      userId: autoTrader.id,
+      mt5Login: `QAA${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 25000,
+      challengeType: 'TWO_STEP',
+      phase: 'FUNDED',
+      status: 'PASSED_PHASE_2',
+      initialBalance: 25000,
+      dailyStartingBalance: 25000,
+      dailyStartingEquity: 25000,
+      dailyStartedAt: new Date(),
+      currentBalance: 26750,
+      currentEquity: 26750,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 0,
+      dailyDrawdownLimitPct: 5,
+      maxDrawdownLimitPct: 10,
+      profitPct: 7,
+      balance: 26750,
+      equity: 26750,
+      startingBalance: 25000,
+      peakEquity: 26750,
+    },
+  })
+  const autoKyc = await request('/api/admin/kyc', {
+    method: 'POST',
+    body: JSON.stringify({ userId: autoTrader.id, action: 'approve', note: 'QA auto-funding check' }),
+  }, adminA.cookie)
+  check(
+    'Admin KYC approval succeeds',
+    autoKyc.status === 200 && autoKyc.json?.kyc?.kycStatus === 'APPROVED',
+    `HTTP ${autoKyc.status} ${autoKyc.json?.kyc?.kycStatus ?? ''}`,
+  )
+  const autoFunded = await prisma.tradingAccount.findUniqueOrThrow({ where: { id: autoAccount.id } })
+  check(
+    'KYC approval auto-funds a passed evaluation',
+    autoFunded.status === 'FUNDED' && autoFunded.phase === 'FUNDED',
+    `${autoFunded.status}/${autoFunded.phase}`,
+  )
+  check(
+    'Auto-funding resets the account to its initial balance',
+    Number(autoFunded.currentBalance) === 25000,
+    String(autoFunded.currentBalance),
+  )
+  const autoFundingAudit = await prisma.auditLog.findFirst({
+    where: { accountId: autoAccount.id, action: 'ACCOUNT_AUTO_FUNDED', actorId: null },
+    select: { id: true, metadata: true },
+  })
+  check('Auto-funding is audited as a system action', Boolean(autoFundingAudit?.id))
+  await request('/api/admin/kyc', {
+    method: 'POST',
+    body: JSON.stringify({ userId: autoTrader.id, action: 'approve', note: 'QA repeat approval' }),
+  }, adminA.cookie)
+  const autoFundingCount = await prisma.auditLog.count({
+    where: { accountId: autoAccount.id, action: 'ACCOUNT_AUTO_FUNDED' },
+  })
+  check('Repeated KYC approval does not fund the account twice', autoFundingCount === 1, String(autoFundingCount))
 
   const emptyQueue = await request('/api/admin/funding-approvals', {}, adminA.cookie)
   check('Funding queue endpoint', emptyQueue.status === 200 && Array.isArray(emptyQueue.json?.items), `HTTP ${emptyQueue.status}`)
@@ -775,6 +847,17 @@ async function main() {
       },
     })
   }
+  const lockedPendingOrder = await prisma.pendingTradeOrder.create({
+    data: {
+      tradingAccountId: passPrimary.id,
+      symbol: 'EURUSD',
+      side: 'BUY',
+      type: 'LIMIT',
+      sizeLots: 0.1,
+      limitPrice: 0.5,
+      status: 'PENDING',
+    },
+  })
 
   // User-level risk flag: news violations across two accounts (rulebook 9.4).
   const riskAccounts = []
@@ -863,6 +946,21 @@ async function main() {
   const cronHeaders = { authorization: `Bearer ${process.env.CRON_SECRET ?? ''}` }
   const cron = await request('/api/cron/trading', { headers: cronHeaders })
   check('Trading cron runs', cron.status === 200, `HTTP ${cron.status}`)
+
+  const lockedPendingAfter = await prisma.pendingTradeOrder.findUniqueOrThrow({
+    where: { id: lockedPendingOrder.id },
+    select: { status: true, reason: true },
+  })
+  check(
+    'Target lock cancels already-existing pending orders',
+    lockedPendingAfter.status === 'CANCELLED',
+    lockedPendingAfter.status,
+  )
+  const lockedPendingAudit = await prisma.auditLog.findFirst({
+    where: { accountId: passPrimary.id, action: 'PENDING_ORDERS_CANCELLED' },
+    select: { id: true, metadata: true },
+  })
+  check('Target-lock cancellation is audited', Boolean(lockedPendingAudit?.id))
 
   const appliedEntry = cron.json?.enforcement?.applied?.find((item) => item.accountId === cronAccount.id)
   check('Cron applies the breach matrix to a closed account', Boolean(appliedEntry), appliedEntry?.kind)

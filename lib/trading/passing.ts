@@ -1,24 +1,35 @@
 import { Prisma } from '@prisma/client'
 import { CHALLENGES } from '@/lib/challenges'
+import { berlinDayKey as dayKey, challengeKey, isTargetLockedState } from './target-lock'
 
 export type PassingResult =
   | { status: 'noop'; reason: string }
   | { status: 'phase_2' }
   | { status: 'passed'; phase: 'ONE_STEP' | 'TWO_STEP' }
 
-const berlinDay = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'Europe/Berlin',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-})
-
-function dayKey(date: Date) {
-  return berlinDay.format(date)
-}
-
-function challengeKey(type: 'ONE_STEP' | 'TWO_STEP') {
-  return type === 'ONE_STEP' ? 'one-step' : 'two-step'
+/**
+ * Target lock is close-only. Pending orders created before the lock must not be
+ * allowed to fill, so they are cancelled as part of the same state transition.
+ */
+async function cancelLockedPendingOrders(
+  tx: Prisma.TransactionClient,
+  accountId: string,
+  reason: string,
+) {
+  const cancelled = await tx.pendingTradeOrder.updateMany({
+    where: { tradingAccountId: accountId, status: 'PENDING' },
+    data: { status: 'CANCELLED', reason, cancelledAt: new Date() },
+  })
+  if (cancelled.count === 0) return 0
+  await tx.auditLog.create({
+    data: {
+      accountId,
+      action: 'PENDING_ORDERS_CANCELLED',
+      reason,
+      metadata: { cancelled: cancelled.count, trigger: 'TARGET_LOCK' },
+    },
+  })
+  return cancelled.count
 }
 
 /** Rulebook 18.3: a frozen backup expires without refund once its primary passes. */
@@ -126,6 +137,11 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
         },
       })
       if (changed.count !== 1) return { status: 'noop', reason: 'state_changed' }
+      await cancelLockedPendingOrders(
+        tx,
+        account.id,
+        'Profit target reached: pending orders cancelled before funding',
+      )
       await tx.auditLog.create({
         data: {
           accountId: account.id,
@@ -162,6 +178,11 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
         },
       })
       if (changed.count !== 1) return { status: 'noop', reason: 'state_changed' }
+      await cancelLockedPendingOrders(
+        tx,
+        account.id,
+        'Phase 1 target reached: pending orders cancelled before the Phase 2 reset',
+      )
       await tx.auditLog.create({
         data: {
           accountId: account.id,
@@ -183,6 +204,11 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
       },
     })
     if (changed.count !== 1) return { status: 'noop', reason: 'state_changed' }
+    await cancelLockedPendingOrders(
+      tx,
+      account.id,
+      'Profit target reached: pending orders cancelled before funding',
+    )
     await tx.auditLog.create({
       data: {
         accountId: account.id,
@@ -251,7 +277,15 @@ export async function isTargetLocked(accountId: string) {
     select: { openedAt: true },
   })
   const days = new Set(history.map((trade) => dayKey(trade.openedAt))).size
-  return days >= CHALLENGES[challengeKey(account.challengeType)].minTradingDays
+  return isTargetLockedState({
+    status: account.status,
+    phase: account.phase,
+    challengeType: account.challengeType,
+    profitTarget: Number(account.profitTarget),
+    startingBalance: Number(account.startingBalance),
+    balance: Number(account.currentBalance),
+    tradingDays: days,
+  })
 }
 
 export async function canFundAccount(accountId: string) {

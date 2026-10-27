@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { applyBreach } from '@/lib/rules/breach-matrix'
 import { mockStore } from '@/lib/admin/mock-store'
 import { drawdownPressure, isBreached, isPassing, matchesTraderFilter, recomputeMetrics, riskBadge } from '@/lib/admin/risk'
+import { fundingResetData } from '@/lib/trading/funding'
 import type {
   AccountStatus,
   OverviewMetrics,
@@ -402,24 +403,7 @@ export const adminRepo = {
     }
 
     if (status === 'FUNDED') {
-      const initial = current.initialBalance
-      data.phase = 'FUNDED'
-      data.profitTarget = 0
-      data.currentBalance = initial
-      data.currentEquity = initial
-      data.balance = Number(initial)
-      data.equity = Number(initial)
-      data.startingBalance = Number(initial)
-      data.peakEquity = Number(initial)
-      data.dailyStartingBalance = initial
-      data.dailyStartingEquity = initial
-      data.dailyStartedAt = new Date()
-      data.dailyDrawdownPct = 0
-      data.maxDrawdownPct = 0
-      data.profitPct = 0
-      data.tradingDaysCount = 0
-      data.breachReason = null
-      data.frozenAt = null
+      Object.assign(data, fundingResetData(current.initialBalance))
     }
 
     await prisma.tradingAccount.update({ where: { id }, data })

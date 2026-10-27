@@ -3,6 +3,7 @@ import { MAX_ACTIVE_ACCOUNTS, MAX_AGGREGATE_ALLOCATION } from '@/lib/accounts/li
 import { FOREX_MAJORS } from '@/lib/constants/symbols'
 import type { CloseReason, OrderSide, PendingTradeOrder, PendingTradeOrderStatus, Position, TradeHistory } from '@/lib/types/terminal'
 import type { NewsExposure, NewsViolationEvent } from './types'
+import { berlinDayKey, isTargetLockedState } from './target-lock'
 
 const liveWorkerSymbols = new Set<string>(FOREX_MAJORS)
 
@@ -71,6 +72,8 @@ export interface BookTx {
   account: AccountRow
   positions: Position[]
   pendingOrders: PendingTradeOrder[]
+  /** True when the evaluation target and minimum trading days are met, so new exposure is locked. */
+  targetLocked(balance: number, startingBalance: number): Promise<boolean>
   realizedSince(since: Date): Promise<number>
   recentHistory(limit: number): Promise<TradeHistory[]>
   createPosition(data: NewPosition): Promise<Position>
@@ -185,6 +188,43 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
     account,
     positions,
     pendingOrders,
+
+    async targetLocked(balance, startingBalance) {
+      const row = await tx.tradingAccount.findUnique({
+        where: { id: accountId },
+        select: {
+          status: true,
+          phase: true,
+          challengeType: true,
+          profitTarget: true,
+          createdAt: true,
+        },
+      })
+      if (!row) return false
+      const marker =
+        row.phase === 'PHASE_2'
+          ? await tx.auditLog.findFirst({
+              where: { accountId, action: 'PHASE_PASSED' },
+              orderBy: { createdAt: 'desc' },
+              select: { createdAt: true },
+            })
+          : null
+      const start = marker?.createdAt ?? row.createdAt
+      const history = await tx.tradeHistory.findMany({
+        where: { tradingAccountId: accountId, openedAt: { gte: start } },
+        select: { openedAt: true },
+      })
+      const tradingDays = new Set(history.map((trade) => berlinDayKey(trade.openedAt))).size
+      return isTargetLockedState({
+        status: row.status,
+        phase: row.phase,
+        challengeType: row.challengeType,
+        profitTarget: Number(row.profitTarget),
+        startingBalance,
+        balance,
+        tradingDays,
+      })
+    },
 
     async realizedSince(since) {
       const result = await tx.tradeHistory.aggregate({
@@ -537,6 +577,9 @@ type MockAccount = AccountRow & {
   dayStartEquity: number
   frozenAt: Date | null
   createdAt: Date
+  phase: string
+  challengeType: string
+  profitTarget: number
 }
 
 type MockState = {
@@ -573,6 +616,9 @@ function mockAccount(id: string, status: string, offsetMs: number): MockAccount 
     maxTrailingDrawdown: 0.1,
     frozenAt: status === 'FROZEN_STANDBY' ? new Date() : null,
     createdAt: new Date(Date.now() + offsetMs),
+    phase: 'PHASE_1',
+    challengeType: 'TWO_STEP',
+    profitTarget: 0,
   }
 }
 
@@ -603,6 +649,24 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       .filter((order) => order.tradingAccountId === accountId && order.status === 'PENDING')
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       .map((order) => ({ ...order })),
+
+    async targetLocked(balance, startingBalance) {
+      const start = account.createdAt
+      const tradingDays = new Set(
+        state.history
+          .filter((trade) => trade.tradingAccountId === accountId && trade.openedAt >= start)
+          .map((trade) => berlinDayKey(trade.openedAt)),
+      ).size
+      return isTargetLockedState({
+        status: account.status,
+        phase: account.phase,
+        challengeType: account.challengeType,
+        profitTarget: account.profitTarget,
+        startingBalance,
+        balance,
+        tradingDays,
+      })
+    },
 
     async realizedSince(since) {
       return state.history

@@ -2,7 +2,7 @@
 
 **Статус:** P0 і P1 закрито; запуск блокується лише legal review і operator-задачами.  
 **Джерело:** `docs/PFT-rulebook-v1.md` v1.6.  
-**Код:** git `4975284`; QA — 83/83 на локальному production build. Handoff: `docs/PFT-production-rollout.md`.  
+**Код:** локальний commit P0-3 leftovers; QA — 90/90 на локальному production build. Handoff: `docs/PFT-production-rollout.md`.  
 **Мета:** закрити P0-лазівки до публічного запуску, потім P1/P2.
 
 ---
@@ -35,7 +35,7 @@
 - [x] Regression + build (`npx tsc --noEmit`, `npm run build`)
 - [x] Production migrations — 6 SQL files застосовано через guarded deploy 27.10.2026
 - [ ] Production migrations P1 — `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql`
-- [x] Manual QA — 83/83 на локальному production build (`npm run qa:smoke`)
+- [x] Manual QA — 90/90 на локальному production build (`npm run qa:smoke`)
 - [x] Readiness self-check — `npm run doctor` (env, schema columns, cron freshness)
 - [x] Cloudflare cron — schedule `* * * * *`, secrets присутні, живий цикл підтверджено `wrangler tail`
 - [x] Backup / rollback plan — `docs/PFT-operations-runbook.md`, `npm run db:backup` перевірено
@@ -76,11 +76,11 @@
 - `lib/trading/engine.ts` — FUNDED-акаунти тепер можуть торгувати й проходять risk engine.
 - `app/api/cron/trading/route.ts` — funded-акаунти також синхронізуються.
 
-**Що ще не зроблено в P0-3:**
+**P0-3 leftovers — закрито:**
 
-- ~~second-admin approval для FUNDED override~~ — закрито в Step 15/18, тепер для всіх status;
-- автоматичне funding після KYC approval (зараз — адмінський override після KYC);
-- скасування вже існуючих pending-ордерів у момент target lock (нові вже блокуються).
+- second-admin approval для FUNDED override закрито раніше в Step 15/18 (тепер для всіх status);
+- автоматичне funding після KYC approval: `lib/trading/funding.ts` + `setKycStatus` (audit `ACCOUNT_AUTO_FUNDED`, `actorId = null`, idempotent за статусом `PASSED`/`PASSED_PHASE_2`); balance скидається до `initialBalance`, stale pending-ордери скасовуються;
+- скасування вже існуючих pending-ордерів у момент target lock: `lib/trading/target-lock.ts` + `BookTx.targetLocked` у `lib/trading/engine.ts` (cancel + audit `PENDING_ORDERS_CANCELLED`) і додатково в `lib/trading/passing.ts` на переході phase/funding.
 
 ### Step 3 — реалізовано
 

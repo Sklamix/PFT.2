@@ -1,9 +1,9 @@
 # PFT.2 — production rollout P1/P2
 
 **Дата:** 27 жовтня 2026  
-**Код:** `4975284` (P2), `58f70e5` (P1-6/P1-7)  
+**Код:** `P0-3 leftovers` (local), `4975284` (P2), `58f70e5` (P1-6/P1-7)  
 **Призначення:** покроковий handoff для оператора з доступом до Vercel/Neon.  
-**Стан:** локально `npx tsc --noEmit`, `npm run build`, `npm run qa:smoke` (83/83) — зелені.
+**Стан:** локально `npx tsc --noEmit`, `npm run build`, `npm run qa:smoke` (90/90) — зелені.
 
 > Production `DATABASE_URL` у Vercel має тип **Secret** і не витягується через `vercel env pull`.
 > Тому міграції та deploy виконує оператор із доступом до Neon/Vercel.
@@ -95,7 +95,7 @@ $env:QA_BASE = 'http://127.0.0.1:3100'
 npm run qa:smoke
 ```
 
-Очікувано: `83/83 checks passed`.
+Очікувано: `90/90 checks passed`.
 
 Readiness (з production env, після міграцій):
 
