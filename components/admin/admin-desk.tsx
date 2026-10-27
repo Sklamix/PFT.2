@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
 import { ActionReviews } from '@/components/admin/action-reviews'
 import { OverrideApprovals } from '@/components/admin/override-approvals'
+import { ReadinessPanel, type ReadinessSummary } from '@/components/admin/readiness-panel'
 import { KpiBar } from '@/components/admin/kpi-bar'
 import { KycDialog } from '@/components/admin/kyc-dialog'
 import { OrdersQueue } from '@/components/admin/orders-queue'
@@ -56,6 +57,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [payouts, setPayouts] = useState<PayoutRow[]>([])
   const [overrideApprovals, setOverrideApprovals] = useState<PendingAccountOverride[]>([])
   const [actionReviews, setActionReviews] = useState<PendingActionReview[]>([])
+  const [readiness, setReadiness] = useState<ReadinessSummary | null>(null)
   const [telemetry, setTelemetry] = useState<TelemetryState | null>(null)
   const [queueOpen, setQueueOpen] = useState(false)
   const [ordersOpen, setOrdersOpen] = useState(false)
@@ -74,7 +76,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
   const load = useCallback(async () => {
     try {
-      const [overview, traders, queue, orderRows, pulse, approvals, reviews] = await Promise.all([
+      const [overview, traders, queue, orderRows, pulse, approvals, reviews, readinessReport] = await Promise.all([
         api<OverviewMetrics>('/api/admin/metrics/overview'),
         api<{ items: TraderRow[] }>(`/api/admin/traders?q=${encodeURIComponent(query)}&filter=${filter}`),
         api<{ items: PayoutRow[] }>('/api/admin/payouts'),
@@ -86,6 +88,9 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         user.role === 'ADMIN'
           ? api<{ items: PendingActionReview[] }>('/api/admin/action-reviews')
           : Promise.resolve({ items: [] as PendingActionReview[] }),
+        user.role === 'ADMIN'
+          ? api<ReadinessSummary>('/api/admin/readiness')
+          : Promise.resolve(null),
       ])
       setMetrics(overview)
       setRows(traders.items)
@@ -94,6 +99,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       setTelemetry(pulse)
       setOverrideApprovals(approvals.items)
       setActionReviews(reviews.items)
+      setReadiness(readinessReport)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load operations desk')
@@ -241,6 +247,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       )}
 
       <KpiBar metrics={metrics} />
+      <ReadinessPanel report={readiness} />
       <ActionReviews
         items={actionReviews}
         onConfirm={(item) => void decideActionReview(item, 'confirm')}
