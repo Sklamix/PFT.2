@@ -271,6 +271,22 @@ Flag ставиться автоматично: ≥2 акаунти або ≥3 
 
 ---
 
+### 5.5. Abuse monitor
+
+Admin desk → `Abuse monitor` (`GET /api/admin/abuse`, ADMIN only) агрегує audit за 30 днів:
+news, overnight, cross-account hedges, voided trades, payout holds, risk reviews і session
+signals.
+
+- `Traders to review` — score за зрозумілими вагами; high ≥12, medium ≥6. Це черга для
+  ручної перевірки, не автоматичний вердикт.
+- `Related-account clusters` — користувачі, пов'язані телефоном або IP + device hash;
+  `OVER LIMIT`, якщо разом >3 акаунтів або >$200k.
+- `Latest evidence` — останні 12 подій із причиною й display ID.
+- Годинний cron робить snapshot (`RELATED_ACCOUNT_CLUSTER_RUN`) і раз на добу пише
+  `RELATED_ACCOUNT_CLUSTER` з переліком cluster-ів; це джерело для trend-перевірок.
+
+---
+
 ## 6. Release checklist
 
 1. `npx tsc --noEmit`

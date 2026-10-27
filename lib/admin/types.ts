@@ -175,6 +175,50 @@ export type OverviewMetrics = {
   lastTelemetryAt: string | null
 }
 
+export type AbuseCategory = 'NEWS' | 'OVERNIGHT' | 'HEDGING' | 'VOID' | 'PAYOUT_HOLD' | 'RISK_FLAG' | 'SESSION'
+
+export type AbuseUserScore = {
+  userId: string
+  name: string
+  email: string
+  score: number
+  level: 'high' | 'medium' | 'low'
+  counts: Record<AbuseCategory, number>
+  riskReviewOpen: boolean
+}
+
+export type AbuseEvent = {
+  id: string
+  category: AbuseCategory
+  action: string
+  reason: string | null
+  userId: string | null
+  traderName: string | null
+  displayId: string | null
+  createdAt: string
+}
+
+export type AbuseCluster = {
+  id: string
+  users: { id: string; name: string; email: string; riskFlagged: boolean }[]
+  accounts: { id: string; displayId: string; planSize: number; status: string }[]
+  activeCount: number
+  allocation: number
+  exceedsLimits: boolean
+  links: ('phone' | 'ip_device')[]
+}
+
+export type AbuseOverview = {
+  generatedAt: string
+  windowDays: number
+  counts: Record<AbuseCategory, number>
+  sessionSignals: { signal: string; count: number }[]
+  openRiskReviews: number
+  users: AbuseUserScore[]
+  clusters: AbuseCluster[]
+  recent: AbuseEvent[]
+}
+
 export type TelemetryState = {
   lastSyncedAt: string | null
   lastStatus: string | null

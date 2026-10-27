@@ -6,6 +6,7 @@ import { LogOut, ReceiptText, Search, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
 import { ActionReviews } from '@/components/admin/action-reviews'
+import { AbusePanel } from '@/components/admin/abuse-panel'
 import { AppealQueue, type AppealItem } from '@/components/admin/appeal-queue'
 import { OverrideApprovals } from '@/components/admin/override-approvals'
 import { ReadinessPanel, type ReadinessSummary } from '@/components/admin/readiness-panel'
@@ -22,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import type {
   AccountStatus,
+  AbuseOverview,
   AdminSession,
   OverviewMetrics,
   OrderRow,
@@ -59,6 +61,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [overrideApprovals, setOverrideApprovals] = useState<PendingAccountOverride[]>([])
   const [actionReviews, setActionReviews] = useState<PendingActionReview[]>([])
   const [readiness, setReadiness] = useState<ReadinessSummary | null>(null)
+  const [abuse, setAbuse] = useState<AbuseOverview | null>(null)
   const [appeals, setAppeals] = useState<AppealItem[]>([])
   const [telemetry, setTelemetry] = useState<TelemetryState | null>(null)
   const [queueOpen, setQueueOpen] = useState(false)
@@ -78,7 +81,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
   const load = useCallback(async () => {
     try {
-      const [overview, traders, queue, orderRows, pulse, approvals, reviews, readinessReport, appealItems] = await Promise.all([
+      const [overview, traders, queue, orderRows, pulse, approvals, reviews, readinessReport, appealItems, abuseReport] = await Promise.all([
         api<OverviewMetrics>('/api/admin/metrics/overview'),
         api<{ items: TraderRow[] }>(`/api/admin/traders?q=${encodeURIComponent(query)}&filter=${filter}`),
         api<{ items: PayoutRow[] }>('/api/admin/payouts'),
@@ -96,6 +99,9 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         user.role === 'ADMIN'
           ? api<{ items: AppealItem[] }>('/api/admin/appeals')
           : Promise.resolve({ items: [] as AppealItem[] }),
+        user.role === 'ADMIN'
+          ? api<AbuseOverview>('/api/admin/abuse')
+          : Promise.resolve(null),
       ])
       setMetrics(overview)
       setRows(traders.items)
@@ -106,6 +112,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       setActionReviews(reviews.items)
       setReadiness(readinessReport)
       setAppeals(appealItems.items)
+      setAbuse(abuseReport)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load operations desk')
@@ -288,6 +295,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
       <KpiBar metrics={metrics} />
       <ReadinessPanel report={readiness} />
+      <AbusePanel report={abuse} />
       <ActionReviews
         items={actionReviews}
         onConfirm={(item) => void decideActionReview(item, 'confirm')}

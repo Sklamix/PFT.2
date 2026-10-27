@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { scanInactiveAccounts } from '@/lib/accounts/inactivity'
-import { reconcileAccountLimits } from '@/lib/accounts/reconciliation'
+import { reconcileAccountLimits, reconcileRelatedAccounts } from '@/lib/accounts/reconciliation'
 import { notifyBookEvents } from '@/lib/email/trade-events'
 import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
@@ -20,12 +20,37 @@ async function run() {
   const riskFlags = await refreshUserRiskFlags()
   await pruneAccessEvents()
   const rules = await announceRuleChanges()
+
+  const lastRelatedRun = await prisma.auditLog.findFirst({
+    where: { action: 'RELATED_ACCOUNT_CLUSTER_RUN' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  })
+  let relatedAccounts = { clusters: 0, exceeding: 0, recorded: false }
+  if (!lastRelatedRun || Date.now() - lastRelatedRun.createdAt.getTime() > 60 * 60_000) {
+    relatedAccounts = await reconcileRelatedAccounts()
+    await prisma.auditLog.create({
+      data: {
+        action: 'RELATED_ACCOUNT_CLUSTER_RUN',
+        reason: 'Hourly related-account scan',
+        metadata: relatedAccounts,
+      },
+    })
+  }
+
   const quotes = await getFreshMarketQuotes()
   if (Object.keys(quotes).length === 0) {
     // Weekend or a stalled feed. There is nothing to mark or fill, but closure
     // consequences still have to be written, and the cron itself succeeded.
     const enforcement = await enforceBreachMatrix()
-    return NextResponse.json({ status: 'market_closed', accounts: 0, enforcement, riskFlags, rules })
+    return NextResponse.json({
+      status: 'market_closed',
+      accounts: 0,
+      enforcement,
+      riskFlags,
+      rules,
+      relatedAccounts,
+    })
   }
 
   const warnedAccounts = await warnFundedAccountsBeforeNews()
@@ -134,6 +159,7 @@ async function run() {
     enforcement,
     riskFlags,
     rules,
+    relatedAccounts,
     limitReconciliation,
     crossAccountHedges,
     inactivity,

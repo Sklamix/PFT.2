@@ -90,6 +90,18 @@ async function cleanup() {
   await prisma.auditLog.deleteMany({
     where: { action: 'RULES_NOTICE_SENT', createdAt: { gte: RUN_START } },
   })
+  await prisma.auditLog.deleteMany({
+    where: {
+      action: { in: ['RELATED_ACCOUNT_CLUSTER', 'RELATED_ACCOUNT_CLUSTER_RUN'] },
+      createdAt: { gte: RUN_START },
+    },
+  })
+  await prisma.auditLog.deleteMany({
+    where: {
+      action: { in: ['USER_RISK_FLAG', 'USER_RISK_FLAG_CLEARED'] },
+      createdAt: { gte: RUN_START },
+    },
+  })
   await prisma.user.deleteMany({ where: { id: { in: userIds } } })
 }
 
@@ -1025,7 +1037,7 @@ async function main() {
     vpsSignals.join(', '),
   )
 
-  await prisma.user.create({
+  const shareTrader = await prisma.user.create({
     data: {
       email: SHARE_TRADER,
       name: 'QA Share Trader',
@@ -1054,6 +1066,61 @@ async function main() {
     tradersWithAlerts.status === 200 &&
       tradersWithAlerts.json?.items?.some((item) => (item.sessionAlerts ?? 0) > 0),
     `HTTP ${tradersWithAlerts.status}`,
+  )
+
+  // Abuse analytics: audit evidence and related-account clusters on the desk.
+  await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-SHARE-${suffix}`,
+      userId: shareTrader.id,
+      mt5Login: `QASH${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 5000,
+      challengeType: 'TWO_STEP',
+      phase: 'PHASE_1',
+      status: 'ACTIVE',
+      initialBalance: 5000,
+      dailyStartingBalance: 5000,
+      dailyStartingEquity: 5000,
+      dailyStartedAt: new Date(),
+      currentBalance: 5000,
+      currentEquity: 5000,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 0,
+      dailyDrawdownLimitPct: 5,
+      maxDrawdownLimitPct: 10,
+      profitPct: 0,
+      balance: 5000,
+      equity: 5000,
+      startingBalance: 5000,
+      peakEquity: 5000,
+    },
+  })
+
+  const abuseReport = await request('/api/admin/abuse', {}, adminA.cookie)
+  check(
+    'Abuse monitor aggregates audit evidence',
+    abuseReport.status === 200 &&
+      (abuseReport.json?.counts?.NEWS ?? 0) > 0 &&
+      (abuseReport.json?.counts?.SESSION ?? 0) > 0,
+    `HTTP ${abuseReport.status}`,
+  )
+
+  const abuseCluster = abuseReport.json?.clusters?.find(
+    (cluster) =>
+      cluster.users?.some((user) => user.email === trader.email) &&
+      cluster.users?.some((user) => user.email === SHARE_TRADER),
+  )
+  check(
+    'Abuse monitor groups related accounts',
+    Boolean(abuseCluster) && abuseCluster?.links?.includes('ip_device'),
+    abuseCluster ? abuseCluster.links.join(', ') : 'cluster missing',
+  )
+
+  check(
+    'Related-account snapshot appears in the trading cron',
+    typeof cron.json?.relatedAccounts?.clusters === 'number',
+    `clusters ${cron.json?.relatedAccounts?.clusters ?? 'n/a'}`,
   )
 
   await cleanup()
