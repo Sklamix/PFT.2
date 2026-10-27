@@ -282,6 +282,8 @@ signals.
 - `Related-account clusters` — користувачі, пов'язані телефоном або IP + device hash;
   `OVER LIMIT`, якщо разом >3 акаунтів або >$200k.
 - `Latest evidence` — останні 12 подій із причиною й display ID.
+- Тижневі тренди (`trends`), фільтри `category`/`trader` і `Export CSV`
+  (`GET /api/admin/abuse/export`) доступні на панелі для drill-down і експорту.
 - Годинний cron робить snapshot (`RELATED_ACCOUNT_CLUSTER_RUN`) і раз на добу пише
   `RELATED_ACCOUNT_CLUSTER` з переліком cluster-ів; це джерело для trend-перевірок.
 
@@ -309,7 +311,7 @@ Handoff для оператора: `docs/PFT-production-rollout.md` (backup → 
 
 1. `npx tsc --noEmit`
 2. `npm run build`
-3. `npm run qa:smoke` на локальному production build (очікувано 90/90)
+3. `npm run qa:smoke` на локальному production build (очікувано 93/93)
 4. `npm run doctor` — усі schema/environment блокери закрито
 5. `npm run db:backup -- --out backups/pre-deploy-<date>`
 6. Застосувати нові `prisma/sql/*.sql` через `npx prisma db execute` (не `db push`)

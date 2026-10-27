@@ -1,6 +1,7 @@
 'use client'
 
-import { ShieldAlert } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Download, FilterX, ShieldAlert } from 'lucide-react'
 import { formatUsd } from '@/lib/admin/risk'
 import type { AbuseCategory, AbuseOverview } from '@/lib/admin/types'
 
@@ -14,11 +15,49 @@ const CATEGORY_LABEL: Record<AbuseCategory, string> = {
   SESSION: 'Session signal',
 }
 
+const CATEGORIES: (AbuseCategory | '')[] = ['', 'NEWS', 'OVERNIGHT', 'HEDGING', 'VOID', 'PAYOUT_HOLD', 'RISK_FLAG', 'SESSION']
+
 function timeLabel(iso: string) {
   return new Date(iso).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-export function AbusePanel({ report }: { report: AbuseOverview | null }) {
+function weekLabel(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+
+export function AbusePanel({ report: initial }: { report: AbuseOverview | null }) {
+  const [report, setReport] = useState<AbuseOverview | null>(initial)
+  const [category, setCategory] = useState<AbuseCategory | ''>('')
+  const [trader, setTrader] = useState('')
+
+  useEffect(() => {
+    // Without filters, show the latest snapshot pushed down by the desk.
+    if (!category && !trader.trim()) {
+      if (initial) setReport(initial)
+      return
+    }
+    let cancelled = false
+    const params = new URLSearchParams()
+    params.set('category', category)
+    params.set('trader', trader.trim())
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/admin/abuse?${params.toString()}`, {
+          headers: { 'Content-Type': 'application/json' },
+        })
+        if (!response.ok) return
+        const data = (await response.json()) as AbuseOverview
+        if (!cancelled) setReport(data)
+      } catch {
+        // keep the previous snapshot on transient failures
+      }
+    }, trader ? 300 : 0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [category, trader, initial])
+
   if (!report) return null
 
   const stats = [
@@ -30,6 +69,13 @@ export function AbusePanel({ report }: { report: AbuseOverview | null }) {
     { label: 'Session signals', value: report.counts.SESSION },
   ]
 
+  const filtered = Boolean(category || trader.trim())
+  const maxTrend = Math.max(1, ...report.trends.map((week) => week.total))
+  const exportParams = new URLSearchParams()
+  if (category) exportParams.set('category', category)
+  if (trader.trim()) exportParams.set('trader', trader.trim())
+  const exportHref = exportParams.size ? `/api/admin/abuse/export?${exportParams.toString()}` : '/api/admin/abuse/export'
+
   return (
     <section className="rounded-lg border border-border bg-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -37,10 +83,49 @@ export function AbusePanel({ report }: { report: AbuseOverview | null }) {
           <ShieldAlert className="size-4 text-warning" aria-hidden="true" />
           Abuse monitor
         </h2>
-        <p className="text-xs text-muted-foreground">
-          Last {report.windowDays} days · {report.openRiskReviews} open risk review
-          {report.openRiskReviews === 1 ? '' : 's'} · updated {timeLabel(report.generatedAt)}
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-muted-foreground">
+            Last {report.windowDays}d · {report.openRiskReviews} open review
+            {report.openRiskReviews === 1 ? '' : 's'}
+          </p>
+          <select
+            value={category}
+            onChange={(event) => setCategory(event.target.value as AbuseCategory | '')}
+            className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+            aria-label="Filter by category"
+          >
+            {CATEGORIES.map((value) => (
+              <option key={value || 'all'} value={value}>
+                {value ? CATEGORY_LABEL[value] : 'All categories'}
+              </option>
+            ))}
+          </select>
+          <input
+            value={trader}
+            onChange={(event) => setTrader(event.target.value)}
+            placeholder="Trader name or email…"
+            className="h-7 w-44 rounded-md border border-border bg-background px-2 text-xs"
+            aria-label="Filter by trader"
+          />
+          {filtered ? (
+            <button
+              type="button"
+              onClick={() => {
+                setCategory('')
+                setTrader('')
+              }}
+              className="flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <FilterX className="size-3" aria-hidden="true" /> Clear
+            </button>
+          ) : null}
+          <a
+            href={exportHref}
+            className="flex h-7 items-center gap-1 rounded-md border border-border px-2 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Download className="size-3" aria-hidden="true" /> Export CSV
+          </a>
+        </div>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         Audit evidence only. The score ranks traders for review; consequences still follow the breach matrix.
@@ -60,6 +145,35 @@ export function AbusePanel({ report }: { report: AbuseOverview | null }) {
           Session mix:{' '}
           {report.sessionSignals.map((signal) => `${signal.signal} ${signal.count}`).join(' · ')}
         </p>
+      ) : null}
+
+      {report.trends.length > 0 ? (
+        <div className="mt-4">
+          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Weekly signals{filtered ? ' (filtered)' : ''}
+          </h3>
+          <div className="mt-2 flex h-24 items-end gap-1.5">
+            {report.trends.map((week) => (
+              <div
+                key={week.weekStart}
+                className="group relative flex flex-1 flex-col items-center justify-end"
+                title={`${weekLabel(week.weekStart)} · ${week.total} signal${week.total === 1 ? '' : 's'}`}
+              >
+                <span className="mb-1 font-mono text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  {week.total}
+                </span>
+                <div
+                  className="w-full rounded-sm bg-warning/70"
+                  style={{ height: `${Math.max(3, Math.round((week.total / maxTrend) * 64))}px` }}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-1 flex justify-between text-[10px] text-muted-foreground">
+            <span>{weekLabel(report.trends[0].weekStart)}</span>
+            <span>{weekLabel(report.trends[report.trends.length - 1].weekStart)}</span>
+          </div>
+        </div>
       ) : null}
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
@@ -160,7 +274,12 @@ export function AbusePanel({ report }: { report: AbuseOverview | null }) {
 
       {report.recent.length > 0 ? (
         <div className="mt-4">
-          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Latest evidence</h3>
+          <h3 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Latest evidence
+            <span className="ml-2 font-normal text-muted-foreground/70">
+              {report.recent.length} of {report.evidenceTotal} event{report.evidenceTotal === 1 ? '' : 's'}
+            </span>
+          </h3>
           <ul className="mt-1 divide-y divide-border/60">
             {report.recent.map((event) => (
               <li key={event.id} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1.5 text-xs">

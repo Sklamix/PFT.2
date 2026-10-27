@@ -4,9 +4,12 @@ import type {
   AbuseCategory,
   AbuseCluster,
   AbuseEvent,
+  AbuseFilters,
   AbuseOverview,
+  AbuseTrendBucket,
   AbuseUserScore,
 } from './types'
+import type { Prisma } from '@prisma/client'
 
 /**
  * Abuse analytics for the operations desk (rulebook P2).
@@ -41,6 +44,7 @@ const ACTION_WEIGHT: Record<string, number> = {
 
 const SHARED_ACCESS_WEIGHT = 2
 const CATEGORIES: AbuseCategory[] = ['NEWS', 'OVERNIGHT', 'HEDGING', 'VOID', 'PAYOUT_HOLD', 'RISK_FLAG', 'SESSION']
+const ALL_ACTIONS = Object.keys(ACTION_CATEGORY)
 
 function emptyCounts(): Record<AbuseCategory, number> {
   return { NEWS: 0, OVERNIGHT: 0, HEDGING: 0, VOID: 0, PAYOUT_HOLD: 0, RISK_FLAG: 0, SESSION: 0 }
@@ -64,42 +68,118 @@ function metadataSignal(metadata: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-export async function getAbuseOverview(days = 30): Promise<AbuseOverview> {
-  const windowDays = Math.min(90, Math.max(1, Math.floor(days)))
-  const since = new Date(Date.now() - windowDays * 24 * 60 * 60_000)
+function clampDays(days: number) {
+  return Math.min(90, Math.max(1, Math.floor(days)))
+}
 
-  const [logs, openRiskReviews, clusterRows] = await Promise.all([
+function normalizeFilters(raw?: AbuseFilters | null) {
+  const category =
+    raw?.category && (CATEGORIES as string[]).includes(raw.category) ? (raw.category as AbuseCategory) : null
+  const trader = raw?.trader?.trim() || null
+  return { category, trader }
+}
+
+function auditWhere(
+  since: Date,
+  filters: { category: AbuseCategory | null; trader: string | null },
+): Prisma.AuditLogWhereInput {
+  const where: Prisma.AuditLogWhereInput = {
+    createdAt: { gte: since },
+    action: filters.category
+      ? { in: Object.entries(ACTION_CATEGORY).filter(([, c]) => c === filters.category).map(([a]) => a) }
+      : { in: ALL_ACTIONS },
+  }
+  if (filters.trader) {
+    where.OR = [
+      { account: { user: { name: { contains: filters.trader, mode: 'insensitive' } } } },
+      { account: { user: { email: { contains: filters.trader, mode: 'insensitive' } } } },
+    ]
+  }
+  return where
+}
+
+function weekKey(date: Date) {
+  const start = new Date(date)
+  const dow = (start.getUTCDay() + 6) % 7 // Monday = 0
+  start.setUTCDate(start.getUTCDate() - dow)
+  start.setUTCHours(0, 0, 0, 0)
+  return start.getTime()
+}
+
+function buildTrends(rows: { action: string; createdAt: Date }[]): AbuseTrendBucket[] {
+  const buckets = new Map<number, { start: Date; counts: Record<AbuseCategory, number> }>()
+  for (const row of rows) {
+    const key = weekKey(row.createdAt)
+    let bucket = buckets.get(key)
+    if (!bucket) {
+      bucket = { start: new Date(key), counts: emptyCounts() }
+      buckets.set(key, bucket)
+    }
+    const category = ACTION_CATEGORY[row.action]
+    if (category) bucket.counts[category] += 1
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([, bucket]) => {
+      const weekEnd = new Date(bucket.start.getTime() + 7 * 24 * 60 * 60_000 - 1)
+      const total = CATEGORIES.reduce((sum, category) => sum + bucket.counts[category], 0)
+      return { weekStart: bucket.start.toISOString(), weekEnd: weekEnd.toISOString(), total, counts: bucket.counts }
+    })
+}
+
+const LOG_SELECT = {
+  id: true,
+  action: true,
+  reason: true,
+  metadata: true,
+  createdAt: true,
+  account: {
+    select: {
+      displayId: true,
+      userId: true,
+      user: { select: { name: true, email: true } },
+    },
+  },
+} satisfies Prisma.AuditLogSelect
+
+type AbuseLog = Prisma.AuditLogGetPayload<{ select: typeof LOG_SELECT }>
+
+export async function getAbuseOverview(days = 30, rawFilters: AbuseFilters = {}): Promise<AbuseOverview> {
+  const windowDays = clampDays(days)
+  const since = new Date(Date.now() - windowDays * 24 * 60 * 60_000)
+  const filters = normalizeFilters(rawFilters)
+  const where = auditWhere(since, filters)
+
+  const [logs, openRiskReviews, clusterRows, evidenceTotal, trendRows, globalGroup] = await Promise.all([
     prisma.auditLog.findMany({
-      where: { action: { in: Object.keys(ACTION_CATEGORY) }, createdAt: { gte: since } },
+      where,
       orderBy: { createdAt: 'desc' },
       take: 2_000,
-      select: {
-        id: true,
-        action: true,
-        reason: true,
-        metadata: true,
-        createdAt: true,
-        account: {
-          select: {
-            displayId: true,
-            userId: true,
-            user: { select: { name: true, email: true } },
-          },
-        },
-      },
+      select: LOG_SELECT,
     }),
     prisma.user.count({ where: { riskFlaggedAt: { not: null } } }),
     findRelatedAccountClusters(),
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({ where, select: { action: true, createdAt: true }, orderBy: { createdAt: 'asc' } }),
+    prisma.auditLog.groupBy({
+      by: ['action'],
+      where: { action: { in: ALL_ACTIONS }, createdAt: { gte: since } },
+      _count: { _all: true },
+    }),
   ])
 
   const counts = emptyCounts()
+  for (const group of globalGroup) {
+    const category = ACTION_CATEGORY[group.action]
+    if (category) counts[category] += group._count._all
+  }
+
   const scores = new Map<string, { score: number; counts: Record<AbuseCategory, number> }>()
   const names = new Map<string, { name: string; email: string }>()
   const signalCounts = new Map<string, number>()
 
-  for (const log of logs) {
+  for (const log of logs as AbuseLog[]) {
     const category = ACTION_CATEGORY[log.action]
-    counts[category] += 1
 
     if (category === 'SESSION') {
       const signal = metadataSignal(log.metadata)
@@ -151,7 +231,7 @@ export async function getAbuseOverview(days = 30): Promise<AbuseOverview> {
       riskReviewOpen: flaggedUsers.has(userId),
     }))
     .sort((a, b) => b.score - a.score || a.email.localeCompare(b.email))
-    .slice(0, 10)
+    .slice(0, filters.trader ? 50 : 10)
 
   const recent: AbuseEvent[] = logs.slice(0, 12).map((log) => ({
     id: log.id,
@@ -185,7 +265,51 @@ export async function getAbuseOverview(days = 30): Promise<AbuseOverview> {
     users,
     clusters,
     recent,
+    trends: buildTrends(trendRows),
+    evidenceTotal,
+    filters,
   }
+}
+
+export type AbuseExportRow = {
+  category: AbuseCategory | 'OTHER'
+  action: string
+  reason: string | null
+  traderName: string | null
+  email: string | null
+  displayId: string | null
+  createdAt: string
+}
+
+/** Unbounded event list for CSV export; honours the same category/trader filters. */
+export async function exportAbuseEvents(days = 30, rawFilters: AbuseFilters = {}): Promise<AbuseExportRow[]> {
+  const windowDays = clampDays(days)
+  const since = new Date(Date.now() - windowDays * 24 * 60 * 60_000)
+  const filters = normalizeFilters(rawFilters)
+  const logs = await prisma.auditLog.findMany({
+    where: auditWhere(since, filters),
+    orderBy: { createdAt: 'desc' },
+    select: {
+      action: true,
+      reason: true,
+      createdAt: true,
+      account: {
+        select: {
+          displayId: true,
+          user: { select: { name: true, email: true } },
+        },
+      },
+    },
+  })
+  return logs.map((log) => ({
+    category: ACTION_CATEGORY[log.action] ?? ('OTHER' as const),
+    action: log.action,
+    reason: log.reason,
+    traderName: log.account?.user.name ?? null,
+    email: log.account?.user.email ?? null,
+    displayId: log.account?.displayId ?? null,
+    createdAt: log.createdAt.toISOString(),
+  }))
 }
 
 export const ABUSE_CATEGORIES = CATEGORIES

@@ -208,6 +208,18 @@ export type AbuseCluster = {
   links: ('phone' | 'ip_device')[]
 }
 
+export type AbuseFilters = {
+  category?: AbuseCategory | null
+  trader?: string | null
+}
+
+export type AbuseTrendBucket = {
+  weekStart: string
+  weekEnd: string
+  total: number
+  counts: Record<AbuseCategory, number>
+}
+
 export type AbuseOverview = {
   generatedAt: string
   windowDays: number
@@ -217,6 +229,9 @@ export type AbuseOverview = {
   users: AbuseUserScore[]
   clusters: AbuseCluster[]
   recent: AbuseEvent[]
+  trends: AbuseTrendBucket[]
+  evidenceTotal: number
+  filters: { category: AbuseCategory | null; trader: string | null }
 }
 
 export type TelemetryState = {

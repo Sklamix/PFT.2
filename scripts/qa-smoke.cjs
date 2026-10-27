@@ -1216,6 +1216,31 @@ async function main() {
   )
 
   check(
+    'Abuse monitor reports weekly trends',
+    Array.isArray(abuseReport.json?.trends) && abuseReport.json.trends.length > 0,
+    `${abuseReport.json?.trends?.length ?? 0} week(s)`,
+  )
+
+  const abuseNewsFilter = await request('/api/admin/abuse?category=NEWS', {}, adminA.cookie)
+  check(
+    'Abuse monitor filters by category',
+    abuseNewsFilter.status === 200 &&
+      abuseNewsFilter.json?.filters?.category === 'NEWS' &&
+      abuseNewsFilter.json?.recent?.every((event) => event.category === 'NEWS'),
+    `HTTP ${abuseNewsFilter.status}`,
+  )
+
+  const abuseExport = await fetch(`${BASE}/api/admin/abuse/export?category=NEWS`, {
+    headers: { cookie: adminA.cookie },
+  })
+  const abuseExportText = await abuseExport.text()
+  check(
+    'Abuse export returns CSV',
+    abuseExport.status === 200 && abuseExportText.startsWith('category,action,'),
+    `HTTP ${abuseExport.status}`,
+  )
+
+  check(
     'Related-account snapshot appears in the trading cron',
     typeof cron.json?.relatedAccounts?.clusters === 'number',
     `clusters ${cron.json?.relatedAccounts?.clusters ?? 'n/a'}`,
