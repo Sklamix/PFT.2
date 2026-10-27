@@ -2,8 +2,8 @@
 
 **Дата:** 27 жовтня 2026  
 **Джерело правил:** `docs/PFT-rulebook-v1.md` v1.6  
-**Статус:** production-міграції застосовано; інженерний QA — пройдено (42/42); legal review — **не завершено**, потрібен зовнішній юрист.  
-**Код:** git `afe5194`, production deployment `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW`.
+**Статус:** P0/P1 код і QA завершено; production-міграції P1 ще не застосовано; legal review — **не завершено**, потрібен зовнішній юрист.  
+**Код:** git `58f70e5`, локальний production build QA — 80/80. Останній production deployment: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (до P1-5…P1-9, P1-12).
 
 ---
 
@@ -25,18 +25,26 @@
 | Inactivity | 60-day warning, 90-day closure, 7-day grace, liquidation, audit | ✅ |
 | Funding approval | request + different-admin approval + reject + 24h TTL + admin UI | ✅ |
 | Single session | `activeSessionId`, new login invalidates old cookie, logout clears session | ✅ |
+| Session risk (P1-6) | login fingerprint, new device/country, concurrent country, impossible travel, VPS mismatch, shared access, 90-day retention | ✅ |
+| Risk flags (P1-5) | user-level flag at ≥2 accounts / ≥3 news violations in 30 days, purchase + payout pause, 30-day auto-clear, admin flag/clear | ✅ |
+| Rules versioning (P1-7) | `RULES_VERSION`, `Order.rulesVersion`, one-time cron notice, `RULES_NOTICE_SENT`, no-acquired-right text | ✅ |
+| Breach matrix (P1-8) | deterministic consequences per breach type, unpaid payouts cancelled, appeals decided by a non-acting admin | ✅ |
+| Negative balance (P1-9) | equity clamped at zero, platform absorbs loss beyond the fee | ✅ |
+| Frozen backups (P1-12) | linked to primary, only that backup activates, expires on primary pass | ✅ |
 | Public copy | 80%, weekly payouts, no refund, news windows, reset 2 days, CE(S)T, PFT terminal | ✅ |
 
 **Команди:**
 
 - `npx tsc --noEmit` — passed.
-- `npm run build` — passed (28 routes).
+- `npm run build` — passed.
+- `npm run qa:smoke` — 80/80 на локальному production build.
+- `npm run doctor` — readiness self-check (env, schema columns, cron freshness).
 
 ---
 
 ## 2. Production migrations
 
-**Статус: застосовано 27.10.2026.**
+**Статус: шість базових міграцій застосовано 27.10.2026. Чотири P1-міграції ще не застосовано.**
 
 - Deployment: `dpl_7gstvsBwbYbFipxCF4aQepteTajH`
 - Поточний release: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (post-action reviews + risk-manager desk fix)
@@ -59,17 +67,41 @@ npx prisma db execute --file prisma/sql/trade-voids.sql --schema prisma/schema.p
 npx prisma db execute --file prisma/sql/active-session.sql --schema prisma/schema.prisma
 ```
 
+P1-міграції (застосувати перед наступним deploy):
+
+```powershell
+npx prisma db execute --file prisma/sql/account-appeals.sql --schema prisma/schema.prisma
+npx prisma db execute --file prisma/sql/risk-flags-and-backups.sql --schema prisma/schema.prisma
+npx prisma db execute --file prisma/sql/session-risk.sql --schema prisma/schema.prisma
+npx prisma db execute --file prisma/sql/rules-versioning.sql --schema prisma/schema.prisma
+```
+
 Після міграцій:
 
 - `npx prisma generate` (якщо build не робить це автоматично);
 - Cloudflare worker має актуальний `CRON_SECRET` — перевірено 27.10.2026 (§`docs/PFT-operations-runbook.md`);
-- `/api/cron/trading` повертає `inactivity`, `limitReconciliation`, `crossAccountHedges` — перевірено живим cron-циклом.
+- `/api/cron/trading` повертає `inactivity`, `limitReconciliation`, `crossAccountHedges`, `enforcement`, `riskFlags`, `rules` — перевірено живим cron-циклом локально;
+- `npm run doctor` не має показувати відсутні колонки з `REQUIRED_COLUMNS`.
+
+### 2.1. Readiness self-check
+
+`npm run doctor` (`scripts/readiness.ts`) перевіряє env-групи, доступ до БД, наявність
+усіх міграційних колонок, heartbeat cron/market data, кількість адмінів, pricing rows і
+легальні документи. Локально очікувано `9 blockers`:
+
+- відсутні `RESEND_API_KEY` / `RESEND_FROM_EMAIL`, `NOWPAYMENTS_API_KEY` / IPN secret,
+  `DIDIT_WEBHOOK_SECRET` — локальний `.env.local` навмисно без провайдерських ключів;
+- один адмін у локальній БД (для two-admin approval потрібні двоє);
+- legal-сторінки не опубліковані (очікує counsel).
+
+На production перед deploy усі блокери, крім legal, мають бути закриті; `SCHEMA` має
+показувати всі колонки, `CRON` — свіжий `INACTIVITY_SCAN_RUN`.
 
 ---
 
 ## 3. Manual QA перед запуском
 
-**Статус: локальний production-build QA пройдено — 42/42.**
+**Статус: локальний production-build QA пройдено — 80/80.**
 
 Запуск:
 
@@ -81,9 +113,10 @@ $env:QA_BASE = 'http://127.0.0.1:3100'
 npm run qa:smoke
 ```
 
-`scripts/qa-smoke.cjs` створює тимчасових QA-адмінів і трейдера, перевіряє auth,
-single-session, two-admin approval для `FUNDED` і non-`FUNDED` status, payout gate,
-після чого видаляє тестові записи.
+`scripts/qa-smoke.cjs` створює тимчасових QA-адмінів і трейдерів, перевіряє auth,
+single-session, two-admin approval, payout gate, breach matrix, automated enforcement,
+appeals, paid reset, frozen backups, risk flags, session risk, rules notices, після
+чого видаляє тестові записи.
 
 **Знайдено і виправлено під час QA:** після logout старий підписаний cookie
 залишався валідним, бо `activeSessionId = null` трактувався як «дозволити».
@@ -154,6 +187,47 @@ single-session, two-admin approval для `FUNDED` і non-`FUNDED` status, payou
 5. Note обов'язковий; порожній note → `400`.
 6. Через 24 год запис показується як Overdue, але лишається доступним для review.
 
+### 3.8. Automated breach enforcement + appeals
+
+1. Залишити акаунт із пробитим max drawdown → cron закриває його без участі адміна.
+2. Перевірити audit `ACCOUNT_BREACH` з `actorId = null` і post-action review `Automated enforcement`.
+3. Повторний cron-цикл не створює дублікат (idempotent за `frozenAt`).
+4. Невиплачені payout-и акаунта переходять у `REJECTED`.
+5. Трейдер подає appeal; адмін, який виконував breach, не може його вирішити (`403`).
+6. Інший адмін overturn → акаунт повертається в попередній phase/status.
+
+### 3.9. Paid reset + frozen backup
+
+1. Breached-акаунт у межах 2 днів показує 20% discount; поза вікном — повна ціна.
+2. Checkout створює order; після оплати webhook провізіонить новий Phase 1.
+3. Другий reset того ж продукту за 30 днів блокується (`provisioningBlocked`).
+4. Frozen backup не можна скинути до активації.
+5. Покупка з backup-ом створює два акаунти: primary і `FROZEN_STANDBY`, прив'язаний через `backupForAccountId`.
+6. Breach primary активує лише свій backup; passing primary переводить backup у `EXPIRED` без refund.
+
+### 3.10. Risk flags
+
+1. Два news-порушення на різних акаунтах одного трейдера → cron ставить user-level flag.
+2. Новий checkout і payout повертають `RISK_REVIEW_HOLD` / `403`.
+3. Адмін clear без причини → `400`; з причиною → flag знято, payout gate знову проходить eligibility.
+4. Через 30 чистих днів flag знімається автоматично.
+
+### 3.11. Session risk
+
+1. Логін з іншої країни → `NEW_COUNTRY` + `CONCURRENT_COUNTRY` audit.
+2. Третя країна за 24 год → `IMPOSSIBLE_TRAVEL`.
+3. Задекларована VPS-країна в profile settings + логін з іншої → `VPS_LOCATION_MISMATCH` + email.
+4. Той самий IP + device hash у двох користувачів → `SHARED_ACCESS` (без email).
+5. Admin desk показує `SESSION ALERTS · N in 7 days`.
+6. `AccessEvent` старші 90 днів видаляються cron-ом.
+
+### 3.12. Rules versioning
+
+1. Новий checkout зберігає `Order.rulesVersion = '1.6'`.
+2. Трейдер зі старою версією отримує один лист про зміни; повторний cron не дублює.
+3. Audit `RULES_NOTICE_SENT` містить `userId`, `previousVersion`, перелік змін.
+4. Breach email містить текст про відсутність набутого права.
+
 ---
 
 ## 4. Legal review — блокер запуску
@@ -201,11 +275,11 @@ single-session, two-admin approval для `FUNDED` і non-`FUNDED` status, payou
 
 ### 4.3. Що підготувати перед counsel
 
-- [ ] фінальний rulebook v1.6;
+- [x] фінальний rulebook v1.6 (включно з §29 — версії правил і no acquired right);
 - [ ] checkout flow і pricing;
 - [ ] payout flow і KYC flow;
 - [ ] список юрисдикцій, де планується маркетинг;
-- [ ] data map (IP, device hash, KYC, payment, trading history);
+- [ ] data map (IP, device hash, session risk signals, declared VPS country, KYC, payment, trading history);
 - [ ] draft Terms / Risk / AML / Privacy / Refund.
 
 **Після юридичного підпису:** додати сторінки `/legal/terms`, `/legal/privacy`, `/legal/risk`, `/legal/aml`, `/legal/refund`, оновити footer і checkout links. Це окремий PR, бо це публічна копія.
@@ -217,15 +291,18 @@ single-session, two-admin approval для `FUNDED` і non-`FUNDED` status, payou
 | Критерій | Стан |
 |---|---|
 | TypeScript + production build | ✅ |
-| Усі 6 SQL-міграцій застосовані на production | ✅ 27.10.2026 |
-| Manual QA §3 пройдено | ✅ 42/42 (локальний production build) |
-| Production deployment оновлено | ✅ `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (post-action reviews) |
+| Усі 6 базових SQL-міграцій застосовані на production | ✅ 27.10.2026 |
+| P1-міграції застосовані на production | ⏳ `account-appeals`, `risk-flags-and-backups`, `session-risk`, `rules-versioning` |
+| Manual QA §3 пройдено | ✅ 80/80 (локальний production build) |
+| Readiness self-check `npm run doctor` | ✅ локально; production — після міграцій |
+| Production deployment оновлено | ⏳ після P1-міграцій |
 | Legal pages опубліковані | ⏳ очікує counsel |
 | Legal counsel sign-off | ⏳ очікує counsel |
 | Cloudflare cron secret і розклад перевірені | ✅ `* * * * *`, `wrangler tail` → `trading cron processed` |
 | Backup / rollback plan | ✅ `docs/PFT-operations-runbook.md`, `npm run db:backup` |
 | Neon PITR retention підтверджено | ⏳ operator action |
+| Production env: `RESEND_FROM_EMAIL`, `NOWPAYMENTS_IPN_SECRET`, Didit keys | ⏳ operator action |
 
-**Рішення:** інженерно готово, production оновлено, cron і rollback plan перевірені.
-Публічний запуск блокується лише юридичними документами (counsel) і підтвердженням
-Neon PITR retention у консолі.
+**Рішення:** інженерно P0/P1 готово, локальний QA зелений. Публічний запуск блокується
+юридичними документами (counsel), застосуванням P1-міграцій на production,
+production env secrets і підтвердженням Neon PITR retention.

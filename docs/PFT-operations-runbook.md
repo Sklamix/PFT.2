@@ -37,7 +37,11 @@ Cloudflare worker також пише one-minute candles у `MarketCandle` дл�
 - inactivity scan (60/90 днів);
 - account-limit reconciliation;
 - cross-account hedge detection;
-- news warnings.
+- news warnings;
+- automated breach matrix enforcement (`enforcement`);
+- user risk-flag refresh (`riskFlags`);
+- access-event pruning (90 днів);
+- rules-version notices (`rules`).
 
 ### 2.2. Перевірено 27.10.2026
 
@@ -183,8 +187,8 @@ npx vercel rollback status
 - `dpl_A7pyV5EMN8nXjcFmfSFsNw57w1ns` — generic override approval;
 - `dpl_7gstvsBwbYbFipxCF4aQepteTajH` — release без generic override approval.
 
-Rollback коду **не** відкочує SQL-міграції. Усі шість stress-test міграцій additive та
-idempotent, тому старіший код продовжує працювати з новими колонками.
+Rollback коду **не** відкочує SQL-міграції. Усі stress-test міграції (шість базових +
+чотири P1) additive та idempotent, тому старіший код продовжує працювати з новими колонками.
 
 ### 4.3. Database rollback
 
@@ -220,22 +224,73 @@ Invoke-RestMethod https://pft-app-prod.vercel.app/api/stats
 
 ---
 
-## 5. Release checklist
+## 5. Risk operations
 
-1. `npx tsc --noEmit`
-2. `npm run build`
-3. `npm run qa:smoke` на локальному production build
-4. `npm run db:backup -- --out backups/pre-deploy-<date>`
-5. `npx vercel --prod --yes`
-6. Перевірити `/`, `/login`, `/admin/login`, `/api/stats`
-7. `wrangler tail` — дочекатися одного cron-циклу
-8. Оновити `docs/PFT-launch-qa.md` і `docs/PFT-stress-test-backlog.md`
+### 5.1. Автоматичне закриття акаунта
+
+Cron застосовує `lib/rules/breach-matrix.ts` до акаунтів, які engine закрив. Наслідки
+детерміновані: breach типу daily/max скасовує невиплачені payout-и, news/Overnight
+перше порушення анулює лише проблемну угоду і ставить 7-денний payout hold.
+
+Що перевірити після алерту:
+
+1. Admin desk → `Post-action reviews` → запис `Automated enforcement` (`automated: true`).
+2. Audit `ACCOUNT_BREACH` з `actorId = null`; там же `reason` і metadata.
+3. Якщо трейдер подає appeal — рішення приймає адмін, який не виконував закриття.
+4. Повторний cron не має створювати дублікат; якщо створює — перевірити `frozenAt`.
+
+### 5.2. User risk flag
+
+Flag ставиться автоматично: ≥2 акаунти або ≥3 news-порушення за 30 днів. Поки flag
+активний, трейдер не може купити новий акаунт і отримати payout.
+
+- Clear: admin desk → risk table → `Clear risk review` → причина ≥10 символів.
+- Flag вручну: та сама дія `Open risk review`.
+- Кожна зміна пише audit; автоматичне зняття — після 30 чистих днів.
+- Якщо flag стоїть довше 30 днів без причини — перевірити, чи не зупинився cron.
+
+### 5.3. Session alerts
+
+`SESSION_RISK_SIGNAL` у audit: `NEW_DEVICE`, `NEW_COUNTRY`, `CONCURRENT_COUNTRY`,
+`IMPOSSIBLE_TRAVEL`, `VPS_LOCATION_MISMATCH`, `SHARED_ACCESS`.
+
+- Admin desk показує `SESSION ALERTS · N in 7 days` біля трейдера.
+- `SHARED_ACCESS` не дублюється email-ом — це внутрішній сигнал для review.
+- Перед payout перевірити алерти за останні 7 днів; за потреби відкрити risk review.
+- `AccessEvent` зберігається 90 днів, далі видаляється cron-ом.
+- Якщо трейдер торгує з VPS, він має задекларувати країну в profile settings.
+
+### 5.4. Rules notices
+
+`RULES_VERSION` у `lib/rules/version.ts`. Після зміни версії:
+
+1. Додати запис у `RULES_CHANGELOG` (`risk` або `commercial`).
+2. Оновити `docs/PFT-rulebook-v1.md` і секцію §29.
+3. Дочекатися cron-циклу: кожен трейдер з акаунтом отримує один лист, audit `RULES_NOTICE_SENT`.
+4. Перевірити, що `User.rulesNotifiedVersion` оновився; повторний цикл не дублює лист.
 
 ---
 
-## 6. Known operator actions
+## 6. Release checklist
+
+1. `npx tsc --noEmit`
+2. `npm run build`
+3. `npm run qa:smoke` на локальному production build (очікувано 80/80)
+4. `npm run doctor` — усі schema/environment блокери закрито
+5. `npm run db:backup -- --out backups/pre-deploy-<date>`
+6. Застосувати нові `prisma/sql/*.sql` через `npx prisma db execute` (не `db push`)
+7. `npx vercel --prod --yes`
+8. Перевірити `/`, `/login`, `/admin/login`, `/api/stats`
+9. `wrangler tail` — дочекатися одного cron-циклу
+10. Оновити `docs/PFT-launch-qa.md` і `docs/PFT-stress-test-backlog.md`
+
+---
+
+## 7. Known operator actions
 
 - [ ] Підтвердити Neon PITR retention у консолі (§3.3).
 - [ ] Зробити перший production logical export із production `DATABASE_URL`.
 - [ ] Додати щотижневий restore drill у календар.
+- [ ] Застосувати P1-міграції: `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql`.
+- [ ] Додати production env: `RESEND_FROM_EMAIL`, `NOWPAYMENTS_IPN_SECRET`, `DIDIT_API_KEY`, `DIDIT_WORKFLOW_ID`, `DIDIT_WEBHOOK_SECRET`.
 - [ ] Після counsel — опублікувати legal-сторінки й оновити footer/checkout.

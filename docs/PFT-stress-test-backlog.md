@@ -1,35 +1,42 @@
 # PFT.2 — технічний backlog після стрес-тесту v1.4
 
-**Статус:** затверджено власником.  
-**Джерело:** `docs/PFT-rulebook-v1.md` v1.4.  
-**Код/сайт:** ще не змінювалися.  
+**Статус:** P0 і P1 закрито; запуск блокується лише legal review і operator-задачами.  
+**Джерело:** `docs/PFT-rulebook-v1.md` v1.6.  
+**Код:** git `58f70e5`; QA — 80/80 на локальному production build.  
 **Мета:** закрити P0-лазівки до публічного запуску, потім P1/P2.
 
 ---
 
 ## Launch checklist
 
-- [x] P0-1. Payout eligibility gate — core реалізовано; active risk-hold field ще попереду
+- [x] P0-1. Payout eligibility gate — gate + payout holds + risk-review hold
 - [x] P0-2. Payout-adjusted drawdown — virtual equity + fixed-dollar trailing
 - [x] P0-3. Automatic passing + KYC gate — second-admin approval for every status override
 - [x] P0-4. Static drawdown — реалізовано; потрібно застосувати SQL-міграцію
 - [x] P0-5. News window — технічний доступ, warning, annulment, second closure, payout hold
 - [x] P0-6. Overnight/weekend auto-close — close-only + per-symbol auto-close + pending cancel
 - [x] P0-7. Account limits + related accounts — phone + IP/device aggregation, checkout, provisioning, standby, reconciliation, admin UI
-- [x] P0-8. Copy / cross-account net exposure — detection + audit; auto-enforcement ще попереду
-- [x] P0-9. Reset cap + frozen rules — eligibility, 30-day cap, admin reset flow; paid checkout ще попереду
+- [x] P0-8. Copy / cross-account net exposure — deterministic breach matrix + automated cron enforcement
+- [x] P0-9. Reset cap + frozen rules — eligibility, 30-day cap, paid checkout, webhook provisioning
 - [x] P0-10. Payout hold + trade void + abnormal-profit flag + admin UI
 - [x] P1-1. Daily loss CE(S)T
 - [x] P1-2. Fixed-dollar trailing (у складі P0-2)
 - [x] P1-3. Target freeze
 - [x] P1-4. Consistency by open date
+- [x] P1-5. News per-account + user-level risk flag
+- [x] P1-6. IP/VPN/session controls
+- [x] P1-7. Rule changes and versioning
+- [x] P1-8. Breach matrix + appeals
+- [x] P1-9. Negative balance protection
 - [x] P1-10. Public copy alignment
 - [x] P1-11. Inactivity job
-- [ ] P1-5…P1-9, P1-12 — не входили в launch-блокери власника
+- [x] P1-12. Frozen backup policy
 - [x] Public copy alignment — 80%, weekly payouts, no refund, news windows, terminal naming
 - [x] Regression + build (`npx tsc --noEmit`, `npm run build`)
 - [x] Production migrations — 6 SQL files застосовано через guarded deploy 27.10.2026
-- [x] Manual QA — 42/42 на локальному production build (`npm run qa:smoke`)
+- [ ] Production migrations P1 — `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql`
+- [x] Manual QA — 80/80 на локальному production build (`npm run qa:smoke`)
+- [x] Readiness self-check — `npm run doctor` (env, schema columns, cron freshness)
 - [x] Cloudflare cron — schedule `* * * * *`, secrets присутні, живий цикл підтверджено `wrangler tail`
 - [x] Backup / rollback plan — `docs/PFT-operations-runbook.md`, `npm run db:backup` перевірено
 - [ ] Neon PITR retention підтвердити в консолі Neon
@@ -43,7 +50,7 @@
 - `lib/payouts/eligibility.ts` — серверний payout gate.
 - `app/api/payouts/route.ts` — перевірка перед резервуванням payout.
 - Перевіряються: KYC, 7 днів, відсутність позицій/pending-ордерів, один pending payout, 3 profitable days, consistency 20%, min $25/1%.
-- Не реалізовано: active risk-hold field для compliance/news review (потрібне окреме поле/таблиця).
+- Додано пізніше: payout holds (`PayoutHold`) і `RISK_REVIEW_HOLD` для compliance/news review.
 
 **P0-2:**
 
@@ -709,34 +716,52 @@
 
 ### P1-5. News per-account + user risk flag
 
+**Статус: виконано.**
+
 - Account penalty залишається per-account.
-- User-level flag при повторенні на різних акаунтах.
-- Під час review — блокувати нові покупки/payout.
+- `lib/rules/risk-flags.ts` — user-level flag при ≥2 акаунтах або ≥3 news-порушеннях за 30 днів.
+- Під час review — блокувати нові покупки (`/api/checkout`, reset checkout) і payouts (`RISK_REVIEW_HOLD`).
+- Автоматичне зняття після 30 чистих днів; ручне flag/clear — `POST /api/admin/users/[id]/risk-flag` з причиною, audit.
+- Admin desk показує `RISK REVIEW` badge і дію в risk table.
 
 ### P1-6. IP/VPN/session controls
 
-- Одна активна сесія.
-- Concurrent country/device alerts.
-- VPS declared location.
-- Account sharing detection.
+**Статус: виконано.**
+
+- Одна активна сесія — `User.activeSessionId` (було в P0).
+- `lib/security/session-risk.ts` — фіксація кожного логіну в `AccessEvent` (IP, device hash, country).
+- Сигнали: `NEW_DEVICE`, `NEW_COUNTRY`, `CONCURRENT_COUNTRY`, `IMPOSSIBLE_TRAVEL` (3+ країни/24 год), `VPS_LOCATION_MISMATCH`, `SHARED_ACCESS` (той самий IP + device hash у різних користувачів).
+- VPS declared location — поле в profile settings (`User.declaredVpsCountry`, `vpsDeclaredAt`), країна з `x-vercel-ip-country` / `cf-ipcountry` / `x-country-code`.
+- Кожен сигнал пише audit `SESSION_RISK_SIGNAL`; усі, крім `SHARED_ACCESS`, дублюються email-ом.
+- `AccessEvent` prune — 90 днів, у trading cron.
+- Admin desk показує кількість сесійних алертів за 7 днів.
 
 ### P1-7. Rule changes
 
-- Risk/security changes — immediate with notice.
-- Commercial terms — at purchase.
-- No acquired right to exploit.
+**Статус: виконано.**
+
+- `lib/rules/version.ts` — `RULES_VERSION = '1.6'`, changelog, `NO_ACQUIRED_RIGHT`.
+- Commercial terms — `Order.rulesVersion` фіксується в checkout і reset checkout.
+- Risk/security changes — immediate with notice: cron `announceRuleChanges()` надсилає лист один раз на трейдера (`User.rulesNotifiedVersion`) з переліком змін і текстом про відсутність набутого права.
+- `RULES_NOTICE_SENT` audit на кожного трейдера.
+- Публічна сторінка правил поки не публікується (очікує counsel); лист веде на `/rules`, який треба підключити разом з legal pages.
 
 ### P1-8. Breach matrix
 
-- Deterministic consequences per breach type.
-- Прибрати “may” з critical outcomes.
-- Appeal path.
+**Статус: виконано.**
+
+- `lib/rules/breach-matrix.ts` — детерміновані наслідки для кожного типу breach (daily, max, news, overnight, hedging, KYC, inactivity).
+- `voidProfit` обмежено `'none' | 'offending-trade'`; daily/max breach скасовують невиплачені payout-и.
+- Використовується і admin-діями, і cron-ом (`lib/rules/enforcement.ts`), тому ручний і автоматичний шлях не розходяться.
+- Appeal path — `AccountAppeal`, `prisma/sql/account-appeals.sql`, admin appeal queue, `AppealDialog`; рішення приймає адмін, який не виконував breach.
 
 ### P1-9. Negative balance protection
 
-- Close at zero.
-- No liability beyond fee.
-- Gap rules.
+**Статус: виконано.**
+
+- Close at zero: equity/balance не можуть піти нижче нуля, платформа поглинає збиток понад fee.
+- No liability beyond fee — відображено в breach notice і rulebook.
+- Gap rules — engine clamp-ить negative equity перед записом breach.
 
 ### P1-10. Public copy alignment
 
@@ -758,10 +783,13 @@
 
 ### P1-12. Frozen backup policy
 
+**Статус: виконано.**
+
 - Non-refundable.
+- `backupForAccountId` прив'язує backup до primary; активується лише той backup, чий primary порушено.
 - Allocation after activation.
 - Reset after activation.
-- Expiry on primary pass.
+- Expiry on primary pass — статус `EXPIRED`, audit `BACKUP_EXPIRED`, без refund.
 
 ---
 
@@ -802,4 +830,6 @@
 
 ---
 
-**Наступний крок:** почати з P0-1 (payout eligibility) + P0-2 (payout-adjusted drawdown), бо це найбільший фінансовий ризик.
+**Наступний крок:** P0 і P1 закрито. Перед публічним запуском лишились:
+застосувати чотири P1-міграції на production, оновити deployment, отримати
+legal sign-off і підтвердити Neon PITR retention. P2 — після запуску.
