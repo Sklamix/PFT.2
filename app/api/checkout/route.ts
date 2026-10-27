@@ -99,6 +99,16 @@ export async function POST(req: Request) {
       traderSession?.sub ??
       (await prisma.user.findUnique({ where: { email: traderEmail }, select: { id: true } }))?.id
     if (limitUserId) {
+      const buyer = await prisma.user.findUnique({
+        where: { id: limitUserId },
+        select: { riskFlaggedAt: true },
+      })
+      if (buyer?.riskFlaggedAt) {
+        return NextResponse.json(
+          { error: 'New purchases are paused while a risk review on your trading activity is open.' },
+          { status: 403 },
+        )
+      }
       const usage = await prisma.$transaction((tx) => checkAccountLimits(tx, limitUserId, planSize))
       if (!usage.ok) {
         return NextResponse.json({ error: usage.message }, { status: 409 })

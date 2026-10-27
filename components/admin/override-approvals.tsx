@@ -14,6 +14,7 @@ const STATUS_LABELS: Record<AccountStatus, string> = {
   FROZEN_STANDBY: 'Frozen standby',
   BREACHED: 'Breached',
   PASSED: 'Passed',
+  EXPIRED: 'Backup expired',
 }
 
 function requestedLabel(iso: string) {

@@ -168,6 +168,25 @@ export function AdminDesk({ user }: { user: AdminSession }) {
     }
   }
 
+  const toggleRiskFlag = async (row: TraderRow) => {
+    const action = row.riskFlagged ? 'clear' : 'flag'
+    const reason = window.prompt(
+      action === 'flag'
+        ? `Open a risk review on ${row.traderEmail}? New purchases and payouts pause until it is cleared. Reason:`
+        : `Clear the risk review on ${row.traderEmail}? Reason:`,
+    )
+    if (!reason?.trim()) return
+    try {
+      await api(`/api/admin/users/${row.userId}/risk-flag`, {
+        method: 'POST',
+        body: JSON.stringify({ action, reason: reason.trim() }),
+      })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to update the risk flag')
+    }
+  }
+
   const voidTrade = async (trade: TradeRow) => {
     const reason = window.prompt(`Void ${trade.symbol} trade? Reason:`)
     if (!reason?.trim()) return
@@ -359,6 +378,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             setReason('')
             setOverrideOpen(true)
           }}
+          onRiskFlag={(row) => void toggleRiskFlag(row)}
         />
       </section>
 

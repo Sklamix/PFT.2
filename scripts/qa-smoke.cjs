@@ -10,6 +10,7 @@ const TRADER = `qa-trader-${suffix}@pft.local`
 const RESET_TRADER = `qa-reset-${suffix}@pft.local`
 const IPN_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || 'qa-ipn-secret'
 const PASSWORD = 'Qa-Password-123!'
+const DAY_MS = 24 * 60 * 60 * 1000
 const prisma = new PrismaClient()
 
 function sortKeysDeep(value) {
@@ -586,6 +587,57 @@ async function main() {
     secondWebhook.json?.reason ?? `HTTP ${secondWebhook.status}`,
   )
 
+  // Frozen backup add-on: the provisioned backup links to its primary (rulebook 18.3).
+  const purchaseOrderId = `QA-BACKUP-${suffix}`
+  await prisma.order.create({
+    data: {
+      userId: resetTrader.id,
+      provider: 'nowpayments',
+      providerOrderId: purchaseOrderId,
+      amount: '200.00',
+      currency: 'USD',
+      status: 'PENDING',
+      rawPayload: {
+        planSize: 25000,
+        evaluationType: '2-Step',
+        drawdownMode: 'trailing',
+        dailyLossType: 5,
+        hasFrozenBackup: true,
+      },
+    },
+  })
+  const purchaseIpn = {
+    order_id: purchaseOrderId,
+    payment_status: 'finished',
+    price_amount: 200,
+    price_currency: 'usd',
+    payment_id: `qa-backup-${suffix}`,
+  }
+  const purchaseWebhook = await request('/api/webhooks/payment-success', {
+    method: 'POST',
+    headers: { 'x-nowpayments-sig': signIpn(purchaseIpn) },
+    body: JSON.stringify(purchaseIpn),
+  })
+  check(
+    'Purchase with frozen backup provisions both accounts',
+    purchaseWebhook.status === 200 && !purchaseWebhook.json?.provisioningBlocked,
+    `HTTP ${purchaseWebhook.status} ${purchaseWebhook.json?.reason ?? ''}`,
+  )
+
+  const purchasePrimary = await prisma.tradingAccount.findFirst({
+    where: { userId: resetTrader.id, planSize: 25000, isFrozenBackup: false },
+    select: { id: true },
+  })
+  const purchaseBackup = await prisma.tradingAccount.findFirst({
+    where: { userId: resetTrader.id, isFrozenBackup: true, backupForAccountId: purchasePrimary?.id ?? '' },
+    select: { id: true, status: true },
+  })
+  check(
+    'Frozen backup is linked to its primary account',
+    Boolean(purchaseBackup?.id) && purchaseBackup?.status === 'FROZEN_STANDBY',
+    purchaseBackup?.status,
+  )
+
   // Automated enforcement: the cron applies the breach matrix to engine-closed accounts.
   const cronAccount = await prisma.tradingAccount.create({
     data: {
@@ -627,6 +679,161 @@ async function main() {
     },
   })
 
+  // Frozen backup expiry: a backup expires without refund when its primary passes (18.3).
+  const passPrimary = await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-PASS-${suffix}`,
+      userId: trader.id,
+      mt5Login: `QAP${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 100000,
+      challengeType: 'ONE_STEP',
+      phase: 'PHASE_1',
+      status: 'ACTIVE',
+      profitTarget: 0.01,
+      createdAt: new Date(Date.now() - 5 * DAY_MS),
+      initialBalance: 100000,
+      dailyStartingBalance: 100000,
+      dailyStartingEquity: 100000,
+      dailyStartedAt: new Date(),
+      currentBalance: 101500,
+      currentEquity: 101500,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 0,
+      dailyDrawdownLimitPct: 4,
+      maxDrawdownLimitPct: 6,
+      profitPct: 1.5,
+      balance: 101500,
+      equity: 101500,
+      startingBalance: 100000,
+      peakEquity: 101500,
+    },
+  })
+  const passBackup = await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-PASS-BU-${suffix}`,
+      userId: trader.id,
+      mt5Login: `QAPB${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 100000,
+      challengeType: 'ONE_STEP',
+      phase: 'PHASE_1',
+      status: 'FROZEN_STANDBY',
+      isFrozenBackup: true,
+      backupForAccountId: passPrimary.id,
+      frozenAt: new Date(),
+      initialBalance: 100000,
+      dailyStartingBalance: 100000,
+      dailyStartingEquity: 100000,
+      dailyStartedAt: new Date(),
+      currentBalance: 100000,
+      currentEquity: 100000,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 0,
+      dailyDrawdownLimitPct: 4,
+      maxDrawdownLimitPct: 6,
+      profitPct: 0,
+      balance: 100000,
+      equity: 100000,
+      startingBalance: 100000,
+      peakEquity: 100000,
+    },
+  })
+  for (const offset of [4, 3, 2]) {
+    await prisma.tradeHistory.create({
+      data: {
+        tradingAccountId: passPrimary.id,
+        symbol: 'EURUSD',
+        side: 'BUY',
+        sizeLots: 0.1,
+        entryPrice: 1.1,
+        exitPrice: 1.101,
+        pnl: 500,
+        closeReason: 'MANUAL',
+        openedAt: new Date(Date.now() - offset * DAY_MS),
+        closedAt: new Date(Date.now() - offset * DAY_MS + 60 * 60_000),
+      },
+    })
+  }
+
+  // User-level risk flag: news violations across two accounts (rulebook 9.4).
+  const riskAccounts = []
+  for (const index of [1, 2]) {
+    const riskAccount = await prisma.tradingAccount.create({
+      data: {
+        displayId: `QA-RISK-${index}-${suffix}`,
+        userId: trader.id,
+        mt5Login: `QARX${index}${suffix}`,
+        mt5Server: 'QA-Server',
+        planSize: 5000,
+        challengeType: 'TWO_STEP',
+        phase: 'PHASE_1',
+        status: 'ACTIVE',
+        initialBalance: 5000,
+        dailyStartingBalance: 5000,
+        dailyStartingEquity: 5000,
+        dailyStartedAt: new Date(),
+        currentBalance: 5000,
+        currentEquity: 5000,
+        dailyDrawdownPct: 0,
+        maxDrawdownPct: 0,
+        dailyDrawdownLimitPct: 5,
+        maxDrawdownLimitPct: 10,
+        profitPct: 0,
+        balance: 5000,
+        equity: 5000,
+        startingBalance: 5000,
+        peakEquity: 5000,
+      },
+    })
+    riskAccounts.push(riskAccount)
+    await prisma.auditLog.create({
+      data: {
+        accountId: riskAccount.id,
+        action: 'NEWS_WINDOW_EXPOSURE',
+        reason: 'News window exposure: QA Non-Farm Payrolls',
+        metadata: {
+          eventId: 'qa-nfp',
+          eventTitle: 'QA Non-Farm Payrolls',
+          eventTime: new Date().toISOString(),
+          positionId: `qa-risk-pos-${index}`,
+          symbol: 'EURUSD',
+          annulledPnl: 0,
+          violationNumber: 1,
+        },
+      },
+    })
+  }
+
+  // Funded account used only to observe the user-level payout gate.
+  const riskPayoutAccount = await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-RISK-PAY-${suffix}`,
+      userId: trader.id,
+      mt5Login: `QARY${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 5000,
+      challengeType: 'TWO_STEP',
+      phase: 'FUNDED',
+      status: 'FUNDED',
+      initialBalance: 5000,
+      dailyStartingBalance: 5000,
+      dailyStartingEquity: 5000,
+      dailyStartedAt: new Date(),
+      currentBalance: 5000,
+      currentEquity: 5000,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 0,
+      dailyDrawdownLimitPct: 5,
+      maxDrawdownLimitPct: 10,
+      profitPct: 0,
+      balance: 5000,
+      equity: 5000,
+      startingBalance: 5000,
+      peakEquity: 5000,
+    },
+  })
+
   const cronHeaders = { authorization: `Bearer ${process.env.CRON_SECRET ?? ''}` }
   const cron = await request('/api/cron/trading', { headers: cronHeaders })
   check('Trading cron runs', cron.status === 200, `HTTP ${cron.status}`)
@@ -655,6 +862,65 @@ async function main() {
   check(
     'Automated enforcement is idempotent',
     !cronAgain.json?.enforcement?.applied?.some((item) => item.accountId === cronAccount.id),
+  )
+
+  const backupAfterPass = await prisma.tradingAccount.findUniqueOrThrow({
+    where: { id: passBackup.id },
+    select: { status: true },
+  })
+  check('Backup expires when its primary passes', backupAfterPass.status === 'EXPIRED', backupAfterPass.status)
+
+  const backupExpiryAudit = await prisma.auditLog.findFirst({
+    where: { accountId: passBackup.id, action: 'BACKUP_EXPIRED' },
+    select: { id: true },
+  })
+  check('Backup expiry is audited', Boolean(backupExpiryAudit?.id))
+
+  const riskFlaggedUser = await prisma.user.findUniqueOrThrow({
+    where: { id: trader.id },
+    select: { riskFlaggedAt: true, riskFlagReason: true },
+  })
+  check(
+    'Cron opens a user risk review after repeated news violations',
+    Boolean(riskFlaggedUser.riskFlaggedAt) &&
+      Boolean(cron.json?.riskFlags?.flagged?.some((item) => item.userId === trader.id)),
+    riskFlaggedUser.riskFlagReason ?? 'not flagged',
+  )
+
+  const payoutBody = {
+    accountId: riskPayoutAccount.id,
+    amount: 1000,
+    network: 'USDT_TRC20',
+    walletAddress: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE',
+  }
+  const flaggedPayout = await request('/api/payouts', { method: 'POST', body: JSON.stringify(payoutBody) }, login3.cookie)
+  check(
+    'Risk review pauses payouts',
+    flaggedPayout.status === 409 && flaggedPayout.json?.code === 'RISK_REVIEW_HOLD',
+    `HTTP ${flaggedPayout.status} ${flaggedPayout.json?.code ?? ''}`,
+  )
+
+  const shortRiskReason = await request(`/api/admin/users/${trader.id}/risk-flag`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'clear', reason: 'short' }),
+  }, adminB.cookie)
+  check('Risk flag change requires a reason', shortRiskReason.status === 400, `HTTP ${shortRiskReason.status}`)
+
+  const clearedRiskFlag = await request(`/api/admin/users/${trader.id}/risk-flag`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'clear', reason: 'QA reviewed the flagged news violations manually' }),
+  }, adminB.cookie)
+  check(
+    'Admin clears the risk review',
+    clearedRiskFlag.status === 200 && clearedRiskFlag.json?.flagged === false,
+    `HTTP ${clearedRiskFlag.status}`,
+  )
+
+  const payoutAfterClear = await request('/api/payouts', { method: 'POST', body: JSON.stringify(payoutBody) }, login3.cookie)
+  check(
+    'Cleared risk review releases the payout gate',
+    payoutAfterClear.status === 400 && payoutAfterClear.json?.code === 'NO_TRADES',
+    `HTTP ${payoutAfterClear.status} ${payoutAfterClear.json?.code ?? ''}`,
   )
 
   await cleanup()

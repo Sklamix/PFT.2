@@ -52,8 +52,11 @@ const REQUIRED_COLUMNS: { table: string; column: string }[] = [
   { table: 'TradingAccount', column: 'resetSourceAccountId' },
   { table: 'TradingAccount', column: 'dailyStartedAt' },
   { table: 'TradingAccount', column: 'reservedPayoutAmount' },
+  { table: 'TradingAccount', column: 'backupForAccountId' },
   { table: 'TradeHistory', column: 'voidedAt' },
   { table: 'TradeHistory', column: 'originalPnl' },
+  { table: 'User', column: 'riskFlaggedAt' },
+  { table: 'User', column: 'riskFlagReason' },
 ]
 
 function present(name: string) {

@@ -87,6 +87,8 @@ function mapTrader(account: AccountWithRelations): TraderRow {
     riskBadge: 'ACTIVE - PASSING',
     lastTelemetryAt: account.lastTelemetryAt?.toISOString() ?? null,
     breachReason: account.breachReason,
+    riskFlagged: Boolean(account.user.riskFlaggedAt),
+    riskFlagReason: account.user.riskFlagReason,
   }
   row.riskBadge = riskBadge(row)
   return row

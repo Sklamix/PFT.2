@@ -58,7 +58,7 @@ export function planFromOrderPayload(payload: Prisma.JsonValue | null): Challeng
   }
 }
 
-function accountData(userId: string, plan: ChallengePlan, standby: boolean) {
+function accountData(userId: string, plan: ChallengePlan, standby: boolean, primaryId?: string) {
   const rules = CHALLENGES[plan.challengeType]
   const size = plan.planSize
   return {
@@ -91,6 +91,7 @@ function accountData(userId: string, plan: ChallengePlan, standby: boolean) {
     maxTrailingDrawdown: rules.overallDrawdown / 100,
     profitTarget: rules.phase1Target / 100,
     isFrozenBackup: standby,
+    backupForAccountId: standby ? (primaryId ?? null) : null,
     frozenAt: standby ? new Date() : null,
   }
 }
@@ -111,7 +112,7 @@ export async function provisionChallengeAccounts(
   })) as ProvisionedAccount
   const standby = input.plan.hasFrozenBackup
     ? ((await tx.tradingAccount.create({
-        data: accountData(input.userId, input.plan, true),
+        data: accountData(input.userId, input.plan, true, primary.id),
         select: SELECT,
       })) as ProvisionedAccount)
     : null

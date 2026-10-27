@@ -22,6 +22,7 @@ export function RiskTable({
   onKyc,
   onOverride,
   onRefresh,
+  onRiskFlag,
 }: {
   rows: TraderRow[]
   onTrades: (row: TraderRow) => void
@@ -29,6 +30,7 @@ export function RiskTable({
   onKyc: (row: TraderRow) => void
   onOverride: (row: TraderRow) => void
   onRefresh: (row: TraderRow) => void
+  onRiskFlag: (row: TraderRow) => void
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -80,6 +82,14 @@ export function RiskTable({
                     {row.kycStatus}
                   </span>
                 </p>
+                {row.riskFlagged ? (
+                  <p
+                    className="mt-0.5 text-[11px] font-semibold text-destructive"
+                    title={row.riskFlagReason ?? undefined}
+                  >
+                    RISK REVIEW · purchases and payouts paused
+                  </p>
+                ) : null}
               </TableCell>
               <TableCell>
                 <p className="text-sm">{formatUsd(row.planSize, true)} · {challengeLabel(row.challengeType)}</p>
@@ -112,6 +122,9 @@ export function RiskTable({
                     <DropdownMenuItem onClick={() => onRefresh(row)}>Reload account data</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onKyc(row)}>Manage KYC</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onOverride(row)}>Override status</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onRiskFlag(row)}>
+                      {row.riskFlagged ? 'Clear risk review' : 'Open risk review'}
+                    </DropdownMenuItem>
                     <DropdownMenuItem variant="destructive" onClick={() => onBreach(row)}>
                       Kill-switch / breach
                     </DropdownMenuItem>

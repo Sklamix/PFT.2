@@ -11,6 +11,7 @@ export type PayoutEligibilityCode =
   | 'PAYOUT_ALREADY_PENDING'
   | 'NEWS_REVIEW_HOLD'
   | 'PAYOUT_REVIEW_HOLD'
+  | 'RISK_REVIEW_HOLD'
   | 'NOT_ENOUGH_PROFITABLE_DAYS'
   | 'NO_PROFIT'
   | 'CONSISTENCY_FAILED'
@@ -61,7 +62,7 @@ export async function checkPayoutEligibility(
       id: true,
       initialBalance: true,
       currentBalance: true,
-      user: { select: { kycStatus: true } },
+      user: { select: { kycStatus: true, riskFlaggedAt: true } },
     },
   })
 
@@ -70,6 +71,13 @@ export async function checkPayoutEligibility(
   }
   if (account.user.kycStatus !== 'APPROVED') {
     return { ok: false, code: 'KYC_REQUIRED', message: 'KYC must be approved before requesting a payout.' }
+  }
+  if (account.user.riskFlaggedAt) {
+    return {
+      ok: false,
+      code: 'RISK_REVIEW_HOLD',
+      message: 'Payouts are paused while a risk review on your trading activity is open.',
+    }
   }
 
   const manualHold = await getActivePayoutHold(tx, account.id)

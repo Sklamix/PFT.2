@@ -13,6 +13,7 @@ export type AccountStatus =
   | 'FROZEN_STANDBY'
   | 'BREACHED'
   | 'PASSED'
+  | 'EXPIRED'
 export type TraderFilter = 'all' | 'near_limit' | 'breached' | 'passing'
 
 export type PendingAccountOverride = {
@@ -94,6 +95,9 @@ export type TraderRow = {
   riskBadge: RiskBadge
   lastTelemetryAt: string | null
   breachReason: string | null
+  /** User-level risk review flag (rulebook 9.4); pauses purchases and payouts. */
+  riskFlagged: boolean
+  riskFlagReason: string | null
 }
 
 export type TradeRow = {

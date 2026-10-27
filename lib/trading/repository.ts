@@ -404,7 +404,14 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
 
     async activateStandby() {
       const standby = await tx.tradingAccount.findFirst({
-        where: { userId: account.userId, id: { not: accountId }, status: 'FROZEN_STANDBY' },
+        where: {
+          userId: account.userId,
+          id: { not: accountId },
+          status: 'FROZEN_STANDBY',
+          // Only the backup bought for this primary activates. Legacy rows without
+          // a link keep the previous behaviour.
+          OR: [{ backupForAccountId: accountId }, { backupForAccountId: null }],
+        },
         orderBy: { createdAt: 'asc' },
       })
       if (!standby) return null

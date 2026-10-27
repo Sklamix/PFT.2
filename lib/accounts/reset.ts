@@ -29,6 +29,7 @@ export class ResetError extends Error {
       | 'frozen'
       | 'limit'
       | 'abuse'
+      | 'risk'
       | 'provisioning',
   ) {
     super(message)
@@ -66,9 +67,16 @@ export async function getResetEligibility(accountId: string, db: Db = prisma): P
       breachReason: true,
       frozenAt: true,
       updatedAt: true,
+      user: { select: { riskFlaggedAt: true } },
     },
   })
   if (!account) throw new ResetError('Account not found.', 'not_found')
+  if (account.user.riskFlaggedAt) {
+    throw new ResetError(
+      'New purchases are paused while a risk review on your trading activity is open.',
+      'risk',
+    )
+  }
   if (account.isFrozenBackup || account.status === 'FROZEN_STANDBY') {
     throw new ResetError('Reset is not available while the backup account is frozen.', 'frozen')
   }

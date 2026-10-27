@@ -21,8 +21,32 @@ function challengeKey(type: 'ONE_STEP' | 'TWO_STEP') {
   return type === 'ONE_STEP' ? 'one-step' : 'two-step'
 }
 
-async function phaseStartedAt(tx: Prisma.TransactionClient, accountId: string, phase: string, createdAt: Date) {
-  if (phase === 'PHASE_1') return createdAt
+/** Rulebook 18.3: a frozen backup expires without refund once its primary passes. */
+async function expireLinkedBackups(tx: Prisma.TransactionClient, primaryAccountId: string) {
+  const backups = await tx.tradingAccount.findMany({
+    where: { backupForAccountId: primaryAccountId, status: 'FROZEN_STANDBY' },
+    select: { id: true },
+  })
+  if (backups.length === 0) return
+  await tx.tradingAccount.updateMany({
+    where: { id: { in: backups.map((backup) => backup.id) }, status: 'FROZEN_STANDBY' },
+    data: {
+      status: 'EXPIRED',
+      frozenAt: new Date(),
+      breachReason: 'Backup expired: primary account passed',
+    },
+  })
+  await tx.auditLog.createMany({
+    data: backups.map((backup) => ({
+      accountId: backup.id,
+      action: 'BACKUP_EXPIRED',
+      reason: 'Primary account passed',
+      metadata: { primaryAccountId },
+    })),
+  })
+}
+
+async function phaseStartedAt(tx: Prisma.TransactionClient, accountId: string, phase: string, createdAt: Date) {  if (phase === 'PHASE_1') return createdAt
   const marker = await tx.auditLog.findFirst({
     where: { accountId, action: 'PHASE_PASSED' },
     orderBy: { createdAt: 'desc' },
@@ -110,6 +134,7 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
           metadata: { phase: 'FUNDED', tradingDays, profit },
         },
       })
+      await expireLinkedBackups(tx, account.id)
       return { status: 'passed', phase: 'ONE_STEP' }
     }
 
@@ -166,6 +191,7 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
         metadata: { phase: 'FUNDED', tradingDays, profit },
       },
     })
+    await expireLinkedBackups(tx, account.id)
     return { status: 'passed', phase: 'TWO_STEP' }
   })
 }

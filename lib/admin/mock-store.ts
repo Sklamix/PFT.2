@@ -550,6 +550,8 @@ function toTraderRow(acc: MockAccount): TraderRow {
     riskBadge: 'ACTIVE - PASSING',
     lastTelemetryAt: acc.lastTelemetryAt,
     breachReason: acc.breachReason,
+    riskFlagged: false,
+    riskFlagReason: null,
   }
   row.riskBadge = riskBadge(row)
   return row

@@ -48,6 +48,8 @@ enum AccountStatus {
   FUNDED
   BREACHED_DAILY
   BREACHED_MAX
+  /** Frozen backup that expired because its primary account passed. */
+  EXPIRED
 }
 
 enum OrderStatus {
@@ -150,6 +152,8 @@ model User {
   lastLoginIp   String?
   lastDeviceHash String?
   activeSessionId String?
+  riskFlaggedAt DateTime?
+  riskFlagReason String?
   telegram      String?
   discord       String?
   createdAt     DateTime  @default(now())
@@ -211,6 +215,8 @@ model TradingAccount {
   maxTrailingDrawdown  Float          @default(0.10)
   profitTarget         Float          @default(0.10)
   isFrozenBackup       Boolean        @default(false)
+  /** Primary account this frozen backup belongs to; activates when that primary breaches. */
+  backupForAccountId   String?
   resetSourceAccountId String?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
@@ -227,6 +233,7 @@ model TradingAccount {
   @@index([status])
   @@index([mt5Login])
   @@index([userId])
+  @@index([backupForAccountId])
 }
 
 model Order {
