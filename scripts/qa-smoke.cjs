@@ -8,6 +8,8 @@ const ADMIN_A = `qa-admin-a-${suffix}@pft.local`
 const ADMIN_B = `qa-admin-b-${suffix}@pft.local`
 const TRADER = `qa-trader-${suffix}@pft.local`
 const RESET_TRADER = `qa-reset-${suffix}@pft.local`
+const SHARE_TRADER = `qa-share-${suffix}@pft.local`
+const RUN_START = new Date()
 const IPN_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || 'qa-ipn-secret'
 const PASSWORD = 'Qa-Password-123!'
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -69,7 +71,7 @@ async function loginAdmin(email) {
 
 async function cleanup() {
   const users = await prisma.user.findMany({
-    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER, RESET_TRADER] } },
+    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER, RESET_TRADER, SHARE_TRADER] } },
     select: { id: true },
   })
   const userIds = users.map((user) => user.id)
@@ -81,6 +83,12 @@ async function cleanup() {
   const accountIds = accounts.map((account) => account.id)
   await prisma.auditLog.deleteMany({
     where: { OR: [{ actorId: { in: userIds } }, { accountId: { in: accountIds } }] },
+  })
+  await prisma.auditLog.deleteMany({
+    where: { action: 'SESSION_RISK_SIGNAL', createdAt: { gte: RUN_START } },
+  })
+  await prisma.auditLog.deleteMany({
+    where: { action: 'RULES_NOTICE_SENT', createdAt: { gte: RUN_START } },
   })
   await prisma.user.deleteMany({ where: { id: { in: userIds } } })
 }
@@ -834,6 +842,12 @@ async function main() {
     },
   })
 
+  // Rulebook versioning: the cron announces a newer rules version once per trader.
+  await prisma.user.update({
+    where: { id: trader.id },
+    data: { rulesNotifiedVersion: '1.5' },
+  })
+
   const cronHeaders = { authorization: `Bearer ${process.env.CRON_SECRET ?? ''}` }
   const cron = await request('/api/cron/trading', { headers: cronHeaders })
   check('Trading cron runs', cron.status === 200, `HTTP ${cron.status}`)
@@ -862,6 +876,33 @@ async function main() {
   check(
     'Automated enforcement is idempotent',
     !cronAgain.json?.enforcement?.applied?.some((item) => item.accountId === cronAccount.id),
+  )
+
+  const rulesUser = await prisma.user.findUniqueOrThrow({
+    where: { id: trader.id },
+    select: { rulesNotifiedVersion: true },
+  })
+  check(
+    'Cron announces the current rules version',
+    cron.json?.rules?.version === '1.6' && rulesUser.rulesNotifiedVersion === '1.6',
+    `${cron.json?.rules?.version ?? 'n/a'} · notified ${rulesUser.rulesNotifiedVersion ?? 'n/a'}`,
+  )
+
+  const rulesAudits = await prisma.auditLog.findMany({
+    where: { action: 'RULES_NOTICE_SENT', createdAt: { gte: RUN_START } },
+    select: { metadata: true },
+  })
+  const rulesAuditUser = rulesAudits
+    .map((audit) =>
+      audit.metadata && typeof audit.metadata === 'object' && !Array.isArray(audit.metadata)
+        ? audit.metadata.userId
+        : null,
+    )
+    .find((userId) => userId === trader.id)
+  check(
+    'Rules notice is audited per trader',
+    rulesAuditUser === trader.id,
+    `${rulesAudits.length} notice(s): ${String(rulesAuditUser ?? 'trader missing')}`,
   )
 
   const backupAfterPass = await prisma.tradingAccount.findUniqueOrThrow({
@@ -921,6 +962,98 @@ async function main() {
     'Cleared risk review releases the payout gate',
     payoutAfterClear.status === 400 && payoutAfterClear.json?.code === 'NO_TRADES',
     `HTTP ${payoutAfterClear.status} ${payoutAfterClear.json?.code ?? ''}`,
+  )
+
+  // Session risk signals: country changes, declared VPS and shared-device detection.
+  async function sessionSignals() {
+    const logs = await prisma.auditLog.findMany({
+      where: { action: 'SESSION_RISK_SIGNAL', createdAt: { gte: RUN_START } },
+      select: { metadata: true },
+    })
+    return logs
+      .map((log) =>
+        log.metadata && typeof log.metadata === 'object' && !Array.isArray(log.metadata)
+          ? log.metadata.signal
+          : null,
+      )
+      .filter((signal) => typeof signal === 'string')
+  }
+
+  const loginCountry1 = await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'x-country-code': 'DE', 'x-forwarded-for': '203.0.113.10' },
+    body: JSON.stringify({ email: TRADER, password: PASSWORD }),
+  })
+  const firstAccessEvent = await prisma.accessEvent.findFirst({
+    where: { userId: trader.id },
+    orderBy: { createdAt: 'desc' },
+    select: { country: true, deviceHash: true },
+  })
+  check(
+    'Login fingerprint records the country',
+    loginCountry1.status === 200 && firstAccessEvent?.country === 'DE',
+    firstAccessEvent?.country ?? `HTTP ${loginCountry1.status}`,
+  )
+
+  const loginCountry2 = await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'x-country-code': 'US', 'x-forwarded-for': '203.0.113.20' },
+    body: JSON.stringify({ email: TRADER, password: PASSWORD }),
+  })
+  const countrySignals = await sessionSignals()
+  check(
+    'Concurrent country sign-in raises a session alert',
+    loginCountry2.status === 200 &&
+      countrySignals.includes('NEW_COUNTRY') &&
+      countrySignals.includes('CONCURRENT_COUNTRY'),
+    countrySignals.join(', '),
+  )
+
+  await prisma.user.update({
+    where: { id: trader.id },
+    data: { declaredVpsCountry: 'DE', vpsDeclaredAt: new Date() },
+  })
+  const loginVpsMismatch = await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'x-country-code': 'FR', 'x-forwarded-for': '203.0.113.30' },
+    body: JSON.stringify({ email: TRADER, password: PASSWORD }),
+  })
+  const vpsSignals = await sessionSignals()
+  check(
+    'Sign-in outside the declared VPS country raises an alert',
+    loginVpsMismatch.status === 200 && vpsSignals.includes('VPS_LOCATION_MISMATCH'),
+    vpsSignals.join(', '),
+  )
+
+  await prisma.user.create({
+    data: {
+      email: SHARE_TRADER,
+      name: 'QA Share Trader',
+      passwordHash: hashPassword(PASSWORD),
+      role: 'TRADER',
+      kycStatus: 'APPROVED',
+      lastLoginIp: '203.0.113.30',
+      lastDeviceHash: firstAccessEvent?.deviceHash ?? null,
+    },
+  })
+  const loginShared = await request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'x-country-code': 'DE', 'x-forwarded-for': '203.0.113.30' },
+    body: JSON.stringify({ email: TRADER, password: PASSWORD }),
+  })
+  const shareSignals = await sessionSignals()
+  check(
+    'Shared device and network raises a sharing alert',
+    loginShared.status === 200 && shareSignals.includes('SHARED_ACCESS'),
+    shareSignals.join(', '),
+  )
+
+  const tradersWithAlerts = await request(`/api/admin/traders?q=${encodeURIComponent(trader.email)}`, {}, adminA.cookie)
+  check(
+    'Admin desk surfaces session alerts',
+    tradersWithAlerts.status === 200 &&
+      tradersWithAlerts.json?.items?.some((item) => (item.sessionAlerts ?? 0) > 0),
+    `HTTP ${tradersWithAlerts.status}`,
   )
 
   await cleanup()

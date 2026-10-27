@@ -57,6 +57,10 @@ const REQUIRED_COLUMNS: { table: string; column: string }[] = [
   { table: 'TradeHistory', column: 'originalPnl' },
   { table: 'User', column: 'riskFlaggedAt' },
   { table: 'User', column: 'riskFlagReason' },
+  { table: 'User', column: 'declaredVpsCountry' },
+  { table: 'User', column: 'vpsDeclaredAt' },
+  { table: 'User', column: 'rulesNotifiedVersion' },
+  { table: 'Order', column: 'rulesVersion' },
 ]
 
 function present(name: string) {

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
 import { recordAccessFingerprint } from '@/lib/security/access-fingerprint'
+import { recordSessionRisk } from '@/lib/security/session-risk'
 import { TRADER_COOKIE } from '@/lib/trader/constants'
 
 export { TRADER_COOKIE }
@@ -71,6 +72,8 @@ export async function issueTraderSession(session: TraderSession, request: Reques
       data: { activeSessionId: sessionId },
     })
   }
+  // Read the previous fingerprint before it is overwritten.
+  await recordSessionRisk(session.sub, request)
   await recordAccessFingerprint(session.sub, request)
   return { ...session, sessionId }
 }

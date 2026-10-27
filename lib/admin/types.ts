@@ -98,6 +98,10 @@ export type TraderRow = {
   /** User-level risk review flag (rulebook 9.4); pauses purchases and payouts. */
   riskFlagged: boolean
   riskFlagReason: string | null
+  /** Country declared for VPS trading, if any. */
+  declaredVpsCountry: string | null
+  /** Session risk alerts raised in the last 7 days. */
+  sessionAlerts: number
 }
 
 export type TradeRow = {

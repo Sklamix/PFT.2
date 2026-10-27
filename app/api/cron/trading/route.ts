@@ -5,7 +5,9 @@ import { notifyBookEvents } from '@/lib/email/trade-events'
 import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
 import { enforceBreachMatrix } from '@/lib/rules/enforcement'
+import { announceRuleChanges } from '@/lib/rules/notices'
 import { refreshUserRiskFlags } from '@/lib/rules/risk-flags'
+import { pruneAccessEvents } from '@/lib/security/session-risk'
 import { syncAccount } from '@/lib/trading/engine'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
 import { detectCrossAccountHedges } from '@/lib/trading/net-exposure'
@@ -16,12 +18,14 @@ export const dynamic = 'force-dynamic'
 
 async function run() {
   const riskFlags = await refreshUserRiskFlags()
+  await pruneAccessEvents()
+  const rules = await announceRuleChanges()
   const quotes = await getFreshMarketQuotes()
   if (Object.keys(quotes).length === 0) {
     // Weekend or a stalled feed. There is nothing to mark or fill, but closure
     // consequences still have to be written, and the cron itself succeeded.
     const enforcement = await enforceBreachMatrix()
-    return NextResponse.json({ status: 'market_closed', accounts: 0, enforcement, riskFlags })
+    return NextResponse.json({ status: 'market_closed', accounts: 0, enforcement, riskFlags, rules })
   }
 
   const warnedAccounts = await warnFundedAccountsBeforeNews()
@@ -129,6 +133,7 @@ async function run() {
     progression: progression.filter((item) => item.result.status !== 'noop'),
     enforcement,
     riskFlags,
+    rules,
     limitReconciliation,
     crossAccountHedges,
     inactivity,

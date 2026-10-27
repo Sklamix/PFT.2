@@ -552,6 +552,8 @@ function toTraderRow(acc: MockAccount): TraderRow {
     breachReason: acc.breachReason,
     riskFlagged: false,
     riskFlagReason: null,
+    declaredVpsCountry: null,
+    sessionAlerts: 0,
   }
   row.riskBadge = riskBadge(row)
   return row

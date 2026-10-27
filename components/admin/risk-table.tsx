@@ -90,6 +90,14 @@ export function RiskTable({
                     RISK REVIEW · purchases and payouts paused
                   </p>
                 ) : null}
+                {row.sessionAlerts > 0 ? (
+                  <p className="mt-0.5 text-[11px] font-semibold text-warning">
+                    SESSION ALERTS · {row.sessionAlerts} in 7 days
+                  </p>
+                ) : null}
+                {row.declaredVpsCountry ? (
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">VPS declared: {row.declaredVpsCountry}</p>
+                ) : null}
               </TableCell>
               <TableCell>
                 <p className="text-sm">{formatUsd(row.planSize, true)} · {challengeLabel(row.challengeType)}</p>

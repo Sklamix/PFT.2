@@ -15,6 +15,7 @@ import {
 import { isEmailConfigured } from '@/lib/email/resend'
 import { sendCheckoutInvoiceEmail, type CheckoutInvoiceDetails } from '@/lib/email/checkout-invoice'
 import { appUrl } from '@/lib/email/account-credentials'
+import { RULES_VERSION } from '@/lib/rules/version'
 import { getTraderSession } from '@/lib/trader/auth'
 
 const PAY_CURRENCY = 'usdttrc20'
@@ -243,6 +244,7 @@ async function persistPendingOrder(
         amount: order.totalAmount.toString(),
         currency: 'USD',
         status: 'PENDING',
+        rulesVersion: RULES_VERSION,
         invoiceEmailStatus: isEmailConfigured() ? 'PENDING' : 'SKIPPED',
         rawPayload: {
           planSize: order.planSize,

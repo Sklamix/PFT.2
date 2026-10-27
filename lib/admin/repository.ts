@@ -54,7 +54,7 @@ type AccountWithRelations = Prisma.TradingAccountGetPayload<{
   include: { user: true; positions: true }
 }>
 
-function mapTrader(account: AccountWithRelations): TraderRow {
+function mapTrader(account: AccountWithRelations, sessionAlerts = 0): TraderRow {
   const open = account.positions.filter((position) => position.status === 'OPEN')
   const row: TraderRow = {
     id: account.id,
@@ -89,6 +89,8 @@ function mapTrader(account: AccountWithRelations): TraderRow {
     breachReason: account.breachReason,
     riskFlagged: Boolean(account.user.riskFlaggedAt),
     riskFlagReason: account.user.riskFlagReason,
+    declaredVpsCountry: account.user.declaredVpsCountry,
+    sessionAlerts,
   }
   row.riskBadge = riskBadge(row)
   return row
@@ -246,8 +248,27 @@ export const adminRepo = {
       orderBy: { dailyDrawdownPct: 'desc' },
     })
 
+    const alertCounts = new Map<string, number>()
+    if (rows.length > 0) {
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60_000)
+      const alerts = await prisma.auditLog.findMany({
+        where: {
+          action: 'SESSION_RISK_SIGNAL',
+          createdAt: { gte: weekAgo },
+        },
+        select: { metadata: true },
+      })
+      for (const alert of alerts) {
+        const userId =
+          alert.metadata && typeof alert.metadata === 'object' && !Array.isArray(alert.metadata)
+            ? (alert.metadata as { userId?: unknown }).userId
+            : null
+        if (typeof userId === 'string') alertCounts.set(userId, (alertCounts.get(userId) ?? 0) + 1)
+      }
+    }
+
     const filtered = rows
-      .map(mapTrader)
+      .map((row) => mapTrader(row, alertCounts.get(row.userId) ?? 0))
       .filter((row) => matchesTraderFilter(row, filter))
       .sort((a, b) => drawdownPressure(b) - drawdownPressure(a))
     const start = (page - 1) * pageSize

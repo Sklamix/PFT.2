@@ -17,6 +17,7 @@ type Profile = {
   phone: string | null
   country: string | null
   avatarUrl: string | null
+  declaredVpsCountry: string | null
 }
 
 const FIELD_CLASS =
@@ -31,6 +32,7 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
   const [phoneCountry, setPhoneCountry] = useState('')
   const [phoneDigits, setPhoneDigits] = useState('')
   const [country, setCountry] = useState('')
+  const [vpsCountry, setVpsCountry] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +53,7 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
         setNickname(value.nickname ?? '')
         setDateOfBirth(value.dateOfBirth)
         setCountry(residence?.code ?? '')
+        setVpsCountry(countryByValue(value.declaredVpsCountry)?.code ?? '')
         setPhoneCountry(storedPhone.country ?? residence?.code ?? '')
         setPhoneDigits(storedPhone.digits)
       })
@@ -85,7 +88,14 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
       const response = await fetch('/api/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, nickname, dateOfBirth, phone, country }),
+        body: JSON.stringify({
+          name,
+          nickname,
+          dateOfBirth,
+          phone,
+          country,
+          ...(mode === 'settings' ? { declaredVpsCountry: vpsCountry } : {}),
+        }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Unable to save profile.')
@@ -148,6 +158,30 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
                   }}
                 />
               </div>
+              {mode === 'settings' ? (
+                <div className="sm:col-span-2">
+                  <CountryCombobox
+                    id="vps-country"
+                    label="VPS country (optional)"
+                    placeholder="Search country…"
+                    value={vpsCountry}
+                    onChange={setVpsCountry}
+                  />
+                  <p className="mt-1 text-xs text-slate-500">
+                    Declare the country of the VPS you trade from. Sign-ins from another country raise a security
+                    alert.
+                  </p>
+                  {vpsCountry ? (
+                    <button
+                      type="button"
+                      onClick={() => setVpsCountry('')}
+                      className="mt-1 text-xs text-slate-400 underline underline-offset-2 hover:text-slate-200"
+                    >
+                      Clear VPS declaration
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               <PhoneInput
                 country={phoneCountry}
                 onCountryChange={setPhoneCountry}

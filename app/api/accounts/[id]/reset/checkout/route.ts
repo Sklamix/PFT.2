@@ -4,6 +4,7 @@ import { jsonError, safeError } from '@/lib/admin/http'
 import { appUrl } from '@/lib/email/account-credentials'
 import { createInvoice } from '@/lib/payments/nowpayments'
 import { prisma } from '@/lib/prisma'
+import { RULES_VERSION } from '@/lib/rules/version'
 import { authorizeAccount } from '@/lib/trader/guard'
 
 export const dynamic = 'force-dynamic'
@@ -61,6 +62,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
         amount: eligibility.price.toString(),
         currency: 'USD',
         status: 'PENDING',
+        rulesVersion: RULES_VERSION,
         invoiceEmailStatus: 'SKIPPED',
         rawPayload: payload,
       },

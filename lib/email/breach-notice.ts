@@ -1,5 +1,6 @@
 import { appUrl } from './account-credentials'
 import { sendEmail, type EmailResult } from './resend'
+import { NO_ACQUIRED_RIGHT } from '@/lib/rules/version'
 
 function rulesUrl() {
   return `${appUrl()}/rules`
@@ -53,6 +54,8 @@ export async function sendBreachNotice(input: BreachNotice): Promise<EmailResult
       '',
       appeal,
       '',
+      NO_ACQUIRED_RIGHT,
+      '',
       `Full rules: ${rulesUrl()}`,
       '',
       'PFT Risk',
@@ -99,6 +102,8 @@ export async function sendSoftBreachNotice(input: SoftBreachNotice): Promise<Ema
       list(input.consequences.length > 0 ? input.consequences : ['A formal warning was added to your account record.']),
       '',
       input.nextViolation,
+      '',
+      NO_ACQUIRED_RIGHT,
       '',
       'Full rules: ' + rulesUrl(),
       '',

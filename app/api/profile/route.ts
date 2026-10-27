@@ -26,6 +26,7 @@ export async function GET() {
         avatarUrl: true,
         emailVerifiedAt: true,
         profileCompletedAt: true,
+        declaredVpsCountry: true,
       },
     })
     if (!profile) return NextResponse.json({ error: 'Profile not found.' }, { status: 404 })
@@ -64,6 +65,9 @@ export async function PATCH(request: Request) {
   const residence = countryByValue(country)
   const parsedPhone = parsePhoneNumberFromString(rawPhone)
   const parsedBirthDate = DATE_PATTERN.test(dateOfBirth) ? new Date(`${dateOfBirth}T00:00:00.000Z`) : null
+  const hasVpsField = Object.prototype.hasOwnProperty.call(input, 'declaredVpsCountry')
+  const rawVpsCountry = typeof input.declaredVpsCountry === 'string' ? input.declaredVpsCountry.trim() : ''
+  const vpsResidence = rawVpsCountry ? countryByValue(rawVpsCountry) : null
 
   if (!NAME_PATTERN.test(name)) {
     return NextResponse.json({ error: 'Enter a first and last name (2–100 characters).' }, { status: 400 })
@@ -80,6 +84,9 @@ export async function PATCH(request: Request) {
   if (!parsedPhone?.isValid()) {
     return NextResponse.json({ error: 'Enter a valid phone number in international format.' }, { status: 400 })
   }
+  if (hasVpsField && rawVpsCountry && !vpsResidence) {
+    return NextResponse.json({ error: 'Select a valid VPS country or leave the field empty.' }, { status: 400 })
+  }
 
   try {
     const profile = await prisma.user.update({
@@ -91,8 +98,22 @@ export async function PATCH(request: Request) {
         country: residence.code,
         phone: parsedPhone.number,
         profileCompletedAt: new Date(),
+        ...(hasVpsField
+          ? {
+              declaredVpsCountry: vpsResidence?.code ?? null,
+              vpsDeclaredAt: vpsResidence ? new Date() : null,
+            }
+          : {}),
       },
-      select: { email: true, name: true, nickname: true, dateOfBirth: true, country: true, phone: true },
+      select: {
+        email: true,
+        name: true,
+        nickname: true,
+        dateOfBirth: true,
+        country: true,
+        phone: true,
+        declaredVpsCountry: true,
+      },
     })
     return NextResponse.json({
       profile: { ...profile, dateOfBirth: profile.dateOfBirth?.toISOString().slice(0, 10) ?? '' },
