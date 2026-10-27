@@ -35,17 +35,5 @@ INSERT INTO "PlatformStats" (
 VALUES ('global', 38600000, 14900, 8, 170, CURRENT_TIMESTAMP)
 ON CONFLICT ("id") DO NOTHING;
 
--- Initial verified payout feed. Replace or extend these rows from the admin desk.
-INSERT INTO "PayoutProof" ("id", "traderName", "countryCode", "accountSize", "payoutAmount", "payoutMethod", "createdAt")
-SELECT * FROM (
-  VALUES
-    ('proof-marcus-t', 'Marcus T.', 'UK', 200000, 12480, 'USDT', CURRENT_TIMESTAMP - INTERVAL '2 hours'),
-    ('proof-aiko-s', 'Aiko S.', 'JP', 50000, 4210, 'Bank Wire', CURRENT_TIMESTAMP - INTERVAL '9 hours'),
-    ('proof-daniel-r', 'Daniel R.', 'DE', 400000, 28950, 'USDC', CURRENT_TIMESTAMP - INTERVAL '1 day'),
-    ('proof-priya-n', 'Priya N.', 'IN', 25000, 2870, 'USDT', CURRENT_TIMESTAMP - INTERVAL '1 day 5 hours'),
-    ('proof-lucas-m', 'Lucas M.', 'BR', 100000, 9640, 'Bank Wire', CURRENT_TIMESTAMP - INTERVAL '2 days'),
-    ('proof-omar-k', 'Omar K.', 'AE', 200000, 16300, 'USDC', CURRENT_TIMESTAMP - INTERVAL '3 days'),
-    ('proof-sofia-l', 'Sofia L.', 'ES', 10000, 1150, 'USDT', CURRENT_TIMESTAMP - INTERVAL '4 days'),
-    ('proof-ethan-w', 'Ethan W.', 'US', 100000, 7425, 'Bank Wire', CURRENT_TIMESTAMP - INTERVAL '5 days')
-) AS seed("id", "traderName", "countryCode", "accountSize", "payoutAmount", "payoutMethod", "createdAt")
-WHERE NOT EXISTS (SELECT 1 FROM "PayoutProof");
+-- PayoutProof rows are managed from the admin desk. Do not seed them here:
+-- bootstrap migrations must never resurrect payouts an operator deleted.
