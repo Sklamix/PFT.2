@@ -139,7 +139,7 @@ export function BillingView() {
   return (
     <section aria-labelledby="orders-title" className="rounded-xl border border-border bg-card p-5">
       <h2 id="orders-title" className="text-base font-semibold text-foreground">Orders</h2>
-      <p className="text-sm text-muted-foreground">Challenge purchases and refunds</p>
+      <p className="text-sm text-muted-foreground">Challenge purchases and billing</p>
       <Table className="mt-4 font-mono text-xs">
         <TableHeader>
           <TableRow className="border-border hover:bg-transparent">
@@ -178,7 +178,7 @@ export function BillingView() {
 const PREFERENCES = [
   { id: 'two-factor', label: 'Two-factor authentication', description: 'Require an authenticator code at sign-in.', defaultOn: true },
   { id: 'breach-alerts', label: 'Drawdown proximity alerts', description: 'Email and push when a buffer drops below 25%.', defaultOn: true },
-  { id: 'daily-report', label: 'Daily performance report', description: 'Receive a summary after each 00:00 UTC reset.', defaultOn: false },
+  { id: 'daily-report', label: 'Daily performance report', description: 'Receive a summary after each 00:00 CE(S)T reset.', defaultOn: false },
   { id: 'news-lock', label: 'High-impact news reminders', description: 'Warn 5 minutes before red-folder events.', defaultOn: true },
 ]
 

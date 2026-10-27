@@ -5,17 +5,17 @@ const FAQS = [
   {
     question: 'When can I request my first payout?',
     answer:
-      'Your first payout can be requested 14 days after placing your first trade on a funded account. After that, payouts are bi-weekly, or on-demand once your account is up 5%. Requests are processed in 8 hours on average.',
+      'Your first payout can be requested 7 days after placing your first trade on a funded account. After that, payouts are available once every 7 days. There are no on-demand or +5% early payouts. Requests are processed in 1–3 business days.',
   },
   {
-    question: 'Is the challenge fee really refundable?',
+    question: 'Is the challenge fee refundable?',
     answer:
-      'Yes. Your full evaluation fee is reimbursed together with your first successful payout on the funded account.',
+      'No. The evaluation fee is non-refundable and is not returned with your first payout. Optional add-ons such as backup or reset are also non-refundable.',
   },
   {
     question: 'What happens if I breach a drawdown limit?',
     answer:
-      'The account is closed and you receive an email with the breach details. You can purchase a reset at a 20% discount within 7 days, which restores the account to its original size and phase.',
+      'The account is closed and you receive an email with the breach details. You can purchase a reset at a 20% discount within 2 days. A reset creates a new fresh account starting from Phase 1, not a restore of the old phase. Reset is not available for frozen backup accounts or abuse-related breaches, and is limited to one reset per product every 30 days.',
   },
   {
     question: 'Does the daily drawdown reset every day?',

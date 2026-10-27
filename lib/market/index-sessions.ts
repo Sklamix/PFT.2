@@ -100,3 +100,24 @@ export function isIndexMarketOpen(symbol: string, at: Date = new Date()): boolea
   const minute = at.getUTCHours() * 60 + at.getUTCMinutes()
   return windows.some(([start, end]) => minute >= start && minute < end)
 }
+
+/** Returns the end of the index session that contains `at`, or null outside a session. */
+export function indexSessionEnd(symbol: string, at: Date = new Date()): Date | null {
+  if (!isIndexSymbol(symbol)) return null
+  const windows = INDEX_SESSIONS[symbol][at.getUTCDay()]
+  if (!windows) return null
+  const minute = at.getUTCHours() * 60 + at.getUTCMinutes()
+  const window = windows.find(([start, end]) => minute >= start && minute < end)
+  if (!window) return null
+  const end = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate(), 0, 0, 0, 0))
+  end.setUTCMinutes(window[1])
+  return end
+}
+
+/** True during the 15-minute close-only window before an index session ends. */
+export function isIndexCloseOnly(symbol: string, at: Date = new Date(), minutes = 15): boolean {
+  const end = indexSessionEnd(symbol, at)
+  if (!end) return false
+  const remaining = end.getTime() - at.getTime()
+  return remaining >= 0 && remaining <= minutes * 60_000
+}

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { auth } from '@/auth'
 import { resolveSafeNextPath } from '@/lib/auth/safe-next-path'
-import { applyTraderCookie } from '@/lib/trader/auth'
+import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
 import { prisma } from '@/lib/prisma'
 
 export async function GET(request: Request) {
@@ -23,10 +23,14 @@ export async function GET(request: Request) {
   const destination = user.profileCompletedAt
     ? resolveSafeNextPath(url.searchParams.get('next'), request.url, '/dashboard')
     : '/profile/setup'
-  return applyTraderCookie(NextResponse.redirect(new URL(destination, request.url)), {
-    sub: user.id,
-    email: user.email,
-    name: user.name,
-    tokenVersion: user.tokenVersion,
-  })
+  const issued = await issueTraderSession(
+    {
+      sub: user.id,
+      email: user.email,
+      name: user.name,
+      tokenVersion: user.tokenVersion,
+    },
+    request,
+  )
+  return applyTraderCookie(NextResponse.redirect(new URL(destination, request.url)), issued)
 }

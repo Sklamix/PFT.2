@@ -65,6 +65,18 @@ export function OrdersQueue({
                   <dd className="mt-0.5">{item.provisionedAt ? new Date(item.provisionedAt).toLocaleString() : 'No'}</dd>
                 </div>
               </dl>
+              {item.provisioningBlocked && (
+                <div className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs">
+                  <p className="font-semibold text-destructive">Provisioning blocked</p>
+                  <p className="mt-1 text-muted-foreground">{item.provisioningBlocked.reason}</p>
+                  {item.provisioningBlocked.allocation != null && (
+                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">
+                      allocation ${item.provisioningBlocked.allocation.toLocaleString('en-US')} · accounts{' '}
+                      {item.provisioningBlocked.count ?? '—'}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-2">
                 <p className="truncate font-mono text-[11px] text-muted-foreground">{item.providerOrderId}</p>
                 {item.paymentUrl && (

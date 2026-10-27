@@ -67,23 +67,23 @@ export function FeaturesBento() {
             <div className="flex flex-col gap-4">
               <FeatureIcon icon={Wallet} />
               <div>
-                <h3 className="text-lg font-semibold text-white sm:text-xl">Bi-weekly & on-demand payouts</h3>
+                <h3 className="text-lg font-semibold text-white sm:text-xl">Weekly payouts</h3>
                 <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                  Request rewards every 14 days, or on-demand once you hit 5% profit. Paid out in crypto or by bank wire.
+                  Request rewards once every 7 days. No on-demand or early +5% payouts. Paid out in crypto or by bank wire.
                 </p>
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/25 p-3.5">
               <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.14em]">
                 <span className="text-slate-500">Payout cycle</span>
-                <span className="font-mono text-primary">14 days</span>
+                <span className="font-mono text-primary">7 days</span>
               </div>
               <div className="mt-3 grid grid-cols-7 gap-1" aria-hidden="true">
-                {Array.from({ length: 14 }).map((_, index) => (
+                {Array.from({ length: 7 }).map((_, index) => (
                   <span
                     key={index}
                     className={
-                      index < 10
+                      index < 5
                         ? 'h-1.5 rounded-full bg-primary/70 shadow-[0_0_8px_rgba(59,130,246,0.35)]'
                         : 'h-1.5 rounded-full bg-white/[0.07]'
                     }
@@ -92,8 +92,8 @@ export function FeaturesBento() {
               </div>
               <div className="mt-2 flex items-center justify-between text-[9px] text-slate-600">
                 <span>Day 0</span>
-                <span className="text-slate-500">On-demand from +5%</span>
-                <span>Day 14</span>
+                <span className="text-slate-500">One request per 7 days</span>
+                <span>Day 7</span>
               </div>
             </div>
             <ul className="flex flex-wrap gap-2">

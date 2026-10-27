@@ -82,10 +82,12 @@ export function NewsTradingCard() {
             </span>
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-white sm:text-xl">News trading friendly with zero restrictions</h3>
+            <h3 className="text-lg font-semibold text-white sm:text-xl">News trading with clear windows</h3>
             <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-400">
-              Trade high-impact macroeconomic releases instantly. Please note that all positions must be closed before
-              market close / weekend, as overnight/weekend holding is currently not permitted.
+              Evaluation accounts are unrestricted. On funded accounts, opening or increasing a position is prohibited
+              5 minutes before and 5 minutes after high-impact releases. Positions opened 5–60 minutes before the event
+              are treated as news-window exposure; positions opened 60+ minutes earlier receive a risk warning. Close
+              everything before market close and before the weekend.
             </p>
           </div>
         </div>

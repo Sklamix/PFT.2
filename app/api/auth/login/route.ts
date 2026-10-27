@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { applyTraderCookie } from '@/lib/trader/auth'
+import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
 import { authenticateTrader } from '@/lib/trader/accounts'
 import { isRateLimited, resetRateLimit } from '@/lib/trader/rate-limit'
 
@@ -18,8 +18,9 @@ export async function POST(request: Request) {
     const session = await authenticateTrader(email, password)
     if (!session) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
 
+    const issued = await issueTraderSession(session, request)
     resetRateLimit(key)
-    return applyTraderCookie(NextResponse.json({ trader: session }), session)
+    return applyTraderCookie(NextResponse.json({ trader: issued }), issued)
   } catch (error) {
     console.error('Trader login failed', error)
     return NextResponse.json({ error: 'Unable to sign in right now' }, { status: 500 })

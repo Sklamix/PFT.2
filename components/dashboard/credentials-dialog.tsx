@@ -16,9 +16,9 @@ export function CredentialsDialog({ account, open, onOpenChange }: CredentialsDi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="border-border bg-card sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="font-mono tracking-tight">MT5 Login Credentials</DialogTitle>
+          <DialogTitle className="font-mono tracking-tight">Trading Login Credentials</DialogTitle>
           <DialogDescription>
-            Use these details to connect {account.id} in MetaTrader 5. Never share them with anyone.
+            Use these details to connect {account.id} in the PFT Web Terminal. Never share them with anyone.
           </DialogDescription>
         </DialogHeader>
         <div key={account.id} className="flex flex-col gap-2.5">

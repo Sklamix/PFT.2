@@ -1,5 +1,6 @@
 import { randomInt } from 'crypto'
 import type { Prisma } from '@prisma/client'
+import { accountLimitError, checkAccountLimits } from '@/lib/accounts/limits'
 import { CHALLENGES, type ChallengeType as PlanChallengeType, type DrawdownMode } from '@/lib/challenges'
 
 export const DEFAULT_TRADING_SERVER = 'PFT-Demo-Server'
@@ -70,8 +71,11 @@ function accountData(userId: string, plan: ChallengePlan, standby: boolean) {
     phase: 'PHASE_1' as const,
     status: standby ? ('FROZEN_STANDBY' as const) : ('ACTIVE' as const),
     leverage: DEFAULT_LEVERAGE,
+    drawdownMode: plan.drawdownMode,
     initialBalance: size,
+    dailyStartingBalance: size,
     dailyStartingEquity: size,
+    dailyStartedAt: new Date(),
     currentBalance: size,
     currentEquity: size,
     dailyDrawdownPct: 0,
@@ -98,6 +102,9 @@ export async function provisionChallengeAccounts(
   tx: Prisma.TransactionClient,
   input: { userId: string; orderId: string; providerOrderId: string; plan: ChallengePlan },
 ): Promise<ProvisionResult> {
+  const usage = await checkAccountLimits(tx, input.userId, input.plan.planSize)
+  if (!usage.ok) throw accountLimitError(usage)
+
   const primary = (await tx.tradingAccount.create({
     data: accountData(input.userId, input.plan, false),
     select: SELECT,

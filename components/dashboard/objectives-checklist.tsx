@@ -27,7 +27,7 @@ function buildObjectives(account: TradingAccount): Objective[] {
       done: daysMet,
       value: `${Math.min(account.tradingDays, account.minTradingDays)}/${account.minTradingDays} Days`,
       ratio: Math.min(1, account.tradingDays / account.minTradingDays),
-      detail: 'A trading day counts when at least one position is opened between two 00:00 UTC resets.',
+      detail: 'A trading day counts when at least one position is opened between two 00:00 CE(S)T resets.',
     },
     {
       name: 'Max Daily Loss',

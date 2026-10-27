@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { applyTraderCookie, MIN_PASSWORD_LENGTH } from '@/lib/trader/auth'
+import { applyTraderCookie, issueTraderSession, MIN_PASSWORD_LENGTH } from '@/lib/trader/auth'
 import { setPasswordWithToken } from '@/lib/trader/accounts'
 
 export async function POST(request: Request) {
@@ -14,7 +14,8 @@ export async function POST(request: Request) {
     if (!session) {
       return NextResponse.json({ error: 'This link is invalid or has expired. Request a new one.' }, { status: 400 })
     }
-    return applyTraderCookie(NextResponse.json({ trader: session }), session)
+    const issued = await issueTraderSession(session, request)
+    return applyTraderCookie(NextResponse.json({ trader: issued }), issued)
   } catch (error) {
     console.error('Set password failed', error)
     return NextResponse.json({ error: 'Unable to set your password right now' }, { status: 500 })

@@ -42,7 +42,7 @@ export function StatusBanner({ account, onShowCredentials }: { account: TradingA
         </div>
         <Button variant="outline" onClick={onShowCredentials} className="w-full border-highlight/40 text-highlight hover:text-highlight sm:w-fit">
           <KeyRound className="size-4" aria-hidden="true" />
-          Show MT5 Login Credentials
+          Show Trading Credentials
         </Button>
       </div>
     </section>

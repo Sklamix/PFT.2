@@ -151,7 +151,7 @@ function DailyDrawdownCard({ account, metrics }: CardProps) {
           <dd className="text-foreground tabular-nums">{formatUsd(metrics.dailyFloor, { compact: true })}</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground">Resets 00:00 UTC</dt>
+          <dt className="text-muted-foreground">Resets 00:00 CE(S)T</dt>
           <dd className="text-foreground tabular-nums">{now === null ? '--:--:--' : formatClock(nextUtcMidnight(now) - now)}</dd>
         </div>
       </dl>

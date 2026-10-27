@@ -41,7 +41,7 @@ export function TopBar({ account, onAccountChange, onOpenMenu, onOpenCredentials
           <Banknote className="size-4" aria-hidden="true" />
           Request Payout
         </Button>
-        <Button variant="outline" size="icon-sm" onClick={onOpenCredentials} aria-label="Show MT5 login credentials">
+        <Button variant="outline" size="icon-sm" onClick={onOpenCredentials} aria-label="Show trading login credentials">
           <KeyRound className="size-4" aria-hidden="true" />
         </Button>
         <NotificationsMenu />

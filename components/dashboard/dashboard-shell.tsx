@@ -19,9 +19,9 @@ import { TradesLedger } from './trades-ledger'
 const VIEW_DESCRIPTIONS: Record<DashboardView, string> = {
   overview: 'Live guardrails, objectives and execution for the active account.',
   accounts: 'All evaluation and funded accounts linked to your profile.',
-  payouts: 'Bi-weekly disbursements, revenue share and official certificates.',
+  payouts: 'Weekly disbursements, revenue share and official certificates.',
   journal: 'Every closed position with performance statistics.',
-  billing: 'Challenge orders, refunds and invoices.',
+  billing: 'Challenge orders, invoices and payment history.',
   settings: 'Identity verification, security and notification preferences.',
 }
 

@@ -1,20 +1,28 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
+import { MAX_ACTIVE_ACCOUNTS, MAX_AGGREGATE_ALLOCATION } from '@/lib/accounts/limits'
 import { FOREX_MAJORS } from '@/lib/constants/symbols'
 import type { CloseReason, OrderSide, PendingTradeOrder, PendingTradeOrderStatus, Position, TradeHistory } from '@/lib/types/terminal'
+import type { NewsExposure, NewsViolationEvent } from './types'
 
 const liveWorkerSymbols = new Set<string>(FOREX_MAJORS)
 
 export type AccountRow = {
   id: string
+  displayId: string
   userId: string
   status: string
   leverage: string
+  drawdownMode: string
   breachReason: string | null
   initialBalance: number
   currentBalance: number
   balance: number
   startingBalance: number
+  dailyStartingBalance: number
+  dailyStartingEquity: number
+  dailyStartedAt: Date | null
   peakEquity: number
+  withdrawnProfit: number
   maxDailyLoss: number
   maxTrailingDrawdown: number
 }
@@ -25,6 +33,9 @@ export type AccountSave = {
   startingBalance: number
   peakEquity: number
   dayStartEquity: number
+  dailyStartingBalance: number
+  dailyStartedAt: Date
+
   dailyDrawdownPct: number
   maxDrawdownPct: number
   profitPct: number
@@ -80,6 +91,17 @@ export interface BookTx {
   activateStandby(): Promise<string | null>
   /** Another ACTIVE account owned by the same user, if any. */
   findActiveSibling(): Promise<string | null>
+  /** Finds a high-impact event that makes this position a news-window exposure. */
+  newsExposure(position: Pick<Position, 'id' | 'symbol' | 'openedAt'>, closedAt: Date): Promise<NewsExposure | null>
+  newsViolationCount(accountId: string): Promise<number>
+  recordNewsViolation(input: {
+    accountId: string
+    positionId: string
+    symbol: string
+    exposure: NewsExposure
+    annulledPnl: number
+    violationNumber: number
+  }): Promise<void>
 }
 
 export class StoreUnavailableError extends Error {}
@@ -298,12 +320,71 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
           peakEquity: data.peakEquity,
           currentBalance: data.balance,
           currentEquity: data.equity,
+          dailyStartingBalance: data.dailyStartingBalance,
           dailyStartingEquity: data.dayStartEquity,
+          dailyStartedAt: data.dailyStartedAt,
           dailyDrawdownPct: data.dailyDrawdownPct,
           maxDrawdownPct: data.maxDrawdownPct,
           profitPct: data.profitPct,
           lastTelemetryAt: new Date(),
           ...(breached ? { status: 'BREACHED' as const, breachReason: data.breachReason ?? null, frozenAt: new Date() } : {}),
+        },
+      })
+    },
+
+    async newsExposure(position, closedAt) {
+      const opener = position.openedAt.getTime()
+      const closed = closedAt.getTime()
+      const events = await tx.economicEvent.findMany({
+        where: {
+          impact: 'HIGH',
+          time: {
+            gte: new Date(opener - 5 * 60_000),
+            lte: new Date(Math.max(closed, opener + 5 * 60_000)),
+          },
+        },
+        orderBy: { time: 'asc' },
+        select: { id: true, time: true, title: true },
+      })
+
+      let warning: NewsExposure | null = null
+      for (const event of events) {
+        const eventTime = event.time.getTime()
+        const delta = eventTime - opener
+        if (delta >= -5 * 60_000 && delta <= 5 * 60_000) {
+          return { kind: 'violation', eventId: event.id, eventTitle: event.title, eventTime: event.time }
+        }
+        if (delta > 5 * 60_000 && delta <= 60 * 60_000 && closed >= eventTime) {
+          return { kind: 'violation', eventId: event.id, eventTitle: event.title, eventTime: event.time }
+        }
+        if (delta > 60 * 60_000 && closed >= eventTime && !warning) {
+          warning = { kind: 'warning', eventId: event.id, eventTitle: event.title, eventTime: event.time }
+        }
+      }
+      return warning
+    },
+
+    async newsViolationCount(accountId) {
+      return tx.auditLog.count({
+        where: { accountId, action: 'NEWS_WINDOW_EXPOSURE' },
+      })
+    },
+
+    async recordNewsViolation(input) {
+      await tx.auditLog.create({
+        data: {
+          accountId: input.accountId,
+          action: 'NEWS_WINDOW_EXPOSURE',
+          reason: `News window exposure: ${input.exposure.eventTitle}`,
+          metadata: {
+            eventId: input.exposure.eventId,
+            eventTitle: input.exposure.eventTitle,
+            eventTime: input.exposure.eventTime.toISOString(),
+            positionId: input.positionId,
+            symbol: input.symbol,
+            annulledPnl: input.annulledPnl,
+            violationNumber: input.violationNumber,
+          },
         },
       })
     },
@@ -314,6 +395,29 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
         orderBy: { createdAt: 'asc' },
       })
       if (!standby) return null
+
+      const activeOthers = await tx.tradingAccount.findMany({
+        where: {
+          userId: account.userId,
+          id: { notIn: [accountId, standby.id] },
+          status: { in: ['ACTIVE', 'FUNDED', 'PASSED', 'PASSED_PHASE_1', 'PASSED_PHASE_2'] },
+        },
+        select: { planSize: true },
+      })
+      const count = activeOthers.length + 1
+      const allocation = activeOthers.reduce((sum, item) => sum + item.planSize, 0) + standby.planSize
+      if (count > MAX_ACTIVE_ACCOUNTS || allocation > MAX_AGGREGATE_ALLOCATION) {
+        await tx.auditLog.create({
+          data: {
+            accountId: standby.id,
+            action: 'STANDBY_ACTIVATION_BLOCKED',
+            reason: 'Account allocation limit exceeded',
+            metadata: { count, allocation },
+          },
+        })
+        return null
+      }
+
       const promoted = await tx.tradingAccount.updateMany({
         where: { id: standby.id, status: 'FROZEN_STANDBY' },
         data: { status: 'ACTIVE', frozenAt: null, isFrozenBackup: false },
@@ -364,17 +468,31 @@ async function withPrismaBook<T>(accountId: string, fn: (book: BookTx) => Promis
       })
       const positions = row.positions
       const pendingRows = row.pendingTradeOrders
+      const withdrawn = await tx.payout.aggregate({
+        where: {
+          accountId,
+          balanceReserved: true,
+          status: { in: ['PENDING', 'APPROVED', 'DISBURSED'] },
+        },
+        _sum: { amount: true },
+      })
       const account: AccountRow = {
         id: row.id,
+        displayId: row.displayId,
         userId: row.userId,
         status: row.status,
         leverage: row.leverage,
+        drawdownMode: row.drawdownMode,
         breachReason: row.breachReason,
         initialBalance: Number(row.initialBalance),
         currentBalance: Number(row.currentBalance),
         balance: row.balance,
         startingBalance: row.startingBalance,
+        dailyStartingBalance: Number(row.dailyStartingBalance),
+        dailyStartingEquity: Number(row.dailyStartingEquity),
+        dailyStartedAt: row.dailyStartedAt,
         peakEquity: row.peakEquity,
+        withdrawnProfit: Number(withdrawn._sum.amount ?? 0),
         maxDailyLoss: row.maxDailyLoss,
         maxTrailingDrawdown: row.maxTrailingDrawdown,
       }
@@ -414,16 +532,22 @@ const DEMO_USER = 'demo-trader'
 function mockAccount(id: string, status: string, offsetMs: number): MockAccount {
   return {
     id,
+    displayId: id,
     userId: DEMO_USER,
     status,
     leverage: '1:100',
+    drawdownMode: 'trailing',
     breachReason: null,
     initialBalance: 100_000,
     currentBalance: 100_000,
     balance: 100_000,
     equity: 100_000,
     startingBalance: 100_000,
+    dailyStartingBalance: 100_000,
+    dailyStartingEquity: 100_000,
+    dailyStartedAt: new Date(),
     peakEquity: 100_000,
+    withdrawnProfit: 0,
     dayStartEquity: 100_000,
     maxDailyLoss: 0.05,
     maxTrailingDrawdown: 0.1,
@@ -584,11 +708,26 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
         equity: data.equity,
         startingBalance: data.startingBalance,
         peakEquity: data.peakEquity,
+        dailyStartingBalance: data.dailyStartingBalance,
+        dailyStartingEquity: data.dayStartEquity,
+        dailyStartedAt: data.dailyStartedAt,
         dayStartEquity: data.dayStartEquity,
       })
       if (data.status === 'BREACHED') {
         Object.assign(account, { status: 'BREACHED', breachReason: data.breachReason ?? null, frozenAt: new Date() })
       }
+    },
+
+    async newsExposure() {
+      return null
+    },
+
+    async newsViolationCount() {
+      return 0
+    },
+
+    async recordNewsViolation() {
+      return undefined
     },
 
     async activateStandby() {

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { actionReviewRequestData } from '@/lib/admin/action-review'
 import { mockStore } from '@/lib/admin/mock-store'
 import { drawdownPressure, isBreached, isPassing, matchesTraderFilter, recomputeMetrics, riskBadge } from '@/lib/admin/risk'
 import type {
@@ -107,6 +108,8 @@ function mapPosition(position: Prisma.PositionGetPayload<object>): TradeRow {
     commission: 0,
     status: 'OPEN',
     markedForLiquidation: false,
+    voidedAt: null,
+    voidReason: null,
   }
 }
 
@@ -126,6 +129,8 @@ function mapTradeHistory(trade: Prisma.TradeHistoryGetPayload<object>): TradeRow
     commission: 0,
     status: 'CLOSED',
     markedForLiquidation: false,
+    voidedAt: trade.voidedAt?.toISOString() ?? null,
+    voidReason: trade.voidReason ?? null,
   }
 }
 
@@ -155,6 +160,22 @@ function mapOrder(
     include: { user: { select: { email: true } }; account: { select: { displayId: true } } }
   }>,
 ): OrderRow {
+  const raw =
+    order.rawPayload && typeof order.rawPayload === 'object' && !Array.isArray(order.rawPayload)
+      ? (order.rawPayload as Record<string, unknown>)
+      : {}
+  const blockedRaw =
+    raw.provisioningBlocked && typeof raw.provisioningBlocked === 'object' && !Array.isArray(raw.provisioningBlocked)
+      ? (raw.provisioningBlocked as Record<string, unknown>)
+      : null
+  const provisioningBlocked = blockedRaw
+    ? {
+        reason: typeof blockedRaw.reason === 'string' ? blockedRaw.reason : 'Account limit blocked provisioning',
+        count: typeof blockedRaw.count === 'number' ? blockedRaw.count : undefined,
+        allocation: typeof blockedRaw.allocation === 'number' ? blockedRaw.allocation : undefined,
+        blockedAt: typeof blockedRaw.blockedAt === 'string' ? blockedRaw.blockedAt : undefined,
+      }
+    : null
   return {
     id: order.id,
     provider: order.provider,
@@ -168,6 +189,7 @@ function mapOrder(
     invoiceEmailStatus: order.invoiceEmailStatus,
     credentialsEmailStatus: order.credentialsEmailStatus,
     provisionedAt: order.provisionedAt?.toISOString() ?? null,
+    provisioningBlocked,
     createdAt: order.createdAt.toISOString(),
   }
 }
@@ -340,6 +362,16 @@ export const adminRepo = {
       prisma.auditLog.create({
         data: { actorId, accountId: id, action: 'ACCOUNT_BREACH', reason, metadata: { type } },
       }),
+      prisma.auditLog.create({
+        data: actionReviewRequestData({
+          accountId: id,
+          actorId,
+          kind: 'BREACH',
+          reason,
+          summary: type === 'BREACHED_DAILY' ? 'Daily loss kill-switch' : 'Max drawdown kill-switch',
+          details: { type },
+        }),
+      }),
     ])
     return this.getAccount(id)
   },
@@ -347,14 +379,41 @@ export const adminRepo = {
   async override(id: string, status: AccountStatus, reason: string, actorId: string) {
     const prisma = await db()
     if (!prisma) return mockStore.override(id, status, reason)
-    await prisma.tradingAccount.update({
+
+    const current = await prisma.tradingAccount.findUnique({
       where: { id },
-      data: {
-        status,
-        breachReason: isBreached(status) ? reason : null,
-        frozenAt: isBreached(status) ? new Date() : null,
-      },
+      select: { initialBalance: true },
     })
+    if (!current) return null
+
+    const data: Prisma.TradingAccountUncheckedUpdateInput = {
+      status,
+      breachReason: isBreached(status) ? reason : null,
+      frozenAt: isBreached(status) ? new Date() : null,
+    }
+
+    if (status === 'FUNDED') {
+      const initial = current.initialBalance
+      data.phase = 'FUNDED'
+      data.profitTarget = 0
+      data.currentBalance = initial
+      data.currentEquity = initial
+      data.balance = Number(initial)
+      data.equity = Number(initial)
+      data.startingBalance = Number(initial)
+      data.peakEquity = Number(initial)
+      data.dailyStartingBalance = initial
+      data.dailyStartingEquity = initial
+      data.dailyStartedAt = new Date()
+      data.dailyDrawdownPct = 0
+      data.maxDrawdownPct = 0
+      data.profitPct = 0
+      data.tradingDaysCount = 0
+      data.breachReason = null
+      data.frozenAt = null
+    }
+
+    await prisma.tradingAccount.update({ where: { id }, data })
     await prisma.auditLog.create({
       data: { actorId, accountId: id, action: 'STATUS_OVERRIDE', reason, metadata: { status } },
     })
@@ -414,6 +473,7 @@ export const adminRepo = {
               currentEquity: { decrement: amount },
               balance: { decrement: amount },
               equity: { decrement: amount },
+              dailyStartingBalance: { decrement: amount },
               dailyStartingEquity: { decrement: amount },
               peakEquity: Math.max(num(before.initialBalance), before.peakEquity - amount),
             },
@@ -476,8 +536,8 @@ export const adminRepo = {
               currentEquity: { increment: amount },
               balance: { increment: amount },
               equity: { increment: amount },
+              dailyStartingBalance: { increment: amount },
               dailyStartingEquity: { increment: amount },
-              peakEquity: before.peakEquity + amount,
             },
           })
         : before
@@ -564,8 +624,8 @@ export const adminRepo = {
                 currentEquity: { increment: amount },
                 balance: { increment: amount },
                 equity: { increment: amount },
+                dailyStartingBalance: { increment: amount },
                 dailyStartingEquity: { increment: amount },
-                peakEquity: before.peakEquity + amount,
               },
             })
           : before

@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server'
+import { scanInactiveAccounts } from '@/lib/accounts/inactivity'
+import { reconcileAccountLimits } from '@/lib/accounts/reconciliation'
 import { notifyBookEvents } from '@/lib/email/trade-events'
+import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
 import { syncAccount } from '@/lib/trading/engine'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
+import { detectCrossAccountHedges } from '@/lib/trading/net-exposure'
+import { cancelPendingOrdersAtCutoff, enforceSessionCutoff } from '@/lib/trading/overnight'
+import { evaluateActiveAccountsPassing } from '@/lib/trading/passing'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,9 +19,18 @@ async function run() {
     return NextResponse.json({ status: 'market_closed', accounts: 0 })
   }
 
+  const warnedAccounts = await warnFundedAccountsBeforeNews()
+  const [cancelledAtCutoff, cutoffResults] = await Promise.all([
+    cancelPendingOrdersAtCutoff(),
+    enforceSessionCutoff(quotes),
+  ])
+  for (const result of cutoffResults) {
+    await notifyBookEvents(result.book)
+  }
+
   const accounts = await prisma.tradingAccount.findMany({
     where: {
-      status: 'ACTIVE',
+      status: { in: ['ACTIVE', 'FUNDED'] },
       OR: [
         { positions: { some: { status: 'OPEN' } } },
         { pendingTradeOrders: { some: { status: 'PENDING' } } },
@@ -41,11 +56,70 @@ async function run() {
     }),
   )
 
+  const progression = await evaluateActiveAccountsPassing()
+
+  const lastReconciliation = await prisma.auditLog.findFirst({
+    where: { action: 'ACCOUNT_LIMIT_RECONCILIATION_RUN' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  })
+  let limitReconciliation = 0
+  if (!lastReconciliation || Date.now() - lastReconciliation.createdAt.getTime() > 60 * 60_000) {
+    limitReconciliation = await reconcileAccountLimits()
+    await prisma.auditLog.create({
+      data: {
+        action: 'ACCOUNT_LIMIT_RECONCILIATION_RUN',
+        reason: 'Hourly account-limit reconciliation',
+        metadata: { flagged: limitReconciliation },
+      },
+    })
+  }
+
+  const lastInactivityRun = await prisma.auditLog.findFirst({
+    where: { action: 'INACTIVITY_SCAN_RUN' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  })
+  let inactivity = { warned: 0, closed: 0 }
+  if (!lastInactivityRun || Date.now() - lastInactivityRun.createdAt.getTime() > 60 * 60_000) {
+    inactivity = await scanInactiveAccounts(quotes)
+    await prisma.auditLog.create({
+      data: {
+        action: 'INACTIVITY_SCAN_RUN',
+        reason: 'Hourly inactivity scan',
+        metadata: inactivity,
+      },
+    })
+  }
+
+  const lastHedgeRun = await prisma.auditLog.findFirst({
+    where: { action: 'CROSS_ACCOUNT_HEDGE_RUN' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  })
+  let crossAccountHedges = 0
+  if (!lastHedgeRun || Date.now() - lastHedgeRun.createdAt.getTime() > 10 * 60_000) {
+    crossAccountHedges = await detectCrossAccountHedges()
+    await prisma.auditLog.create({
+      data: {
+        action: 'CROSS_ACCOUNT_HEDGE_RUN',
+        reason: 'Ten-minute cross-account hedge scan',
+        metadata: { flagged: crossAccountHedges },
+      },
+    })
+  }
+
   return NextResponse.json({
     accounts: accounts.length,
+    newsWindows: { warnedAccounts },
+    sessionCutoff: { cancelledPending: cancelledAtCutoff, closedAccounts: cutoffResults.length },
     results: results.map((result) =>
       result.status === 'fulfilled' ? result.value : { status: 'failed' as const },
     ),
+    progression: progression.filter((item) => item.result.status !== 'noop'),
+    limitReconciliation,
+    crossAccountHedges,
+    inactivity,
   })
 }
 

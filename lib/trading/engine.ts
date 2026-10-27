@@ -14,7 +14,6 @@ import {
   realizedPnl,
   revalue,
   roundUsd,
-  utcDayStart,
   validateProtection,
 } from './risk'
 import type {
@@ -22,6 +21,7 @@ import type {
   Breach,
   BookPayload,
   CloseInput,
+  NewsViolationEvent,
   OrderInput,
   PendingOrderInput,
   PendingOrderModifyInput,
@@ -29,9 +29,14 @@ import type {
   Quotes,
   RiskMetrics,
 } from './types'
+import { startOfBerlinDay } from './time'
 import { parseQuote } from './validation'
 
 const HISTORY_LIMIT = 50
+
+function isTradingStatus(status: string) {
+  return status === 'ACTIVE' || status === 'FUNDED'
+}
 
 export type EngineResult<T = object> =
   | ({ ok: true; book: BookPayload } & T)
@@ -41,8 +46,13 @@ type Working = {
   tx: BookTx
   balance: number
   startingBalance: number
+  dailyStartingBalance: number
+  dailyStartingEquity: number
+  dailyStartedAt: Date | null
   peakEquity: number
+  withdrawnProfit: number
   leverage: number
+  drawdownMode: string
   maxDailyLoss: number
   maxTrailingDrawdown: number
   status: string
@@ -50,6 +60,7 @@ type Working = {
   positions: Position[]
   pendingOrders: PendingTradeOrder[]
   closed: TradeHistory[]
+  newsViolations: NewsViolationEvent[]
   orderUpdates: BookPayload['events']['orderUpdates']
   breach: Breach | null
   unfrozenAccountId: string | null
@@ -66,8 +77,13 @@ function load(tx: BookTx): Working {
     tx,
     balance,
     startingBalance,
+    dailyStartingBalance: account.dailyStartingBalance,
+    dailyStartingEquity: account.dailyStartingEquity,
+    dailyStartedAt: account.dailyStartedAt,
     peakEquity,
+    withdrawnProfit: account.withdrawnProfit,
     leverage: parseLeverage(account.leverage),
+    drawdownMode: account.drawdownMode,
     maxDailyLoss: account.maxDailyLoss > 0 ? account.maxDailyLoss : DEFAULT_MAX_DAILY_LOSS,
     maxTrailingDrawdown: account.maxTrailingDrawdown > 0 ? account.maxTrailingDrawdown : DEFAULT_MAX_TRAILING_DRAWDOWN,
     status: account.status,
@@ -75,6 +91,7 @@ function load(tx: BookTx): Working {
     positions: tx.positions,
     pendingOrders: tx.pendingOrders,
     closed: [],
+    newsViolations: [],
     orderUpdates: [],
     breach: null,
     unfrozenAccountId: null,
@@ -91,13 +108,60 @@ async function applyQuotes(w: Working, quotes: Quotes) {
   if (changed.length) await w.tx.markPositions(changed)
 }
 
-async function closeOne(w: Working, position: Position, reason: TradeHistory['closeReason']) {
+async function closeOne(w: Working, position: Position, reason: TradeHistory['closeReason'], skipNews = false) {
   const exit = position.currentPrice
-  const trade = await w.tx.closePosition({ position, exitPrice: exit, pnl: realizedPnl(position, exit), reason })
+  const exposure =
+    !skipNews && w.status === 'FUNDED'
+      ? await w.tx.newsExposure({ id: position.id, symbol: position.symbol, openedAt: position.openedAt }, new Date())
+      : null
+  const rawPnl = realizedPnl(position, exit)
+  const priorViolations = exposure?.kind === 'violation' ? await w.tx.newsViolationCount(w.tx.account.id) : 0
+  const annulledPnl = exposure?.kind === 'violation' && rawPnl > 0 ? rawPnl : 0
+  const pnl = rawPnl - annulledPnl
+  const trade = await w.tx.closePosition({ position, exitPrice: exit, pnl, reason })
   w.positions = w.positions.filter((item) => item.id !== position.id)
   if (!trade) return null
   w.balance = roundUsd(w.balance + trade.pnl)
   w.closed.push(trade)
+
+  if (exposure) {
+    w.newsViolations.push({
+      kind: exposure.kind,
+      eventId: exposure.eventId,
+      eventTitle: exposure.eventTitle,
+      eventTime: exposure.eventTime.toISOString(),
+      positionId: position.id,
+      symbol: position.symbol,
+      annulledPnl,
+      ...(exposure.kind === 'violation' ? { violationNumber: priorViolations + 1 } : {}),
+    })
+  }
+
+  if (exposure?.kind === 'violation') {
+    await w.tx.recordNewsViolation({
+      accountId: w.tx.account.id,
+      positionId: position.id,
+      symbol: position.symbol,
+      exposure,
+      annulledPnl,
+      violationNumber: priorViolations + 1,
+    })
+
+    if (priorViolations >= 1) {
+      const reason = `Second news-window violation: ${exposure.eventTitle}`
+      w.status = 'BREACHED'
+      w.breachReason = reason
+      w.breach = { rule: 'NEWS_WINDOW', reason }
+      if (w.pendingOrders.length) {
+        await w.tx.cancelPendingOrders('Account closed after second news-window violation')
+        w.pendingOrders = []
+      }
+      for (const remaining of [...w.positions]) {
+        await closeOne(w, remaining, 'LIQUIDATION_BREACH', true)
+      }
+    }
+  }
+
   return trade
 }
 
@@ -108,21 +172,33 @@ async function settleProtectiveOrders(w: Working) {
   }
 }
 
-/** Balance at the start of the current UTC trading day (current balance minus today's realized P&L). */
+/** Refreshes the CE(S)T daily starting values once per trading day. */
+function ensureDailyStart(w: Working) {
+  const dayStart = startOfBerlinDay()
+  if (w.dailyStartedAt && w.dailyStartedAt >= dayStart) return
+  const floating = roundUsd(w.positions.reduce((sum, position) => sum + position.floatingPnl, 0))
+  w.dailyStartingBalance = roundUsd(w.balance)
+  w.dailyStartingEquity = roundUsd(Math.max(w.balance, w.balance + floating))
+  w.dailyStartedAt = new Date()
+}
+
 async function dayStartEquity(w: Working) {
-  const realizedToday = await w.tx.realizedSince(utcDayStart())
-  return roundUsd(w.balance - realizedToday)
+  ensureDailyStart(w)
+  return w.dailyStartingEquity
 }
 
 async function metricsFor(w: Working): Promise<RiskMetrics> {
   const metrics = measureRisk(
     {
       balance: w.balance,
+      startingBalance: w.startingBalance,
       peakEquity: w.peakEquity,
+      withdrawnProfit: w.withdrawnProfit,
       dayStartEquity: await dayStartEquity(w),
       maxDailyLoss: w.maxDailyLoss,
       maxTrailingDrawdown: w.maxTrailingDrawdown,
       leverage: w.leverage,
+      drawdownMode: w.drawdownMode,
     },
     w.positions,
   )
@@ -146,11 +222,11 @@ async function metricsFor(w: Working): Promise<RiskMetrics> {
  * account belonging to the same trader is promoted to ACTIVE.
  */
 async function enforceRules(w: Working) {
-  if (w.status !== 'ACTIVE') return
+  if (!isTradingStatus(w.status)) return
   const metrics = await metricsFor(w)
   const breach = detectBreach(metrics)
   if (!breach) return
-  for (const position of [...w.positions]) await closeOne(w, position, 'LIQUIDATION_BREACH')
+  for (const position of [...w.positions]) await closeOne(w, position, 'LIQUIDATION_BREACH', true)
   w.status = 'BREACHED'
   w.breachReason = breach.reason
   w.breach = breach
@@ -173,6 +249,8 @@ async function persist(w: Working): Promise<BookPayload> {
     startingBalance: w.startingBalance,
     peakEquity: metrics.peakEquity,
     dayStartEquity: metrics.dayStartEquity,
+    dailyStartingBalance: w.dailyStartingBalance,
+    dailyStartedAt: w.dailyStartedAt ?? new Date(),
     dailyDrawdownPct: pct(metrics.dailyLossUsd, metrics.dayStartEquity),
     maxDrawdownPct: pct(metrics.trailingDrawdownUsd, metrics.peakEquity),
     profitPct: pct(metrics.equity - w.startingBalance, w.startingBalance),
@@ -189,12 +267,15 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
   const account: AccountView = {
     ...metrics,
     id: w.tx.account.id,
+    displayId: w.tx.account.displayId,
     userId: w.tx.account.userId,
     status: w.status,
     breachReason: w.breachReason,
-    activeSiblingAccountId: w.status === 'ACTIVE' ? null : await w.tx.findActiveSibling(),
+    activeSiblingAccountId: isTradingStatus(w.status) ? null : await w.tx.findActiveSibling(),
     leverage: w.leverage,
+    drawdownMode: w.drawdownMode,
     startingBalance: w.startingBalance,
+    withdrawnProfit: w.withdrawnProfit,
     maxDailyLoss: w.maxDailyLoss,
     maxTrailingDrawdown: w.maxTrailingDrawdown,
   }
@@ -204,7 +285,13 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
     positions: w.positions,
     pendingOrders: w.pendingOrders,
     history: await w.tx.recentHistory(HISTORY_LIMIT),
-    events: { closed: w.closed, breach: w.breach, unfrozenAccountId: w.unfrozenAccountId, orderUpdates: w.orderUpdates },
+    events: {
+      closed: w.closed,
+      breach: w.breach,
+      unfrozenAccountId: w.unfrozenAccountId,
+      newsViolations: w.newsViolations,
+      orderUpdates: w.orderUpdates,
+    },
   }
 }
 
@@ -287,7 +374,7 @@ async function processPendingOrders(w: Working, quotes: Quotes) {
     w.orderUpdates.push({ status: 'FILLED', message: pendingOrderMessage(order, `filled at ${fill.toFixed(5)}`) })
     await settleProtectiveOrders(w)
     await enforceRules(w)
-    if (w.status !== 'ACTIVE') break
+    if (!isTradingStatus(w.status)) break
   }
 }
 
@@ -303,14 +390,14 @@ function notFound(): EngineResult<never> {
 export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<{ position: Position }>> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ position: Position }>> => {
     const w = load(tx)
-    if (w.status !== 'ACTIVE') {
+    if (!isTradingStatus(w.status)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
     await applyQuotes(w, { [input.symbol]: input.quote })
     await settleProtectiveOrders(w)
     await enforceRules(w)
-    if (w.status !== 'ACTIVE') {
+    if (!isTradingStatus(w.status)) {
       return { ok: false, status: 403, error: 'Order rejected: account breached risk rules', book: await persist(w) }
     }
 
@@ -357,14 +444,14 @@ export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<
 export async function placePendingOrder(input: PendingOrderInput): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> => {
     const w = load(tx)
-    if (w.status !== 'ACTIVE') {
+    if (!isTradingStatus(w.status)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
     await applyQuotes(w, { [input.symbol]: input.quote })
     await settleProtectiveOrders(w)
     await enforceRules(w)
-    if (w.status !== 'ACTIVE') {
+    if (!isTradingStatus(w.status)) {
       return { ok: false, status: 403, error: 'Order rejected: account breached risk rules', book: await persist(w) }
     }
 
@@ -433,7 +520,7 @@ export async function modifyPendingOrder(
 ): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> => {
     const w = load(tx)
-    if (w.status !== 'ACTIVE') {
+    if (!isTradingStatus(w.status)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
@@ -479,7 +566,7 @@ export async function modifyPendingOrder(
 export async function modifyPositionProtection(input: PositionProtectionInput): Promise<EngineResult> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult> => {
     const w = load(tx)
-    if (w.status !== 'ACTIVE') {
+    if (!isTradingStatus(w.status)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
@@ -521,10 +608,33 @@ export async function cancelAllPendingOrders(accountId: string): Promise<EngineR
   return result ?? notFound()
 }
 
+export async function closePositionsBySymbols(
+  accountId: string,
+  symbols: Set<string>,
+  quotes: Quotes,
+): Promise<EngineResult<{ closed: number }>> {
+  const result = await tradingRepo.withBook(accountId, async (tx): Promise<EngineResult<{ closed: number }>> => {
+    const w = load(tx)
+    if (!isTradingStatus(w.status)) {
+      return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
+    }
+
+    await applyQuotes(w, quotes)
+    await settleProtectiveOrders(w)
+    const due = w.positions.filter((position) => symbols.has(position.symbol))
+    for (const position of due) {
+      await closeOne(w, w.positions.find((item) => item.id === position.id) ?? position, 'MANUAL')
+    }
+    await enforceRules(w)
+    return { ok: true, closed: due.length, book: await persist(w) }
+  })
+  return result ?? notFound()
+}
+
 export async function closeAllPositions(accountId: string, quotes: Quotes): Promise<EngineResult<{ closed: number }>> {
   const result = await tradingRepo.withBook(accountId, async (tx): Promise<EngineResult<{ closed: number }>> => {
     const w = load(tx)
-    if (w.status !== 'ACTIVE') {
+    if (!isTradingStatus(w.status)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
@@ -583,10 +693,10 @@ export async function syncAccount(accountId: string, quotes: Quotes): Promise<En
   const result = await tradingRepo.withBook(accountId, async (tx): Promise<EngineResult> => {
     const w = load(tx)
     await applyQuotes(w, quotes)
-    if (w.status === 'ACTIVE') {
+    if (isTradingStatus(w.status)) {
       await settleProtectiveOrders(w)
       await enforceRules(w)
-      if (w.status === 'ACTIVE') await processPendingOrders(w, quotes)
+      if (isTradingStatus(w.status)) await processPendingOrders(w, quotes)
     }
     return { ok: true, book: await persist(w) }
   })

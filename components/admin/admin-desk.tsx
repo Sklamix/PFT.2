@@ -5,6 +5,8 @@ import Link from 'next/link'
 import { LogOut, ReceiptText, Search, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
+import { ActionReviews } from '@/components/admin/action-reviews'
+import { OverrideApprovals } from '@/components/admin/override-approvals'
 import { KpiBar } from '@/components/admin/kpi-bar'
 import { KycDialog } from '@/components/admin/kyc-dialog'
 import { OrdersQueue } from '@/components/admin/orders-queue'
@@ -22,6 +24,8 @@ import type {
   OverviewMetrics,
   OrderRow,
   PayoutRow,
+  PendingAccountOverride,
+  PendingActionReview,
   TelemetryState,
   TradeRow,
   TraderFilter,
@@ -50,12 +54,15 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [rows, setRows] = useState<TraderRow[]>([])
   const [orders, setOrders] = useState<OrderRow[]>([])
   const [payouts, setPayouts] = useState<PayoutRow[]>([])
+  const [overrideApprovals, setOverrideApprovals] = useState<PendingAccountOverride[]>([])
+  const [actionReviews, setActionReviews] = useState<PendingActionReview[]>([])
   const [telemetry, setTelemetry] = useState<TelemetryState | null>(null)
   const [queueOpen, setQueueOpen] = useState(false)
   const [ordersOpen, setOrdersOpen] = useState(false)
   const [selected, setSelected] = useState<TraderRow | null>(null)
   const [trades, setTrades] = useState<TradeRow[]>([])
   const [tradesOpen, setTradesOpen] = useState(false)
+  const [payoutHold, setPayoutHold] = useState<{ active: boolean; reason: string | null } | null>(null)
   const [breachOpen, setBreachOpen] = useState(false)
   const [kycOpen, setKycOpen] = useState(false)
   const [kycUserId, setKycUserId] = useState<string | null>(null)
@@ -67,23 +74,31 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
   const load = useCallback(async () => {
     try {
-      const [overview, traders, queue, orderRows, pulse] = await Promise.all([
+      const [overview, traders, queue, orderRows, pulse, approvals, reviews] = await Promise.all([
         api<OverviewMetrics>('/api/admin/metrics/overview'),
         api<{ items: TraderRow[] }>(`/api/admin/traders?q=${encodeURIComponent(query)}&filter=${filter}`),
         api<{ items: PayoutRow[] }>('/api/admin/payouts'),
         api<{ items: OrderRow[] }>('/api/admin/orders'),
         api<TelemetryState>('/api/admin/telemetry'),
+        user.role === 'ADMIN'
+          ? api<{ items: PendingAccountOverride[] }>('/api/admin/funding-approvals')
+          : Promise.resolve({ items: [] as PendingAccountOverride[] }),
+        user.role === 'ADMIN'
+          ? api<{ items: PendingActionReview[] }>('/api/admin/action-reviews')
+          : Promise.resolve({ items: [] as PendingActionReview[] }),
       ])
       setMetrics(overview)
       setRows(traders.items)
       setPayouts(queue.items)
       setOrders(orderRows.items)
       setTelemetry(pulse)
+      setOverrideApprovals(approvals.items)
+      setActionReviews(reviews.items)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load operations desk')
     }
-  }, [filter, query])
+  }, [filter, query, user.role])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -103,6 +118,93 @@ export function AdminDesk({ user }: { user: AdminSession }) {
     await fetch('/api/admin/auth/logout', { method: 'POST' })
     router.replace('/admin/login')
     router.refresh()
+  }
+
+  const reloadTrades = async () => {
+    if (!selected) return
+    const data = await api<{ trades: TradeRow[] }>(`/api/admin/accounts/${selected.id}/trades`)
+    setTrades(data.trades)
+  }
+
+  const holdPayouts = async () => {
+    if (!selected) return
+    const reason = window.prompt('Reason for payout hold:')
+    if (!reason?.trim()) return
+    try {
+      const data = await api<{ hold: { active: boolean; reason: string | null } }>(
+        `/api/admin/accounts/${selected.id}/payout-hold`,
+        { method: 'POST', body: JSON.stringify({ action: 'hold', reason: reason.trim() }) },
+      )
+      setPayoutHold(data.hold)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to hold payouts')
+    }
+  }
+
+  const clearPayoutHold = async () => {
+    if (!selected) return
+    const reason = window.prompt('Reason for clearing payout hold:')
+    if (!reason?.trim()) return
+    try {
+      const data = await api<{ hold: { active: boolean; reason: string | null } }>(
+        `/api/admin/accounts/${selected.id}/payout-hold`,
+        { method: 'POST', body: JSON.stringify({ action: 'clear', reason: reason.trim() }) },
+      )
+      setPayoutHold(data.hold)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to clear payout hold')
+    }
+  }
+
+  const voidTrade = async (trade: TradeRow) => {
+    const reason = window.prompt(`Void ${trade.symbol} trade? Reason:`)
+    if (!reason?.trim()) return
+    try {
+      await api(`/api/admin/trades/${trade.id}/void`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: reason.trim() }),
+      })
+      await reloadTrades()
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to void trade')
+    }
+  }
+
+  const decideOverride = async (item: PendingAccountOverride, action: 'approve' | 'reject') => {
+    const verb = action === 'approve' ? 'Approve override for' : 'Reject override for'
+    const reason = window.prompt(`${verb} ${item.displayId}? Reason:`)
+    if (!reason?.trim()) return
+    try {
+      await api(`/api/admin/accounts/${item.accountId}/override-approval`, {
+        method: 'POST',
+        body: JSON.stringify({
+          requestId: item.requestId,
+          reason: reason.trim(),
+          ...(action === 'reject' ? { action: 'reject' } : {}),
+        }),
+      })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Unable to ${action} override request`)
+    }
+  }
+
+  const decideActionReview = async (item: PendingActionReview, decision: 'confirm' | 'flag') => {
+    const verb = decision === 'confirm' ? 'Confirm' : 'Flag'
+    const note = window.prompt(
+      `${verb} ${item.kind === 'BREACH' ? 'kill-switch' : 'reset'} on ${item.displayId}? Review note:`,
+    )
+    if (!note?.trim()) return
+    try {
+      await api(`/api/admin/accounts/${item.accountId}/action-review`, {
+        method: 'POST',
+        body: JSON.stringify({ requestId: item.requestId, decision, note: note.trim() }),
+      })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Unable to ${decision} action review`)
+    }
   }
 
   return (
@@ -139,6 +241,16 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       )}
 
       <KpiBar metrics={metrics} />
+      <ActionReviews
+        items={actionReviews}
+        onConfirm={(item) => void decideActionReview(item, 'confirm')}
+        onFlag={(item) => void decideActionReview(item, 'flag')}
+      />
+      <OverrideApprovals
+        items={overrideApprovals}
+        onApprove={(item) => void decideOverride(item, 'approve')}
+        onReject={(item) => void decideOverride(item, 'reject')}
+      />
       <TelemetryController state={telemetry} />
       <PayoutsManagement canManage={user.role === 'ADMIN'} />
       <TradingConditionsManagement canManage={user.role === 'ADMIN'} />
@@ -155,7 +267,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search account, MT5 login, email"
+                placeholder="Search account, trading login, email"
                 className="h-8 w-full rounded-md border border-border bg-background pr-3 pl-8 text-sm sm:w-72"
               />
             </label>
@@ -178,9 +290,13 @@ export function AdminDesk({ user }: { user: AdminSession }) {
           rows={rows}
           onTrades={async (row) => {
             try {
-              const data = await api<{ trades: TradeRow[] }>(`/api/admin/accounts/${row.id}/trades`)
+              const [data, hold] = await Promise.all([
+                api<{ trades: TradeRow[] }>(`/api/admin/accounts/${row.id}/trades`),
+                api<{ hold: { active: boolean; reason: string | null } }>(`/api/admin/accounts/${row.id}/payout-hold`),
+              ])
               setSelected(row)
               setTrades(data.trades)
+              setPayoutHold(hold.hold)
               setTradesOpen(true)
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Unable to load trade ledger')
@@ -207,7 +323,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
           onOverride={(row) => {
             setSelected(row)
             setOverrideStatus(row.status)
-            setReason('Manual operations override')
+            setReason('')
             setOverrideOpen(true)
           }}
         />
@@ -231,7 +347,16 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
       <OrdersQueue open={ordersOpen} onOpenChange={setOrdersOpen} items={orders} />
 
-      <TradeHistoryModal open={tradesOpen} onOpenChange={setTradesOpen} account={selected} trades={trades} />
+      <TradeHistoryModal
+        open={tradesOpen}
+        onOpenChange={setTradesOpen}
+        account={selected}
+        trades={trades}
+        payoutHold={payoutHold}
+        onHold={holdPayouts}
+        onClearHold={clearPayoutHold}
+        onVoid={voidTrade}
+      />
 
       <Dialog open={breachOpen} onOpenChange={setBreachOpen}>
         <DialogContent className="border-border bg-card sm:max-w-md">
@@ -287,7 +412,10 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         <DialogContent className="border-border bg-card sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Override {selected?.displayId}</DialogTitle>
-            <DialogDescription>Admin-only status correction. RISK_MANAGER cannot persist this change.</DialogDescription>
+            <DialogDescription>
+              Every status change needs a reason and a second admin. The account stays unchanged until another admin
+              approves the request. RISK_MANAGER cannot persist this change.
+            </DialogDescription>
           </DialogHeader>
           <select
             value={overrideStatus}
@@ -304,17 +432,28 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             value={reason}
             onChange={(event) => setReason(event.target.value)}
             className="min-h-20 rounded-md border border-border bg-background p-2 text-sm"
+            placeholder="Why is this status change needed?"
           />
           <DialogFooter>
             <Button
-              disabled={user.role !== 'ADMIN'}
+              disabled={user.role !== 'ADMIN' || !reason.trim()}
               onClick={async () => {
                 if (!selected) return
                 try {
-                  await api(`/api/admin/accounts/${selected.id}/override`, {
-                    method: 'POST',
-                    body: JSON.stringify({ status: overrideStatus, reason }),
-                  })
+                  const result = await api<{ approvalRequired?: boolean; requestId?: string; reused?: boolean }>(
+                    `/api/admin/accounts/${selected.id}/override`,
+                    {
+                      method: 'POST',
+                      body: JSON.stringify({ status: overrideStatus, reason }),
+                    },
+                  )
+                  if (result.approvalRequired) {
+                    window.alert(
+                      result.reused
+                        ? `An override to ${overrideStatus} is already awaiting a second admin (request ${result.requestId}).`
+                        : `Override to ${overrideStatus} requested. A different admin must approve request ${result.requestId}.`,
+                    )
+                  }
                   setOverrideOpen(false)
                   await load()
                 } catch (err) {
@@ -322,7 +461,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
                 }
               }}
             >
-              Save override
+              Request override
             </Button>
           </DialogFooter>
         </DialogContent>

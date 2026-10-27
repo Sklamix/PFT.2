@@ -158,7 +158,7 @@ export function CheckoutModal({
       return
     }
     if (!isValidEmail(email.trim())) {
-      setError('Enter a valid email address so we can deliver your MT5 credentials.')
+      setError('Enter a valid email address so we can deliver your PFT terminal credentials.')
       return
     }
     if (!country) {
@@ -309,7 +309,7 @@ export function CheckoutModal({
                   className={cn(fieldClass, customer && 'cursor-not-allowed opacity-70')}
                 />
                 <span className="mt-1.5 block text-xs text-muted-foreground">
-                  {customer ? 'This challenge will be added to your signed-in account.' : 'Used to deliver your MT5 login credentials.'}
+                  {customer ? 'This challenge will be added to your signed-in account.' : 'Used to deliver your PFT terminal login credentials.'}
                 </span>
               </label>
 

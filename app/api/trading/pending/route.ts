@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { cancelPendingOrder, modifyPendingOrder, placePendingOrder } from '@/lib/trading/engine'
 import { handleError, readJson, respond } from '@/lib/trading/http'
+import { isTargetLocked } from '@/lib/trading/passing'
+import { isCloseOnlyForSymbol } from '@/lib/trading/session-cutoff'
 import { parsePendingModifyInput, parsePendingOrderInput, ValidationError } from '@/lib/trading/validation'
 import { authorizeAccount } from '@/lib/trader/guard'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
@@ -14,6 +16,18 @@ export async function POST(request: Request) {
     const input = parsePendingOrderInput(await readJson(request))
     const { error } = await authorizeAccount(input.accountId)
     if (error) return error
+    if (await isTargetLocked(input.accountId)) {
+      return NextResponse.json(
+        { error: 'Profit target reached. New positions are disabled; only closing is allowed.' },
+        { status: 409 },
+      )
+    }
+    if (isCloseOnlyForSymbol(input.symbol)) {
+      return NextResponse.json(
+        { error: 'Market is in the close-only window. New pending orders are disabled; only closing is allowed.' },
+        { status: 409 },
+      )
+    }
     if (!isIndexMarketOpen(input.symbol)) {
       return NextResponse.json({ error: 'This index market is closed' }, { status: 422 })
     }

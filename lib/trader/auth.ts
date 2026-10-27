@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
+import { recordAccessFingerprint } from '@/lib/security/access-fingerprint'
 import { TRADER_COOKIE } from '@/lib/trader/constants'
 
 export { TRADER_COOKIE }
@@ -13,6 +14,7 @@ export interface TraderSession {
   email: string
   name: string
   tokenVersion: number
+  sessionId?: string
 }
 
 function sessionSecret() {
@@ -52,9 +54,41 @@ export function verifyTraderSession(token: string | undefined | null): TraderSes
       email: payload.email,
       name: payload.name,
       tokenVersion: Number.isInteger(payload.tokenVersion) ? payload.tokenVersion : 0,
+      sessionId: typeof payload.sessionId === 'string' ? payload.sessionId : undefined,
     }
   } catch {
     return null
+  }
+}
+
+/** Issues a new single active session, invalidating any other trader cookie. */
+export async function issueTraderSession(session: TraderSession, request: Request): Promise<TraderSession> {
+  const sessionId = randomBytes(24).toString('base64url')
+  if (process.env.DATABASE_URL) {
+    const { prisma } = await import('@/lib/prisma')
+    await prisma.user.update({
+      where: { id: session.sub },
+      data: { activeSessionId: sessionId },
+    })
+  }
+  await recordAccessFingerprint(session.sub, request)
+  return { ...session, sessionId }
+}
+
+/** Revokes the current single active session, if the caller still owns it. */
+export async function endTraderSession(): Promise<void> {
+  if (!process.env.DATABASE_URL) return
+  try {
+    const store = await cookies()
+    const session = verifyTraderSession(store.get(TRADER_COOKIE)?.value)
+    if (!session?.sessionId) return
+    const { prisma } = await import('@/lib/prisma')
+    await prisma.user.updateMany({
+      where: { id: session.sub, activeSessionId: session.sessionId },
+      data: { activeSessionId: null },
+    })
+  } catch (error) {
+    console.error('[pft auth] Trader session teardown failed', error)
   }
 }
 
@@ -67,9 +101,12 @@ export async function getTraderSession(): Promise<TraderSession | null> {
     const { prisma } = await import('@/lib/prisma')
     const user = await prisma.user.findUnique({
       where: { id: session.sub },
-      select: { tokenVersion: true, role: true },
+      select: { tokenVersion: true, role: true, activeSessionId: true },
     })
     if (!user || user.role !== 'TRADER' || user.tokenVersion !== session.tokenVersion) return null
+    // Require the exact active session. A missing id (legacy cookie) or a cleared slot
+    // (logout) must not keep a previously signed cookie alive.
+    if (!session.sessionId || user.activeSessionId !== session.sessionId) return null
     return session
   } catch (error) {
     console.error('[pft auth] Trader session validation failed', error)

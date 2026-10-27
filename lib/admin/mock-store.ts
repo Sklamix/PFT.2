@@ -247,7 +247,7 @@ const accounts: MockAccount[] = [
   }),
   account({
     id: 'acc_400k',
-    displayId: 'PFT-400K-11920',
+    displayId: 'PFT-200K-11920',
     userId: 'usr_theo',
     mt5Login: '5100119204',
     mt5Server: 'PFT-Live-Server-01',
@@ -342,6 +342,8 @@ const trades: MockTrade[] = [
     commission: -10.5,
     status: 'OPEN',
     markedForLiquidation: false,
+    voidedAt: null,
+    voidReason: null,
   },
   {
     id: 'tr_2',
@@ -359,6 +361,8 @@ const trades: MockTrade[] = [
     commission: -10.5,
     status: 'CLOSED',
     markedForLiquidation: false,
+    voidedAt: null,
+    voidReason: null,
   },
   {
     id: 'tr_3',
@@ -376,6 +380,8 @@ const trades: MockTrade[] = [
     commission: -12,
     status: 'OPEN',
     markedForLiquidation: false,
+    voidedAt: null,
+    voidReason: null,
   },
   {
     id: 'tr_4',
@@ -393,6 +399,8 @@ const trades: MockTrade[] = [
     commission: -126,
     status: 'OPEN',
     markedForLiquidation: false,
+    voidedAt: null,
+    voidReason: null,
   },
   {
     id: 'tr_5',
@@ -410,6 +418,8 @@ const trades: MockTrade[] = [
     commission: -8.4,
     status: 'OPEN',
     markedForLiquidation: false,
+    voidedAt: null,
+    voidReason: null,
   },
   {
     id: 'tr_6',
@@ -427,6 +437,8 @@ const trades: MockTrade[] = [
     commission: -10.5,
     status: 'CLOSED',
     markedForLiquidation: true,
+    voidedAt: null,
+    voidReason: null,
   },
   {
     id: 'tr_7',
@@ -444,6 +456,8 @@ const trades: MockTrade[] = [
     commission: -2.8,
     status: 'CLOSED',
     markedForLiquidation: false,
+    voidedAt: null,
+    voidReason: null,
   },
 ]
 

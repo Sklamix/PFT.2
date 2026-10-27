@@ -140,6 +140,9 @@ model User {
   challengeStatus ChallengeStatus @default(IN_PROGRESS)
   favoriteSymbols String[] @default([])
   tokenVersion  Int       @default(0)
+  lastLoginIp   String?
+  lastDeviceHash String?
+  activeSessionId String?
   telegram      String?
   discord       String?
   createdAt     DateTime  @default(now())
@@ -173,8 +176,11 @@ model TradingAccount {
   phase                AccountPhase
   status               AccountStatus  @default(ACTIVE)
   leverage             String         @default("1:100")
+  drawdownMode         String         @default("trailing")
   initialBalance       Decimal        @db.Decimal(14, 2)
+  dailyStartingBalance Decimal        @default(0) @db.Decimal(14, 2)
   dailyStartingEquity  Decimal        @db.Decimal(14, 2)
+  dailyStartedAt       DateTime?
   currentBalance       Decimal        @db.Decimal(14, 2)
   currentEquity        Decimal        @db.Decimal(14, 2)
   dailyDrawdownPct     Decimal        @db.Decimal(6, 3)
@@ -196,6 +202,7 @@ model TradingAccount {
   maxTrailingDrawdown  Float          @default(0.10)
   profitTarget         Float          @default(0.10)
   isFrozenBackup       Boolean        @default(false)
+  resetSourceAccountId String?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
@@ -316,6 +323,9 @@ model TradeHistory {
   entryPrice       Float
   exitPrice        Float
   pnl              Float
+  originalPnl      Float?
+  voidedAt         DateTime?
+  voidReason       String?
   closeReason      CloseReason
   openedAt         DateTime
   closedAt         DateTime       @default(now())

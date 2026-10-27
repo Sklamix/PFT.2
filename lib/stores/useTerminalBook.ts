@@ -163,11 +163,14 @@ function buildSnapshot(account: AccountView | null, positions: Position[], pendi
   const metrics = measureRisk(
     {
       balance: account.balance,
+      startingBalance: account.startingBalance,
       peakEquity: account.peakEquity,
+      withdrawnProfit: account.withdrawnProfit,
       dayStartEquity: account.dayStartEquity,
       maxDailyLoss: account.maxDailyLoss,
       maxTrailingDrawdown: account.maxTrailingDrawdown,
       leverage: account.leverage || DEFAULT_LEVERAGE,
+      drawdownMode: account.drawdownMode,
     },
     positions,
   )

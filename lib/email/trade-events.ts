@@ -1,7 +1,7 @@
 import { sendEmail } from '@/lib/email/resend'
 import { prisma } from '@/lib/prisma'
 import { formatUsd } from '@/lib/dashboard-data'
-import type { BookPayload } from '@/lib/trading/types'
+import type { BookPayload, NewsViolationEvent } from '@/lib/trading/types'
 import type { CloseReason, TradeHistory } from '@/lib/types/terminal'
 
 const CLOSE_LABEL: Record<CloseReason, string> = {
@@ -89,6 +89,32 @@ function orderEmail(message: string, accountId: string) {
   return { subject, html, text }
 }
 
+function newsViolationEmail(event: NewsViolationEvent, accountId: string) {
+  const title =
+    event.kind === 'violation'
+      ? `News-window violation · ${accountId}`
+      : `News risk warning · ${accountId}`
+  const rows: [string, string][] = [
+    ['Account', accountId],
+    ['Event', event.eventTitle],
+    ['Event time', formatTime(new Date(event.eventTime))],
+    ['Position', event.symbol],
+    ['Result', event.kind === 'violation' ? 'Rule violation recorded' : 'Risk warning only'],
+  ]
+  if (event.kind === 'violation') {
+    rows.push(['Profit annulled', formatUsd(event.annulledPnl, { signed: true })])
+    rows.push(['Violation number', String(event.violationNumber ?? 1)])
+  }
+  const { subject, html, text } = emailShell(
+    title,
+    rows,
+    event.kind === 'violation'
+      ? 'Only the profit from the specific violating trade was annulled. Other trades and your account balance are unaffected.'
+      : 'The position was opened well before the event; this is a risk warning, not a rule violation.',
+  )
+  return { subject, html, text }
+}
+
 /**
  * Sends account notifications for fills and protective exits. The caller schedules this after
  * the HTTP response, so a slow email provider never blocks order execution.
@@ -96,7 +122,8 @@ function orderEmail(message: string, accountId: string) {
 export async function notifyBookEvents(book: BookPayload) {
   const filled = book.events.orderUpdates.filter((event) => event.status === 'FILLED')
   const closed = book.events.closed
-  if (filled.length === 0 && closed.length === 0) return
+  const newsViolations = book.events.newsViolations
+  if (filled.length === 0 && closed.length === 0 && newsViolations.length === 0) return
 
   let email: string | null = null
   try {
@@ -109,8 +136,9 @@ export async function notifyBookEvents(book: BookPayload) {
   if (!email) return
 
   const messages = [
-    ...filled.map((event) => orderEmail(event.message, book.account.id)),
-    ...closed.map((trade) => tradeEmail(trade, book.account.id)),
+    ...filled.map((event) => orderEmail(event.message, book.account.displayId)),
+    ...closed.map((trade) => tradeEmail(trade, book.account.displayId)),
+    ...newsViolations.map((event) => newsViolationEmail(event, book.account.displayId)),
   ]
 
   const results = await Promise.allSettled(

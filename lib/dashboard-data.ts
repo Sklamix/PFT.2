@@ -19,7 +19,7 @@ export type TradingAccount = {
   statusLabel: string
   server: string
   leverage: string
-  platform: 'MT5'
+  platform: 'PFT'
   login: string
   password: string
   balance: number
@@ -46,7 +46,7 @@ export const ACCOUNTS: TradingAccount[] = [
     statusLabel: 'Active - Passing',
     server: 'PFT-Demo-Server',
     leverage: '1:100',
-    platform: 'MT5',
+    platform: 'PFT',
     login: '5100982140',
     password: 'Qx7!mR2v#Lp9',
     balance: 108_420,
@@ -77,7 +77,7 @@ export const ACCOUNTS: TradingAccount[] = [
     statusLabel: 'Funded - Active',
     server: 'PFT-Live-Server-02',
     leverage: '1:50',
-    platform: 'MT5',
+    platform: 'PFT',
     login: '7100773105',
     password: 'Tn4$wE8k!Zs3',
     balance: 53_180,
@@ -112,7 +112,7 @@ export const ACCOUNTS: TradingAccount[] = [
     statusLabel: 'Breached - Max Loss',
     server: 'PFT-Demo-Server',
     leverage: '1:100',
-    platform: 'MT5',
+    platform: 'PFT',
     login: '5100550172',
     password: 'Hb9@cY6p!Wd1',
     balance: 22_410,
@@ -269,7 +269,7 @@ export const NOTIFICATIONS = [
 
 export const ORDERS = [
   { id: 'ORD-20931', item: '$100K 2-Step Challenge', date: 'Oct 04, 2026', amount: 549, status: 'Paid' },
-  { id: 'ORD-20517', item: '$50K 1-Step Challenge', date: 'Sep 12, 2026', amount: 345, status: 'Refunded' },
+  { id: 'ORD-20517', item: '$50K 1-Step Challenge', date: 'Sep 12, 2026', amount: 345, status: 'Paid' },
   { id: 'ORD-20288', item: '$25K 2-Step Challenge', date: 'Sep 30, 2026', amount: 189, status: 'Paid' },
 ]
 

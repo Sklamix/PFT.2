@@ -10,7 +10,7 @@ const RULES = [
     title: 'Drawdown calculations',
     content: [
       'Daily drawdown resets at 00:00 server time and is measured from the higher of your balance or equity at that moment. Floating losses count toward the limit.',
-      'Overall drawdown is either static (fixed below your initial balance) or trailing (follows your equity high-water mark until it locks at the starting balance).',
+      'Overall drawdown is either static (fixed below your initial balance) or trailing (a fixed 6% / 10% buffer below your equity high-water mark; the floor only moves up).',
     ],
   },
   {
@@ -18,7 +18,7 @@ const RULES = [
     icon: Scale,
     title: 'Consistency rule',
     content: [
-      'On funded accounts, no single trading day may account for more than 40% of total profit in a payout cycle. This only affects payout eligibility — it never breaches your account.',
+      'On funded accounts, no single trading day may account for more than 20% of total profit in a payout cycle. This only affects payout eligibility — it never breaches your account.',
       'If one day exceeds the threshold, simply keep trading until your overall profit rebalances the ratio.',
     ],
   },
@@ -28,7 +28,7 @@ const RULES = [
     title: 'IP address & device guidelines',
     content: [
       'Each account must be traded by the registered trader only. VPNs and VPS servers are permitted, but your login region should remain consistent with your KYC country.',
-      'Account sharing, copy trading between unrelated traders, or simultaneous logins from multiple countries will trigger a manual compliance review.',
+      'Copy trading and signal services are allowed, but every copied trade counts toward your risk, consistency and news-window limits. Account sharing or simultaneous logins from multiple countries will trigger a compliance review.',
     ],
   },
   {

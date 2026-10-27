@@ -44,7 +44,7 @@ export function PayoutCard({ account, onRequestPayout }: { account: TradingAccou
           <Banknote className="size-4 text-primary" aria-hidden="true" />
           Payout Cycle
         </h2>
-        <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Bi-weekly</span>
+        <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Weekly</span>
       </header>
 
       {isFunded ? (
@@ -58,7 +58,7 @@ export function PayoutCard({ account, onRequestPayout }: { account: TradingAccou
           <p className="text-sm leading-relaxed text-muted-foreground">
             {account.status === 'breached'
               ? 'This account is closed. Payouts are unavailable after a hard breach.'
-              : 'Payouts unlock on the Funded stage. Complete Phase 2 to start your bi-weekly cycle.'}
+              : 'Payouts unlock on the Funded stage. Complete Phase 2 to start your weekly payout cycle.'}
           </p>
         </div>
       )}

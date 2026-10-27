@@ -118,7 +118,7 @@ export function DashboardPreview() {
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                     <p className="text-xs text-slate-500">Starting balance: {formatCurrency(EQUITY_START)}</p>
                     <p className="text-xs text-slate-500">
-                      Your 90% share:{' '}
+                      Your 80% share:{' '}
                       <span className="font-mono font-semibold text-primary">{formatCurrency(profit * 0.9)}</span>
                     </p>
                   </div>

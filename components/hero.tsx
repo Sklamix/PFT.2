@@ -19,10 +19,10 @@ const HeroSpaceScene = dynamic(
 const HIGHLIGHTS = [
   { icon: Clock, label: 'Zero time limits' },
   { icon: KeyRound, label: 'Instant credentials' },
-  { icon: CalendarClock, label: 'Bi-weekly payouts' },
+  { icon: CalendarClock, label: 'Weekly payouts' },
 ]
 
-const PLATFORMS = ['MT4', 'MT5', 'cTrader', 'DXtrade']
+const PLATFORMS = ['PFT Web Terminal']
 
 export function Hero() {
   return (
@@ -58,16 +58,16 @@ export function Hero() {
           <h1 className="mt-[clamp(0.85rem,min(1.4vw,1.8vh),1.5rem)] text-balance text-[clamp(3rem,min(5.2vw,8.3vh),6.75rem)] font-semibold leading-[0.92] tracking-[-0.045em] text-white">
             Trade up to
             <span className="mt-2 block bg-linear-to-r from-primary via-sky-300 to-highlight bg-clip-text text-transparent">
-              $400,000.
+              $200,000.
             </span>
             <span className="mt-2 block text-[0.58em] font-medium leading-tight tracking-[-0.02em] text-slate-300">
-              Keep up to 90% of the upside.
+              Keep 80% of the upside.
             </span>
           </h1>
 
           <p className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] max-w-xl text-pretty text-[clamp(1rem,1.15vw,1.35rem)] leading-[1.7] text-slate-400 xl:max-w-2xl">
             Institutional-grade evaluations for disciplined traders. No calendar pressure, instant credentials, and
-            payouts processed every two weeks.
+            payouts available every 7 days.
           </p>
 
           <ul className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] flex flex-wrap gap-2.5">
@@ -118,10 +118,10 @@ export function Hero() {
 
         <div className="mt-auto grid max-w-3xl grid-cols-2 gap-[clamp(0.4rem,0.6vw,0.8rem)] pt-[clamp(0.9rem,min(2.2vw,2.6vh),1.5rem)] sm:grid-cols-4 xl:max-w-4xl 2xl:max-w-5xl">
           {[
-            ['$400K', 'Max simulated capital'],
-            ['90%', 'Profit split'],
+            ['$200K', 'Max simulated capital'],
+            ['80%', 'Profit split'],
             ['0', 'Time limits'],
-            ['8h', 'Avg. payout'],
+            ['1–3d', 'Payout review'],
           ].map(([value, label]) => (
             <div key={label} className="rounded-xl border border-white/10 bg-black/20 px-[clamp(0.7rem,1vw,1.1rem)] py-[clamp(0.5rem,0.7vw,0.75rem)] backdrop-blur-md">
               <p className="font-mono text-[clamp(1.1rem,1.5vw,1.8rem)] font-semibold text-white">{value}</p>

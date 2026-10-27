@@ -3,11 +3,29 @@ import type { OrderSide, PendingTradeOrder, Position, TradeHistory } from '@/lib
 export type Quote = { bid: number; ask: number }
 export type Quotes = Partial<Record<string, Quote>>
 
-export type BreachRule = 'MAX_DAILY_LOSS' | 'MAX_TRAILING_DRAWDOWN'
+export type BreachRule = 'MAX_DAILY_LOSS' | 'MAX_TRAILING_DRAWDOWN' | 'NEWS_WINDOW'
 
 export type Breach = {
   rule: BreachRule
   reason: string
+}
+
+export type NewsExposure = {
+  kind: 'violation' | 'warning'
+  eventId: string
+  eventTitle: string
+  eventTime: Date
+}
+
+export type NewsViolationEvent = {
+  kind: 'violation' | 'warning'
+  eventId: string
+  eventTitle: string
+  eventTime: string
+  positionId: string
+  symbol: string
+  annulledPnl: number
+  violationNumber?: number
 }
 
 export type RiskMetrics = {
@@ -30,13 +48,16 @@ export type RiskMetrics = {
 
 export type AccountView = RiskMetrics & {
   id: string
+  displayId: string
   userId: string
   status: string
   breachReason: string | null
   /** Set when this account can no longer trade and the same user has another ACTIVE account. */
   activeSiblingAccountId: string | null
   leverage: number
+  drawdownMode: string
   startingBalance: number
+  withdrawnProfit: number
   maxDailyLoss: number
   maxTrailingDrawdown: number
 }
@@ -45,6 +66,7 @@ export type BookEvents = {
   closed: TradeHistory[]
   breach: Breach | null
   unfrozenAccountId: string | null
+  newsViolations: NewsViolationEvent[]
   orderUpdates: { status: 'FILLED' | 'REJECTED' | 'CANCELLED'; message: string }[]
 }
 

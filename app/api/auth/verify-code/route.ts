@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { applyTraderCookie } from '@/lib/trader/auth'
+import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
 
 const MAX_ATTEMPTS = 5
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -111,17 +111,21 @@ export async function POST(request: Request) {
     const user = result.user
     if (!user) return NextResponse.json({ error: 'This code is invalid or already used.' }, { status: 400 })
 
+    const issued = await issueTraderSession(
+      {
+        sub: user.id,
+        email: user.email,
+        name: user.name,
+        tokenVersion: user.tokenVersion,
+      },
+      request,
+    )
     const response = NextResponse.json({
       ok: true,
       profileComplete: profileComplete(user),
       redirectTo: profileComplete(user) ? '/dashboard' : '/profile/setup',
     })
-    return applyTraderCookie(response, {
-      sub: user.id,
-      email: user.email,
-      name: user.name,
-      tokenVersion: user.tokenVersion,
-    })
+    return applyTraderCookie(response, issued)
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return NextResponse.json(

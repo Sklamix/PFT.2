@@ -73,7 +73,7 @@ function PayoutRequestBody({ account, onClose }: { account: TradingAccount; onCl
     <>
       <DialogHeader>
         <DialogTitle>Request payout</DialogTitle>
-        <DialogDescription>Profit share from {account.id} for the current bi-weekly cycle.</DialogDescription>
+        <DialogDescription>Profit share from {account.id} for the current 7-day payout cycle.</DialogDescription>
       </DialogHeader>
       <dl className="grid grid-cols-2 gap-2 font-mono text-sm">
         <div className="rounded-lg border border-border bg-background p-3">

@@ -1,4 +1,5 @@
 import { after, NextResponse } from 'next/server'
+import { checkAccountLimits } from '@/lib/accounts/limits'
 import {
   ACCOUNT_SIZES,
   UNAVAILABLE_TIER_MESSAGE,
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
 
     const traderEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
     if (!traderEmail.includes('@')) {
-      return NextResponse.json({ error: 'A valid email is required to deliver MT5 credentials.' }, { status: 400 })
+      return NextResponse.json({ error: 'A valid email is required to deliver PFT terminal credentials.' }, { status: 400 })
     }
     const traderSession = await getTraderSession()
     if (traderSession && traderSession.email.toLowerCase() !== traderEmail) {
@@ -94,6 +95,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Dynamic challenge pricing is temporarily unavailable.' }, { status: 503 })
     }
     const { prisma } = await import('@/lib/prisma')
+    const limitUserId =
+      traderSession?.sub ??
+      (await prisma.user.findUnique({ where: { email: traderEmail }, select: { id: true } }))?.id
+    if (limitUserId) {
+      const usage = await prisma.$transaction((tx) => checkAccountLimits(tx, limitUserId, planSize))
+      if (!usage.ok) {
+        return NextResponse.json({ error: usage.message }, { status: 409 })
+      }
+    }
     const configuredPrice = await prisma.challengePricing.findUnique({
       where: {
         accountSize_challengeType_dailyLossType: {

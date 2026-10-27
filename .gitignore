@@ -26,5 +26,8 @@ skills-lock.json
 # Cloudflare worker local secrets
 .dev.vars
 
+# Local logical database backups
+backups/
+
 # Wrangler local state
 .wrangler/

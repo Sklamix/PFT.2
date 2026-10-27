@@ -1,8 +1,25 @@
 import { Prisma, WalletNetwork } from '@prisma/client'
 import { NextResponse } from 'next/server'
 import { recomputeMetrics } from '@/lib/admin/risk'
+import { checkPayoutEligibility, type PayoutEligibilityCode } from '@/lib/payouts/eligibility'
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
+
+const ELIGIBILITY_STATUS: Record<PayoutEligibilityCode, number> = {
+  ACCOUNT_NOT_FOUND: 404,
+  KYC_REQUIRED: 403,
+  NO_TRADES: 400,
+  PAYOUT_TOO_EARLY: 400,
+  OPEN_POSITIONS: 409,
+  PENDING_ORDERS: 409,
+  PAYOUT_ALREADY_PENDING: 409,
+  NEWS_REVIEW_HOLD: 409,
+  PAYOUT_REVIEW_HOLD: 409,
+  NOT_ENOUGH_PROFITABLE_DAYS: 400,
+  NO_PROFIT: 400,
+  CONSISTENCY_FAILED: 400,
+  AMOUNT_TOO_SMALL: 400,
+}
 
 export const dynamic = 'force-dynamic'
 
@@ -69,6 +86,7 @@ export async function POST(request: Request) {
           userId: true,
           status: true,
           initialBalance: true,
+          startingBalance: true,
           dailyStartingEquity: true,
           currentBalance: true,
           currentEquity: true,
@@ -80,6 +98,37 @@ export async function POST(request: Request) {
         },
       })
       if (!account) return { error: 'FUNDED_ACCOUNT_NOT_FOUND' as const }
+
+      const eligibility = await checkPayoutEligibility(tx, {
+        accountId,
+        userId: session.sub,
+        amount,
+      })
+      if (!eligibility.ok) {
+        return {
+          error: 'PAYOUT_INELIGIBLE' as const,
+          code: eligibility.code,
+          message: eligibility.message,
+        }
+      }
+
+      const cycleProfit = account.currentBalance.minus(account.startingBalance)
+      const abnormal = amount.gte(10_000) || cycleProfit.gte(new Prisma.Decimal(account.startingBalance).mul(0.5))
+      if (abnormal) {
+        await tx.auditLog.create({
+          data: {
+            actorId: session.sub,
+            accountId: account.id,
+            action: 'PAYOUT_ABNORMAL_PROFIT',
+            reason: 'Payout amount or cycle profit exceeds review threshold',
+            metadata: {
+              amount: amount.toFixed(2),
+              cycleProfit: cycleProfit.toFixed(2),
+              startingBalance: account.startingBalance,
+            },
+          },
+        })
+      }
 
       const [reserved, paid] = await Promise.all([
         tx.payout.aggregate({
@@ -135,11 +184,8 @@ export async function POST(request: Request) {
           currentEquity: { decrement: amount },
           balance: { decrement: amount.toNumber() },
           equity: { decrement: amount.toNumber() },
+          dailyStartingBalance: { decrement: amount },
           dailyStartingEquity: { decrement: amount },
-          peakEquity: Math.max(
-            Number(account.initialBalance),
-            account.peakEquity - amount.toNumber(),
-          ),
           ...recomputeMetrics({
             initialBalance: Number(account.initialBalance),
             dailyStartingEquity: Number(account.dailyStartingEquity.minus(amount)),
@@ -187,6 +233,12 @@ export async function POST(request: Request) {
         return NextResponse.json(
           { error: 'Requested amount exceeds your available payout balance.', available: payout.available },
           { status: 400 },
+        )
+      }
+      if (payout.error === 'PAYOUT_INELIGIBLE') {
+        return NextResponse.json(
+          { error: payout.message, code: payout.code },
+          { status: ELIGIBILITY_STATUS[payout.code] },
         )
       }
       return NextResponse.json(

@@ -19,11 +19,14 @@ type Valued = {
 
 export type RiskInputs = {
   balance: number
+  startingBalance: number
   peakEquity: number
+  withdrawnProfit: number
   dayStartEquity: number
   maxDailyLoss: number
   maxTrailingDrawdown: number
   leverage: number
+  drawdownMode: string
 }
 
 export function roundUsd(value: number) {
@@ -66,14 +69,18 @@ export function positionMargin(position: Pick<Valued, 'symbol' | 'sizeLots' | 'e
 export function measureRisk(inputs: RiskInputs, positions: Valued[]): RiskMetrics {
   const floatingPnl = roundUsd(positions.reduce((sum, position) => sum + position.floatingPnl, 0))
   const equity = roundUsd(inputs.balance + floatingPnl)
-  const peakEquity = Math.max(inputs.peakEquity, equity)
+  // Withdrawn profit stays in the risk calculation so a payout cannot reset the drawdown budget.
+  const riskEquity = roundUsd(equity + inputs.withdrawnProfit)
+  const peakEquity = Math.max(inputs.peakEquity, riskEquity)
   const marginUsed = roundUsd(positions.reduce((sum, position) => sum + positionMargin(position, inputs.leverage), 0))
   const dayStartEquity = inputs.dayStartEquity
   const dailyLossLimitUsd = roundUsd(dayStartEquity * inputs.maxDailyLoss)
   const dailyLossUsd = Math.max(0, roundUsd(dayStartEquity - equity))
-  const trailingDrawdownLimitUsd = roundUsd(peakEquity * inputs.maxTrailingDrawdown)
-  const trailingFloor = roundUsd(peakEquity - trailingDrawdownLimitUsd)
-  const trailingDrawdownUsd = Math.max(0, roundUsd(peakEquity - equity))
+  const startingBalance = inputs.startingBalance > 0 ? inputs.startingBalance : inputs.balance
+  const trailingDrawdownLimitUsd = roundUsd(startingBalance * inputs.maxTrailingDrawdown)
+  const drawdownBase = inputs.drawdownMode === 'static' ? startingBalance : peakEquity
+  const trailingFloor = roundUsd(drawdownBase - trailingDrawdownLimitUsd)
+  const trailingDrawdownUsd = Math.max(0, roundUsd(drawdownBase - riskEquity))
 
   return {
     balance: roundUsd(inputs.balance),

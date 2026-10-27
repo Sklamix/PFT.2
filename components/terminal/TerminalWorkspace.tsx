@@ -250,7 +250,7 @@ function PaymentProcessingState({ orders, onRefresh }: { orders: CheckoutOrder[]
         <p className="mt-4 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-primary">Payment processing</p>
         <h1 className="mt-3 text-2xl font-semibold text-foreground">Your challenge is being set up</h1>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          We are confirming your payment and provisioning the account. Your MT5 credentials are emailed the moment it
+          We are confirming your payment and provisioning the account. Your PFT terminal credentials are emailed the moment it
           completes — the account will appear in this workspace automatically.
         </p>
         <dl className="mt-5 space-y-2 rounded-xl border border-border bg-background/60 px-4 py-3 text-left text-sm">

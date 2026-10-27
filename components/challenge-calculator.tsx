@@ -189,7 +189,7 @@ export function ChallengeCalculator({
             id="challenges-heading"
             eyebrow="Challenge matrix"
             title="Pick your capital. Pick your path."
-            description="Configure your evaluation and see every rule upfront. Your fee is fully refunded with your first payout."
+            description="Configure your evaluation and see every rule upfront. One-time fee. No subscription. Evaluation fee is non-refundable."
           />
         )}
 
@@ -325,8 +325,8 @@ export function ChallengeCalculator({
                         <Info className="size-3.5" />
                       </TooltipTrigger>
                       <TooltipContent>
-                        Trailing follows your equity high-water mark until it locks at the starting balance. Static stays
-                        fixed below your initial balance.
+                        Trailing keeps a fixed 6% / 10% buffer below your equity high-water mark; the floor only moves
+                        up. Static stays fixed below your initial balance.
                       </TooltipContent>
                     </Tooltip>
                   </div>
@@ -369,7 +369,7 @@ export function ChallengeCalculator({
             >
               <div className="pointer-events-none absolute -top-16 left-1/2 size-48 -translate-x-1/2 rounded-full bg-primary/15 blur-[70px]" />
               <div className="relative">
-                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">One-time refundable fee</p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-slate-500">One-time evaluation fee</p>
                 <p className="mt-2 flex items-baseline gap-2" aria-live="polite">
                   <span className="font-mono text-[clamp(2.8rem,4vw,3.6rem)] font-semibold leading-none tracking-tight tabular-nums text-white drop-shadow-[0_0_28px_rgba(59,130,246,0.35)]">
                     {fee == null ? '—' : formatPrice(fee)}
@@ -388,17 +388,17 @@ export function ChallengeCalculator({
                   <p className="mt-1 font-mono text-2xl font-semibold tabular-nums text-highlight">
                     {formatCurrency(projectedPayout)}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">Based on a 90% profit split</p>
+                  <p className="mt-1 text-xs text-slate-500">Based on an 80% profit split</p>
                 </div>
 
                 <ul className="mt-6 flex flex-col gap-3 text-sm">
                   <li className="flex items-center gap-2.5 text-slate-300">
                     <ShieldCheck className="size-4 text-primary" aria-hidden="true" />
-                    Up to 90% profit split
+                    80% profit split
                   </li>
                   <li className="flex items-center gap-2.5 text-slate-300">
                     <RotateCcw className="size-4 text-primary" aria-hidden="true" />
-                    Fee refunded with first payout
+                    Fee is non-refundable
                   </li>
                   <li className="flex items-center gap-2.5 text-slate-300">
                     <Zap className="size-4 text-primary" aria-hidden="true" />

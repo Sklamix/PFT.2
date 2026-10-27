@@ -5,6 +5,7 @@ import { appUrl, sendCredentialsEmail } from '@/lib/email/account-credentials'
 import { setPasswordUrl } from '@/lib/email/password-reset'
 import { hasUsablePassword, issuePasswordToken } from '@/lib/trader/accounts'
 import { isEmailConfigured } from '@/lib/email/resend'
+import { AccountLimitError } from '@/lib/accounts/limits'
 import { claimWebhookEvent, releaseWebhookEvent, webhookEventId } from '@/lib/security/webhook-events'
 import {
   InvalidOrderPayloadError,
@@ -181,37 +182,63 @@ async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatu
     console.error('Paid order cannot be provisioned automatically', orderId, error.message)
   }
 
-  const provisioned = await prisma.$transaction(async (tx) => {
-    await tx.order.updateMany({
-      where: { id: order.id, status: { not: 'PAID' } },
-      data: { status: 'PAID', rawPayload: payload },
-    })
-    if (!plan) return null
+  let provisioned
+  try {
+    provisioned = await prisma.$transaction(async (tx) => {
+      await tx.order.updateMany({
+        where: { id: order.id, status: { not: 'PAID' } },
+        data: { status: 'PAID', rawPayload: payload },
+      })
+      if (!plan) return null
 
-    const claim = await tx.order.updateMany({
-      where: { id: order.id, provisionedAt: null },
-      data: { provisionedAt: new Date(), credentialsEmailStatus: isEmailConfigured() ? 'PENDING' : 'SKIPPED' },
-    })
-    if (claim.count === 0) return null
+      const claim = await tx.order.updateMany({
+        where: { id: order.id, provisionedAt: null },
+        data: { provisionedAt: new Date(), credentialsEmailStatus: isEmailConfigured() ? 'PENDING' : 'SKIPPED' },
+      })
+      if (claim.count === 0) return null
 
-    const result = await provisionChallengeAccounts(tx, {
-      userId: order.userId,
-      orderId: order.id,
-      providerOrderId: orderId,
-      plan,
-    })
-    await tx.order.update({
-      where: { id: order.id },
-      data: {
-        accountId: result.primary.id,
-        rawPayload: {
-          ...payload,
-          provisioning: { primaryAccountId: result.primary.id, standbyAccountId: result.standby?.id ?? null },
+      const result = await provisionChallengeAccounts(tx, {
+        userId: order.userId,
+        orderId: order.id,
+        providerOrderId: orderId,
+        plan,
+      })
+      await tx.order.update({
+        where: { id: order.id },
+        data: {
+          accountId: result.primary.id,
+          rawPayload: {
+            ...payload,
+            provisioning: { primaryAccountId: result.primary.id, standbyAccountId: result.standby?.id ?? null },
+          },
         },
-      },
+      })
+      return result
     })
-    return result
-  })
+  } catch (error) {
+    if (error instanceof AccountLimitError) {
+      await prisma.order.update({
+        where: { id: order.id },
+        data: {
+          status: 'PAID',
+          provisionedAt: new Date(),
+          credentialsEmailStatus: 'SKIPPED',
+          rawPayload: {
+            ...payload,
+            provisioningBlocked: {
+              reason: error.message,
+              count: error.count,
+              allocation: error.allocation,
+              blockedAt: new Date().toISOString(),
+            },
+          },
+        },
+      })
+      console.error('[pft provisioning] Account limit blocked paid order', orderId, error.message)
+      return json({ ok: true, orderId, status: 'PAID', provisioningBlocked: true })
+    }
+    throw error
+  }
 
   if (provisioned) {
     console.info('Paid order provisioned', orderId, provisioned.primary.displayId, provisioned.standby?.displayId ?? '')

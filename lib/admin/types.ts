@@ -14,6 +14,37 @@ export type AccountStatus =
   | 'BREACHED'
   | 'PASSED'
 export type TraderFilter = 'all' | 'near_limit' | 'breached' | 'passing'
+
+export type PendingAccountOverride = {
+  requestId: string
+  accountId: string
+  displayId: string
+  traderName: string
+  status: AccountStatus
+  reason: string
+  requestedBy: string
+  requestedAt: string
+  expiresAt: string
+  expired: boolean
+  /** The signed-in admin created this request and cannot approve it. */
+  selfRequested: boolean
+}
+export type ReviewedActionKind = 'BREACH' | 'RESET'
+
+export type PendingActionReview = {
+  requestId: string
+  accountId: string
+  displayId: string
+  traderName: string
+  kind: ReviewedActionKind
+  summary: string
+  performedBy: string
+  performedAt: string
+  dueAt: string
+  overdue: boolean
+  /** The signed-in admin performed the action and cannot review it. */
+  selfPerformed: boolean
+}
 export type RiskBadge = 'ACTIVE - PASSING' | 'NEAR LIMIT' | 'RULE BREACHED'
 export type PayoutStatus = 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED'
 export type OrderStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
@@ -78,6 +109,8 @@ export type TradeRow = {
   commission: number
   status: TradeStatus
   markedForLiquidation: boolean
+  voidedAt: string | null
+  voidReason: string | null
 }
 
 export type PayoutRow = {
@@ -110,6 +143,12 @@ export type OrderRow = {
   invoiceEmailStatus: EmailDeliveryStatus | null
   credentialsEmailStatus: EmailDeliveryStatus | null
   provisionedAt: string | null
+  provisioningBlocked: {
+    reason: string
+    count?: number
+    allocation?: number
+    blockedAt?: string
+  } | null
   createdAt: string
 }
 

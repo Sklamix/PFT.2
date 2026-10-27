@@ -8,9 +8,9 @@ const geistSans = Geist({ subsets: ['latin'], variable: '--font-geist-sans' })
 const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono' })
 
 export const metadata: Metadata = {
-  title: 'Professional Funded Trader (PFT) — Trade up to $400K in Simulated Capital',
+  title: 'Professional Funded Trader (PFT) — Trade up to $200K in Simulated Capital',
   description:
-    'Get funded with Professional Funded Trader. 1-Step and 2-Step evaluations up to $400,000, up to 90% profit split, no time limits, and bi-weekly payouts on MT4, MT5, cTrader and DXtrade.',
+    'Get funded with Professional Funded Trader. 1-Step and 2-Step evaluations up to $200,000 aggregate allocation, 80% profit split, no time limits, and weekly payouts on the PFT terminal.',
   generator: 'v0.app',
   icons: {
     icon: [

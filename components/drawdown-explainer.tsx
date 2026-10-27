@@ -21,7 +21,7 @@ function buildFloor(mode: Mode) {
   let highWater = EQUITY[0]
   return EQUITY.map((value) => {
     highWater = Math.max(highWater, value)
-    return mode === 'balance' ? 90 : Math.min(highWater - 10, 100)
+    return mode === 'balance' ? 90 : highWater - 10
   })
 }
 
@@ -35,7 +35,7 @@ const MODE_COPY: Record<Mode, { title: string; body: string }> = {
   },
   equity: {
     title: 'Equity-based (trailing)',
-    body: 'Your breach level trails 10% below the highest equity reached, then locks permanently at your starting balance once you are up 10%.',
+    body: 'Your breach level stays a fixed 10% below the highest equity reached. The floor only moves up and never moves down.',
   },
 }
 

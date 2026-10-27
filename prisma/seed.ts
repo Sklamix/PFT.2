@@ -171,7 +171,7 @@ async function main() {
       profitSplitPct: 80,
     },
     {
-      displayId: 'PFT-400K-11920',
+      displayId: 'PFT-200K-11920',
       userId: theo.id,
       mt5Login: '5100119204',
       mt5Server: 'PFT-Live-Server-01',
@@ -290,7 +290,7 @@ async function main() {
         status: 'OPEN',
       },
       {
-        accountId: byDisplay['PFT-400K-11920'].id,
+        accountId: byDisplay['PFT-200K-11920'].id,
         ticket: '11991',
         symbol: 'EURUSD',
         lots: 18,
@@ -347,7 +347,7 @@ async function main() {
       },
       {
         userId: theo.id,
-        accountId: byDisplay['PFT-400K-11920'].id,
+        accountId: byDisplay['PFT-200K-11920'].id,
         amount: 18200,
         profitSplitPct: 90,
         walletAddress: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F',

@@ -49,7 +49,7 @@ export function buildCheckoutInvoiceEmail(details: CheckoutInvoiceDetails) {
     '',
     ...rows.map(([label, value]) => `${label}: ${value}`),
     '',
-    'Your MT5 credentials will be sent to this address once the payment is confirmed.',
+    'Your PFT terminal credentials will be sent to this address once the payment is confirmed.',
     'If you have already paid, you can ignore this email.',
   ].join('\n')
 
@@ -75,7 +75,7 @@ export function buildCheckoutInvoiceEmail(details: CheckoutInvoiceDetails) {
       </td></tr>
       <tr><td style="padding:20px 28px 28px;font-size:12px;line-height:1.6;color:#9ca3af;">
         <p style="margin:0 0 8px;">Button not working? Copy this link into your browser:<br><a href="${url}" style="color:#34d399;word-break:break-all;">${url}</a></p>
-        <p style="margin:0;">Your MT5 credentials will be sent to this address once the payment is confirmed. If you have already paid, you can ignore this email.</p>
+        <p style="margin:0;">Your PFT terminal credentials will be sent to this address once the payment is confirmed. If you have already paid, you can ignore this email.</p>
       </td></tr>
     </table>
   </body>

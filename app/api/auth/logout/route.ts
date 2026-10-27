@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { signOut } from '@/auth'
-import { clearTraderCookie } from '@/lib/trader/auth'
+import { clearTraderCookie, endTraderSession } from '@/lib/trader/auth'
 
 /**
  * Auth.js may store the session in a secure variant or in chunked cookies depending on
@@ -42,6 +42,7 @@ function expiredAuthCookies(response: NextResponse) {
 }
 
 export async function POST() {
+  await endTraderSession()
   try {
     await signOut({ redirect: false })
   } catch (error) {

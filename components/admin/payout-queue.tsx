@@ -36,7 +36,7 @@ export function PayoutQueue({
         <SheetHeader>
           <SheetTitle>Payout disbursement queue</SheetTitle>
           <SheetDescription>
-            {pending.length} pending · 80–90% profit split · USDT rails only
+            {pending.length} pending · 80% profit split · USDT rails only
           </SheetDescription>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6">
