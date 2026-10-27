@@ -3,7 +3,7 @@
 **Дата:** 27 жовтня 2026  
 **Джерело правил:** `docs/PFT-rulebook-v1.md` v1.6  
 **Статус:** P0/P1 код і QA завершено; production-міграції P1 ще не застосовано; legal review — **не завершено**, потрібен зовнішній юрист.  
-**Код:** git `58f70e5`, локальний production build QA — 83/83. Останній production deployment: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (до P1-5…P1-9, P1-12).
+**Код:** git `4975284`, локальний production build QA — 83/83. Останній production deployment: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (до P1-5…P1-9, P1-12).
 
 ---
 
@@ -47,6 +47,8 @@
 ## 2. Production migrations
 
 **Статус: шість базових міграцій застосовано 27.10.2026. Чотири P1-міграції ще не застосовано.**
+
+Покроковий handoff для оператора: `docs/PFT-production-rollout.md`.
 
 - Deployment: `dpl_7gstvsBwbYbFipxCF4aQepteTajH`
 - Поточний release: `dpl_VpnbredSMQnoZ9iDzCPnFdHfFyLW` (post-action reviews + risk-manager desk fix)

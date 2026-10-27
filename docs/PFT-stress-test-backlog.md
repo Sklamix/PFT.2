@@ -2,7 +2,7 @@
 
 **Статус:** P0 і P1 закрито; запуск блокується лише legal review і operator-задачами.  
 **Джерело:** `docs/PFT-rulebook-v1.md` v1.6.  
-**Код:** git `58f70e5`; QA — 83/83 на локальному production build.  
+**Код:** git `4975284`; QA — 83/83 на локальному production build. Handoff: `docs/PFT-production-rollout.md`.  
 **Мета:** закрити P0-лазівки до публічного запуску, потім P1/P2.
 
 ---

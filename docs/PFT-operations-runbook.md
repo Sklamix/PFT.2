@@ -289,6 +289,8 @@ signals.
 
 ## 6. Release checklist
 
+Handoff для оператора: `docs/PFT-production-rollout.md` (backup → migrations → env → deploy → verify → rollback).
+
 1. `npx tsc --noEmit`
 2. `npm run build`
 3. `npm run qa:smoke` на локальному production build (очікувано 80/80)
@@ -307,6 +309,6 @@ signals.
 - [ ] Підтвердити Neon PITR retention у консолі (§3.3).
 - [ ] Зробити перший production logical export із production `DATABASE_URL`.
 - [ ] Додати щотижневий restore drill у календар.
-- [ ] Застосувати P1-міграції: `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql`.
+- [ ] Застосувати P1-міграції: `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql` (`docs/PFT-production-rollout.md`).
 - [ ] Додати production env: `RESEND_FROM_EMAIL`, `NOWPAYMENTS_IPN_SECRET`, `DIDIT_API_KEY`, `DIDIT_WORKFLOW_ID`, `DIDIT_WEBHOOK_SECRET`.
 - [ ] Після counsel — опублікувати legal-сторінки й оновити footer/checkout.
