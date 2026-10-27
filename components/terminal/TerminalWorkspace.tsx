@@ -11,6 +11,7 @@ import { loadStoredFavorites } from '@/lib/stores/useFavoritesStore'
 import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
+import { AppealDialog } from './AppealDialog'
 import { OrderPanel } from './OrderPanel'
 import { PositionsTable } from './PositionsTable'
 import { TerminalHeader } from './TerminalHeader'
@@ -385,10 +386,13 @@ function NoticeBar() {
   const loadError = useTerminalBook((state) => state.loadError)
   const account = useTerminalBook((state) => state.account)
   const dismiss = useTerminalBook((state) => state.dismissNotice)
+  const [appealOpen, setAppealOpen] = useState(false)
 
   if (loadState === 'error') {
     return <Banner tone="danger" message={`Trading account unavailable: ${loadError ?? 'unknown error'}`} />
   }
+
+  const breached = account && (account.status === 'BREACHED' || account.status === 'BREACHED_DAILY' || account.status === 'BREACHED_MAX')
 
   return (
     <>
@@ -401,9 +405,16 @@ function NoticeBar() {
               <Button size="sm" variant="outline" onClick={() => switchAccount(account.activeSiblingAccountId!)}>
                 Switch to {account.activeSiblingAccountId}
               </Button>
+            ) : breached ? (
+              <Button size="sm" variant="outline" onClick={() => setAppealOpen(true)}>
+                Appeal decision
+              </Button>
             ) : null
           }
         />
+      ) : null}
+      {breached ? (
+        <AppealDialog accountId={account.id} open={appealOpen} onOpenChange={setAppealOpen} />
       ) : null}
       {notice ? (
         <Banner

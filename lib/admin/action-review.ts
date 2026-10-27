@@ -54,7 +54,7 @@ async function decisionExists(accountId: string, requestId: string) {
 
 export function actionReviewRequestData(input: {
   accountId: string
-  actorId: string
+  actorId: string | null
   kind: ReviewedActionKind
   reason: string
   summary: string
@@ -150,11 +150,12 @@ export async function listPendingActionReviews(actorId: string): Promise<Pending
         traderName: request.account?.user.name ?? 'Unknown trader',
         kind: requestKind(request),
         summary: request.reason ?? '',
-        performedBy: request.actor?.name ?? request.actorId ?? 'Unknown admin',
+        performedBy: request.actor?.name ?? request.actorId ?? 'Automated enforcement',
         performedAt: request.createdAt.toISOString(),
         dueAt: dueAt.toISOString(),
         overdue: Date.now() > dueAt.getTime(),
         selfPerformed: request.actorId === actorId,
+        automated: request.actorId === null,
       }
     })
 }

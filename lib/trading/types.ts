@@ -3,7 +3,7 @@ import type { OrderSide, PendingTradeOrder, Position, TradeHistory } from '@/lib
 export type Quote = { bid: number; ask: number }
 export type Quotes = Partial<Record<string, Quote>>
 
-export type BreachRule = 'MAX_DAILY_LOSS' | 'MAX_TRAILING_DRAWDOWN' | 'NEWS_WINDOW'
+export type BreachRule = 'MAX_DAILY_LOSS' | 'MAX_TRAILING_DRAWDOWN' | 'NEWS_WINDOW' | 'NEGATIVE_BALANCE'
 
 export type Breach = {
   rule: BreachRule

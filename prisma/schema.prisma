@@ -117,6 +117,13 @@ enum WalletNetwork {
   USDT_ERC20
 }
 
+enum AppealStatus {
+  OPEN
+  UPHELD
+  OVERTURNED
+  WITHDRAWN
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -153,6 +160,8 @@ model User {
   payouts         Payout[]
   auditLogs       AuditLog[] @relation("AuditActor")
   reviewedPayouts Payout[]   @relation("PayoutReviewer")
+  appeals         AccountAppeal[] @relation("AppealTrader")
+  reviewedAppeals AccountAppeal[] @relation("AppealReviewer")
 }
 
 model EmailLoginCode {
@@ -213,6 +222,7 @@ model TradingAccount {
   positions     Position[]
   tradeHistory  TradeHistory[]
   pendingTradeOrders PendingTradeOrder[]
+  appeals       AccountAppeal[]
 
   @@index([status])
   @@index([mt5Login])
@@ -358,6 +368,29 @@ model Payout {
   updatedAt        DateTime       @updatedAt
 
   @@index([status])
+}
+
+/// Appeal against a breach decision. Traders file it inside the appeal window and an
+/// admin who did not execute the breach decides it.
+model AccountAppeal {
+  id           String        @id @default(cuid())
+  accountId    String
+  account      TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User          @relation("AppealTrader", fields: [userId], references: [id], onDelete: Cascade)
+  status       AppealStatus  @default(OPEN)
+  breachKind   String?
+  breachReason String?
+  reason       String
+  decisionNote String?
+  decidedById  String?
+  decidedBy    User?         @relation("AppealReviewer", fields: [decidedById], references: [id])
+  decidedAt    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([status, createdAt])
+  @@index([accountId])
 }
 
 model AuditLog {

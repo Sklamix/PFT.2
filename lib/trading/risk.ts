@@ -68,7 +68,9 @@ export function positionMargin(position: Pick<Valued, 'symbol' | 'sizeLots' | 'e
 
 export function measureRisk(inputs: RiskInputs, positions: Valued[]): RiskMetrics {
   const floatingPnl = roundUsd(positions.reduce((sum, position) => sum + position.floatingPnl, 0))
-  const equity = roundUsd(inputs.balance + floatingPnl)
+  // Negative balance protection: the trader can never owe more than the evaluation fee, so
+  // account equity floors at zero and the surplus loss is absorbed by the platform.
+  const equity = Math.max(0, roundUsd(inputs.balance + floatingPnl))
   // Withdrawn profit stays in the risk calculation so a payout cannot reset the drawdown budget.
   const riskEquity = roundUsd(equity + inputs.withdrawnProfit)
   const peakEquity = Math.max(inputs.peakEquity, riskEquity)

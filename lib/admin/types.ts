@@ -44,6 +44,8 @@ export type PendingActionReview = {
   overdue: boolean
   /** The signed-in admin performed the action and cannot review it. */
   selfPerformed: boolean
+  /** No admin performed the action; automated enforcement did. */
+  automated: boolean
 }
 export type RiskBadge = 'ACTIVE - PASSING' | 'NEAR LIMIT' | 'RULE BREACHED'
 export type PayoutStatus = 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED'

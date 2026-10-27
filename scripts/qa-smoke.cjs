@@ -334,6 +334,94 @@ async function main() {
     !reviewsAfterReset.json?.items?.some((item) => item.requestId === resetReview?.requestId),
   )
 
+  // Breach appeals: filed by the trader, decided by an admin who did not close the account.
+  const appealAccount = await prisma.tradingAccount.create({
+    data: {
+      displayId: `QA-APPEAL-${suffix}`,
+      userId: trader.id,
+      mt5Login: `QAA${suffix}`,
+      mt5Server: 'QA-Server',
+      planSize: 100000,
+      challengeType: 'TWO_STEP',
+      phase: 'PHASE_1',
+      status: 'ACTIVE',
+      initialBalance: 100000,
+      dailyStartingBalance: 100000,
+      dailyStartingEquity: 100000,
+      dailyStartedAt: new Date(),
+      currentBalance: 100000,
+      currentEquity: 100000,
+      dailyDrawdownPct: 0,
+      maxDrawdownPct: 0,
+      dailyDrawdownLimitPct: 5,
+      maxDrawdownLimitPct: 10,
+      profitPct: 0,
+      balance: 100000,
+      equity: 100000,
+      startingBalance: 100000,
+      peakEquity: 100000,
+    },
+  })
+
+  const appealBreach = await request(`/api/admin/accounts/${appealAccount.id}/breach`, {
+    method: 'POST',
+    body: JSON.stringify({ type: 'BREACHED_DAILY', reason: 'QA breach for appeal flow' }),
+  }, adminA.cookie)
+  check('Appeal fixture account breached', appealBreach.status === 200, `HTTP ${appealBreach.status}`)
+
+  const shortAppeal = await request('/api/trading/appeal', {
+    method: 'POST',
+    body: JSON.stringify({ accountId: appealAccount.id, reason: 'too short' }),
+  }, login3.cookie)
+  check('Appeal reason must be descriptive', shortAppeal.status === 400, `HTTP ${shortAppeal.status}`)
+
+  const filed = await request('/api/trading/appeal', {
+    method: 'POST',
+    body: JSON.stringify({
+      accountId: appealAccount.id,
+      reason: 'QA appeal: the drawdown figure was calculated from a stale equity snapshot.',
+    }),
+  }, login3.cookie)
+  check('Trader files a breach appeal', filed.status === 201 && Boolean(filed.json?.appeal?.id), `HTTP ${filed.status}`)
+
+  const duplicateAppeal = await request('/api/trading/appeal', {
+    method: 'POST',
+    body: JSON.stringify({
+      accountId: appealAccount.id,
+      reason: 'QA duplicate appeal for the same breach decision.',
+    }),
+  }, login3.cookie)
+  check('Duplicate open appeal is rejected', duplicateAppeal.status === 409, `HTTP ${duplicateAppeal.status}`)
+
+  const adminAppeals = await request('/api/admin/appeals', {}, adminB.cookie)
+  const queueItem = adminAppeals.json?.items?.find((item) => item.accountId === appealAccount.id)
+  check('Admin appeal queue lists the appeal', Boolean(queueItem), queueItem?.id)
+
+  const selfAppealReview = await request(`/api/admin/accounts/${appealAccount.id}/appeal`, {
+    method: 'POST',
+    body: JSON.stringify({ appealId: queueItem?.id, decision: 'overturn', note: 'QA self review attempt' }),
+  }, adminA.cookie)
+  check('Admin who closed the account cannot decide its appeal', selfAppealReview.status === 403, `HTTP ${selfAppealReview.status}`)
+
+  const overturn = await request(`/api/admin/accounts/${appealAccount.id}/appeal`, {
+    method: 'POST',
+    body: JSON.stringify({
+      appealId: queueItem?.id,
+      decision: 'overturn',
+      note: 'QA second admin overturns after reviewing the equity snapshot.',
+    }),
+  }, adminB.cookie)
+  check('Second admin overturns the appeal', overturn.status === 200 && overturn.json?.appeal?.status === 'OVERTURNED', `HTTP ${overturn.status}`)
+
+  const restored = await prisma.tradingAccount.findUniqueOrThrow({ where: { id: appealAccount.id } })
+  check('Overturned appeal restores the account', restored.status === 'ACTIVE' && restored.breachReason === null, restored.status)
+
+  const appealsAfterDecision = await request('/api/admin/appeals', {}, adminB.cookie)
+  check(
+    'Decided appeal leaves the queue',
+    !appealsAfterDecision.json?.items?.some((item) => item.id === queueItem?.id),
+  )
+
   await cleanup()
   const failed = results.filter((result) => !result.ok)
   console.log(`\n${results.length - failed.length}/${results.length} checks passed`)

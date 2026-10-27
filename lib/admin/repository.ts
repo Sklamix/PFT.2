@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client'
-import { actionReviewRequestData } from '@/lib/admin/action-review'
+import { applyBreach } from '@/lib/rules/breach-matrix'
 import { mockStore } from '@/lib/admin/mock-store'
 import { drawdownPressure, isBreached, isPassing, matchesTraderFilter, recomputeMetrics, riskBadge } from '@/lib/admin/risk'
 import type {
@@ -350,29 +350,15 @@ export const adminRepo = {
     const prisma = await db()
     if (!prisma) return mockStore.breach(id, type, reason, actorId)
 
-    await prisma.$transaction([
-      prisma.tradingAccount.update({
-        where: { id },
-        data: { status: type, breachReason: reason, frozenAt: new Date() },
+    await prisma.$transaction((tx) =>
+      applyBreach(tx, {
+        accountId: id,
+        kind: type === 'BREACHED_DAILY' ? 'DAILY_LOSS' : 'MAX_DRAWDOWN',
+        actorId,
+        reason,
+        summary: type === 'BREACHED_DAILY' ? 'Daily loss kill-switch' : 'Max drawdown kill-switch',
       }),
-      prisma.trade.updateMany({
-        where: { accountId: id, status: 'OPEN' },
-        data: { markedForLiquidation: true },
-      }),
-      prisma.auditLog.create({
-        data: { actorId, accountId: id, action: 'ACCOUNT_BREACH', reason, metadata: { type } },
-      }),
-      prisma.auditLog.create({
-        data: actionReviewRequestData({
-          accountId: id,
-          actorId,
-          kind: 'BREACH',
-          reason,
-          summary: type === 'BREACHED_DAILY' ? 'Daily loss kill-switch' : 'Max drawdown kill-switch',
-          details: { type },
-        }),
-      }),
-    ])
+    )
     return this.getAccount(id)
   },
 

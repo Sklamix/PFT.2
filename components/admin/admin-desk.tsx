@@ -6,6 +6,7 @@ import { LogOut, ReceiptText, Search, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
 import { ActionReviews } from '@/components/admin/action-reviews'
+import { AppealQueue, type AppealItem } from '@/components/admin/appeal-queue'
 import { OverrideApprovals } from '@/components/admin/override-approvals'
 import { ReadinessPanel, type ReadinessSummary } from '@/components/admin/readiness-panel'
 import { KpiBar } from '@/components/admin/kpi-bar'
@@ -58,6 +59,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [overrideApprovals, setOverrideApprovals] = useState<PendingAccountOverride[]>([])
   const [actionReviews, setActionReviews] = useState<PendingActionReview[]>([])
   const [readiness, setReadiness] = useState<ReadinessSummary | null>(null)
+  const [appeals, setAppeals] = useState<AppealItem[]>([])
   const [telemetry, setTelemetry] = useState<TelemetryState | null>(null)
   const [queueOpen, setQueueOpen] = useState(false)
   const [ordersOpen, setOrdersOpen] = useState(false)
@@ -76,7 +78,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
   const load = useCallback(async () => {
     try {
-      const [overview, traders, queue, orderRows, pulse, approvals, reviews, readinessReport] = await Promise.all([
+      const [overview, traders, queue, orderRows, pulse, approvals, reviews, readinessReport, appealItems] = await Promise.all([
         api<OverviewMetrics>('/api/admin/metrics/overview'),
         api<{ items: TraderRow[] }>(`/api/admin/traders?q=${encodeURIComponent(query)}&filter=${filter}`),
         api<{ items: PayoutRow[] }>('/api/admin/payouts'),
@@ -91,6 +93,9 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         user.role === 'ADMIN'
           ? api<ReadinessSummary>('/api/admin/readiness')
           : Promise.resolve(null),
+        user.role === 'ADMIN'
+          ? api<{ items: AppealItem[] }>('/api/admin/appeals')
+          : Promise.resolve({ items: [] as AppealItem[] }),
       ])
       setMetrics(overview)
       setRows(traders.items)
@@ -100,6 +105,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       setOverrideApprovals(approvals.items)
       setActionReviews(reviews.items)
       setReadiness(readinessReport)
+      setAppeals(appealItems.items)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load operations desk')
@@ -213,6 +219,21 @@ export function AdminDesk({ user }: { user: AdminSession }) {
     }
   }
 
+  const decideAppeal = async (item: AppealItem, decision: 'uphold' | 'overturn') => {
+    const verb = decision === 'overturn' ? 'Overturn' : 'Uphold'
+    const note = window.prompt(`${verb} the appeal for ${item.displayId}? Decision note:`)
+    if (!note?.trim()) return
+    try {
+      await api(`/api/admin/accounts/${item.accountId}/appeal`, {
+        method: 'POST',
+        body: JSON.stringify({ appealId: item.id, decision, note: note.trim() }),
+      })
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Unable to ${decision} appeal`)
+    }
+  }
+
   return (
     <AdminDeskFrame
       user={user}
@@ -252,6 +273,11 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         items={actionReviews}
         onConfirm={(item) => void decideActionReview(item, 'confirm')}
         onFlag={(item) => void decideActionReview(item, 'flag')}
+      />
+      <AppealQueue
+        items={appeals}
+        onUphold={(item) => void decideAppeal(item, 'uphold')}
+        onOverturn={(item) => void decideAppeal(item, 'overturn')}
       />
       <OverrideApprovals
         items={overrideApprovals}

@@ -94,6 +94,8 @@ export interface BookTx {
   /** Finds a high-impact event that makes this position a news-window exposure. */
   newsExposure(position: Pick<Position, 'id' | 'symbol' | 'openedAt'>, closedAt: Date): Promise<NewsExposure | null>
   newsViolationCount(accountId: string): Promise<number>
+  /** Writes an account audit entry inside the same engine transaction. */
+  recordAudit(input: { action: string; reason: string; metadata?: Record<string, unknown> }): Promise<void>
   recordNewsViolation(input: {
     accountId: string
     positionId: string
@@ -367,6 +369,17 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
     async newsViolationCount(accountId) {
       return tx.auditLog.count({
         where: { accountId, action: 'NEWS_WINDOW_EXPOSURE' },
+      })
+    },
+
+    async recordAudit(input) {
+      await tx.auditLog.create({
+        data: {
+          accountId,
+          action: input.action,
+          reason: input.reason,
+          metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
+        },
       })
     },
 
@@ -724,6 +737,10 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
 
     async newsViolationCount() {
       return 0
+    },
+
+    async recordAudit() {
+      return undefined
     },
 
     async recordNewsViolation() {

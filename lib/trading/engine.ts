@@ -64,6 +64,9 @@ type Working = {
   orderUpdates: BookPayload['events']['orderUpdates']
   breach: Breach | null
   unfrozenAccountId: string | null
+  /** Loss written off by negative balance protection in this sync. */
+  negativeBalanceProtected: number
+  negativeBalanceHit: boolean
 }
 
 function load(tx: BookTx): Working {
@@ -95,6 +98,8 @@ function load(tx: BookTx): Working {
     orderUpdates: [],
     breach: null,
     unfrozenAccountId: null,
+    negativeBalanceProtected: 0,
+    negativeBalanceHit: false,
   }
 }
 
@@ -122,6 +127,12 @@ async function closeOne(w: Working, position: Position, reason: TradeHistory['cl
   w.positions = w.positions.filter((item) => item.id !== position.id)
   if (!trade) return null
   w.balance = roundUsd(w.balance + trade.pnl)
+  if (w.balance < 0) {
+    // Negative balance protection: the platform absorbs anything below zero.
+    w.negativeBalanceProtected = roundUsd(w.negativeBalanceProtected - w.balance)
+    w.negativeBalanceHit = true
+    w.balance = 0
+  }
   w.closed.push(trade)
 
   if (exposure) {
@@ -224,12 +235,30 @@ async function metricsFor(w: Working): Promise<RiskMetrics> {
 async function enforceRules(w: Working) {
   if (!isTradingStatus(w.status)) return
   const metrics = await metricsFor(w)
-  const breach = detectBreach(metrics)
+  const breach =
+    detectBreach(metrics) ??
+    (w.negativeBalanceHit || metrics.equity <= 0
+      ? {
+          rule: 'NEGATIVE_BALANCE' as const,
+          reason: `Negative balance protection: equity reached zero, written off ${w.negativeBalanceProtected.toFixed(2)}`,
+        }
+      : null)
   if (!breach) return
   for (const position of [...w.positions]) await closeOne(w, position, 'LIQUIDATION_BREACH', true)
   w.status = 'BREACHED'
   w.breachReason = breach.reason
   w.breach = breach
+  if (w.negativeBalanceProtected > 0 || metrics.equity <= 0) {
+    await w.tx.recordAudit({
+      action: 'NEGATIVE_BALANCE_PROTECTED',
+      reason: breach.reason,
+      metadata: {
+        protectedAmount: w.negativeBalanceProtected,
+        equity: metrics.equity,
+        balance: metrics.balance,
+      },
+    })
+  }
   w.unfrozenAccountId = await w.tx.activateStandby()
   if (w.pendingOrders.length) {
     await w.tx.cancelPendingOrders('Account breached risk rules')
