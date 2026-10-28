@@ -70,7 +70,7 @@ export function Astronaut({
     )
     group.current.rotation.y = THREE.MathUtils.damp(
       group.current.rotation.y,
-      Math.sin(time * 0.3) * 0.06 + p.x * 0.04 * motionScale,
+      Math.PI + Math.sin(time * 0.3) * 0.06 + p.x * 0.04 * motionScale,
       2.2,
       delta,
     )
@@ -90,7 +90,7 @@ export function Astronaut({
   })
 
   return (
-    <group ref={group} position={position} scale={scale} rotation={[0.02, 0, 0.025]}>
+    <group ref={group} position={position} scale={scale} rotation={[0.02, Math.PI, 0.025]}>
       {/* Backpack and tanks */}
       <mesh position={[0, 0.28, -0.34]} scale={[0.72, 0.92, 0.3]}>
         <boxGeometry args={[1, 1, 1]} />
