@@ -53,7 +53,7 @@ export function Hero() {
           style={{ background: 'radial-gradient(circle, rgba(255,226,154,0.6) 0%, rgba(255,140,34,0.28) 40%, transparent 68%)' }}
         />
         <div
-          className="absolute top-[52%] left-[88%] size-[24rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[60px]"
+          className="absolute top-[62%] left-[92%] size-[24rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[60px]"
           style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.5) 0%, rgba(14,165,233,0.22) 40%, transparent 70%)' }}
         />
       </div>

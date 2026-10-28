@@ -182,30 +182,30 @@ function Scene({
   const earthPoint: [number, number] = mobile
     ? [0.52, 0.7]
     : portrait
-      ? [0.62, 0.68]
+      ? [0.58, 0.66]
       : wide
-        ? [0.7, 0.5]
+        ? [0.6, 0.48]
         : large
-          ? [0.72, 0.5]
-          : [0.76, 0.55]
+          ? [0.62, 0.48]
+          : [0.66, 0.5]
   const astronautPoint: [number, number] = mobile
     ? [0.62, 0.3]
     : portrait
-      ? [0.76, 0.28]
+      ? [0.8, 0.32]
       : wide
-        ? [0.88, 0.52]
+        ? [0.92, 0.62]
         : large
-          ? [0.88, 0.52]
-          : [0.8, 0.25]
+          ? [0.92, 0.62]
+          : [0.9, 0.62]
   const earthRadiusPx = mobile
     ? Math.min(size.height * 0.15, size.width * 0.28)
     : portrait
       ? Math.min(size.height * 0.19, size.width * 0.22)
       : wide
-        ? Math.min(size.height * 0.33, size.width * 0.16)
+        ? Math.min(size.height * 0.26, size.width * 0.13)
         : large
-          ? Math.min(size.height * 0.29, size.width * 0.12)
-          : Math.min(size.height * 0.22, size.width * 0.15)
+          ? Math.min(size.height * 0.24, size.width * 0.11)
+          : Math.min(size.height * 0.2, size.width * 0.13)
   const astronautHeightPx = mobile
     ? Math.min(size.height * 0.14, size.width * 0.3)
     : portrait
