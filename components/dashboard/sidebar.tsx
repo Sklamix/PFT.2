@@ -51,22 +51,35 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
           {DASHBOARD_VIEWS.map((item) => {
             const active = item.id === view
             const Icon = item.icon
+            const content = (
+              <>
+                {active && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" aria-hidden="true" />}
+                <Icon className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} aria-hidden="true" />
+                {item.label}
+              </>
+            )
+            const className = cn(
+              'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
+              active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+            )
+            if ('href' in item && item.href) {
+              return (
+                <li key={item.id}>
+                  <Link href={item.href} aria-current={active ? 'page' : undefined} className={className}>
+                    {content}
+                  </Link>
+                </li>
+              )
+            }
             return (
               <li key={item.id}>
                 <button
                   type="button"
                   onClick={() => onNavigate(item.id)}
                   aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
-                    active
-                      ? 'bg-accent text-foreground'
-                      : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
-                  )}
+                  className={className}
                 >
-                  {active && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" aria-hidden="true" />}
-                  <Icon className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} aria-hidden="true" />
-                  {item.label}
+                  {content}
                 </button>
               </li>
             )

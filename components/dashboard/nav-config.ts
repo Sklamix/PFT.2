@@ -1,7 +1,7 @@
 import { Award, BookOpen, CandlestickChart, Layers, LayoutDashboard, Receipt, ShieldCheck } from 'lucide-react'
 
 export const DASHBOARD_VIEWS = [
-  { id: 'overview', label: 'Overview / Cockpit', icon: LayoutDashboard },
+  { id: 'overview', label: 'Overview / Cockpit', icon: LayoutDashboard, href: '/dashboard/overview' },
   { id: 'accounts', label: 'Trading Accounts', icon: Layers },
   { id: 'payouts', label: 'Payouts & Certificates', icon: Award },
   { id: 'journal', label: 'Trading Journal', icon: BookOpen },
