@@ -17,6 +17,7 @@ import { OrdersQueue } from '@/components/admin/orders-queue'
 import { PayoutQueue } from '@/components/admin/payout-queue'
 import { PayoutsManagement } from '@/components/admin/payouts-management'
 import { RiskTable } from '@/components/admin/risk-table'
+import { StaffMessages } from '@/components/admin/staff-messages'
 import { TradingConditionsManagement } from '@/components/admin/trading-conditions-management'
 import { TelemetryController } from '@/components/admin/telemetry-controller'
 import { TradeHistoryModal } from '@/components/admin/trade-history-modal'
@@ -45,6 +46,16 @@ const FILTERS: { id: TraderFilter; label: string }[] = [
   { id: 'breached', label: 'Breached' },
   { id: 'passing', label: 'Active - Passing' },
 ]
+
+/** Sections of the admin desk, rendered one at a time to keep the panel uncluttered. */
+const SECTIONS = [
+  { id: 'monitor', label: 'Risk Monitor' },
+  { id: 'reviews', label: 'Reviews & Approvals' },
+  { id: 'operations', label: 'Operations' },
+  { id: 'messages', label: 'Messages' },
+] as const
+
+type SectionId = (typeof SECTIONS)[number]['id']
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } })
@@ -89,6 +100,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [grantType, setGrantType] = useState<'1-Step' | '2-Step'>('1-Step')
   const [grantAs, setGrantAs] = useState<'evaluation' | 'funded'>('evaluation')
   const [grantReason, setGrantReason] = useState('')
+  const [section, setSection] = useState<SectionId>('monitor')
 
   const load = useCallback(async () => {
     try {
@@ -327,28 +339,30 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       )}
 
       <KpiBar metrics={metrics} />
-      <ReadinessPanel report={readiness} />
-      <AbusePanel report={abuse} />
-      <ActionReviews
-        items={actionReviews}
-        onConfirm={(item) => void decideActionReview(item, 'confirm')}
-        onFlag={(item) => void decideActionReview(item, 'flag')}
-      />
-      <AppealQueue
-        items={appeals}
-        onUphold={(item) => void decideAppeal(item, 'uphold')}
-        onOverturn={(item) => void decideAppeal(item, 'overturn')}
-      />
-      <OverrideApprovals
-        items={overrideApprovals}
-        onApprove={(item) => void decideOverride(item, 'approve')}
-        onReject={(item) => void decideOverride(item, 'reject')}
-      />
-      <TelemetryController state={telemetry} />
-      <PayoutsManagement canManage={user.role === 'ADMIN'} />
-      <TradingConditionsManagement canManage={user.role === 'ADMIN'} />
 
-      <section className="flex flex-col gap-3">
+      {/* Section tabs */}
+      <nav className="flex flex-wrap items-center gap-1 border-b border-border pb-2" aria-label="Admin sections">
+        {SECTIONS.map((item) => (
+          <Button
+            key={item.id}
+            size="sm"
+            variant={section === item.id ? 'default' : 'ghost'}
+            onClick={() => setSection(item.id)}
+          >
+            {item.label}
+            {item.id === 'reviews' && actionReviews.length + overrideApprovals.length + appeals.length > 0
+              ? ` (${actionReviews.length + overrideApprovals.length + appeals.length})`
+              : ''}
+          </Button>
+        ))}
+      </nav>
+
+      {section === 'monitor' ? (
+        <>
+          <ReadinessPanel report={readiness} />
+          <AbusePanel report={abuse} />
+
+          <section className="flex flex-col gap-3">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-sm font-semibold tracking-tight">Active trader drawdown risk monitor</h2>
@@ -439,7 +453,39 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             setGrantOpen(true)
           }}
         />
-      </section>
+          </section>
+        </>
+      ) : null}
+
+      {section === 'reviews' ? (
+        <>
+          <ActionReviews
+            items={actionReviews}
+            onConfirm={(item) => void decideActionReview(item, 'confirm')}
+            onFlag={(item) => void decideActionReview(item, 'flag')}
+          />
+          <AppealQueue
+            items={appeals}
+            onUphold={(item) => void decideAppeal(item, 'uphold')}
+            onOverturn={(item) => void decideAppeal(item, 'overturn')}
+          />
+          <OverrideApprovals
+            items={overrideApprovals}
+            onApprove={(item) => void decideOverride(item, 'approve')}
+            onReject={(item) => void decideOverride(item, 'reject')}
+          />
+        </>
+      ) : null}
+
+      {section === 'operations' ? (
+        <>
+          <TelemetryController state={telemetry} />
+          <PayoutsManagement canManage={user.role === 'ADMIN'} />
+          <TradingConditionsManagement canManage={user.role === 'ADMIN'} />
+        </>
+      ) : null}
+
+      {section === 'messages' ? <StaffMessages /> : null}
 
       <PayoutQueue
         open={queueOpen}

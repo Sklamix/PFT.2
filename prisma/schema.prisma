@@ -455,6 +455,20 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// Internal broadcast messages from admins to staff, filterable by role class.
+model AdminMessage {
+  id            String   @id @default(cuid())
+  subject       String
+  body          String
+  audience      String   @default("ALL")
+  createdById   String?
+  createdByName String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([audience])
+}
+
 /// Durable idempotency records for signed inbound webhooks.
 model WebhookEvent {
   id         String   @id
