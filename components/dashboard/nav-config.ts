@@ -3,7 +3,7 @@ import { Award, BookOpen, CandlestickChart, Layers, LayoutDashboard, Receipt, Sh
 export const DASHBOARD_VIEWS = [
   { id: 'overview', label: 'Overview / Cockpit', icon: LayoutDashboard, href: '/dashboard/overview' },
   { id: 'accounts', label: 'Trading Accounts', icon: Layers, href: '/dashboard/accounts' },
-  { id: 'payouts', label: 'Payouts & Certificates', icon: Award },
+  { id: 'payouts', label: 'Payouts & Certificates', icon: Award, href: '/dashboard/payouts' },
   { id: 'journal', label: 'Trading Journal', icon: BookOpen },
   { id: 'billing', label: 'Billing & Orders', icon: Receipt },
   { id: 'settings', label: 'Settings & KYC', icon: ShieldCheck },
