@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { LogOut, ReceiptText, Search, Wallet } from 'lucide-react'
+import { LogOut, ReceiptText, Search, UserPlus, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { AdminDeskFrame } from '@/components/admin/admin-desk-frame'
 import { ActionReviews } from '@/components/admin/action-reviews'
@@ -10,6 +10,7 @@ import { AbusePanel } from '@/components/admin/abuse-panel'
 import { AppealQueue, type AppealItem } from '@/components/admin/appeal-queue'
 import { OverrideApprovals } from '@/components/admin/override-approvals'
 import { ReadinessPanel, type ReadinessSummary } from '@/components/admin/readiness-panel'
+import { CreateStaffDialog } from '@/components/admin/staff-dialog'
 import { KpiBar } from '@/components/admin/kpi-bar'
 import { KycDialog } from '@/components/admin/kyc-dialog'
 import { OrdersQueue } from '@/components/admin/orders-queue'
@@ -78,6 +79,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [overrideStatus, setOverrideStatus] = useState<AccountStatus>('ACTIVE')
   const [error, setError] = useState<string | null>(null)
   const [breachType, setBreachType] = useState<'BREACHED_DAILY' | 'BREACHED_MAX'>('BREACHED_DAILY')
+  const [staffOpen, setStaffOpen] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -272,6 +274,12 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             >
               2-Step pricing
             </Link>
+          )}
+          {user.role === 'ADMIN' && (
+            <Button variant="outline" size="sm" onClick={() => setStaffOpen(true)}>
+              <UserPlus />
+              Add staff
+            </Button>
           )}
           <Button variant="outline" size="sm" onClick={() => setQueueOpen(true)}>
             <Wallet />
@@ -468,6 +476,8 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         userId={kycUserId}
         onSaved={() => void load()}
       />
+
+      <CreateStaffDialog open={staffOpen} onOpenChange={setStaffOpen} onCreated={() => void load()} />
 
       <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
         <DialogContent className="border-border bg-card sm:max-w-md">

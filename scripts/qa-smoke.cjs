@@ -10,6 +10,7 @@ const TRADER = `qa-trader-${suffix}@pft.local`
 const AUTO_TRADER = `qa-autofund-${suffix}@pft.local`
 const RESET_TRADER = `qa-reset-${suffix}@pft.local`
 const SHARE_TRADER = `qa-share-${suffix}@pft.local`
+const STAFF = `qa-staff-${suffix}@pft.local`
 const RUN_START = new Date()
 const IPN_SECRET = process.env.NOWPAYMENTS_IPN_SECRET || 'qa-ipn-secret'
 const PASSWORD = 'Qa-Password-123!'
@@ -72,7 +73,7 @@ async function loginAdmin(email) {
 
 async function cleanup() {
   const users = await prisma.user.findMany({
-    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER, AUTO_TRADER, RESET_TRADER, SHARE_TRADER] } },
+    where: { email: { in: [ADMIN_A, ADMIN_B, TRADER, AUTO_TRADER, RESET_TRADER, SHARE_TRADER, STAFF] } },
     select: { id: true },
   })
   const userIds = users.map((user) => user.id)
@@ -233,6 +234,49 @@ async function main() {
     where: { accountId: autoAccount.id, action: 'ACCOUNT_AUTO_FUNDED' },
   })
   check('Repeated KYC approval does not fund the account twice', autoFundingCount === 1, String(autoFundingCount))
+
+  // Staff creation: an admin can add another admin or risk manager.
+  const adminAUser = await prisma.user.findUniqueOrThrow({ where: { email: ADMIN_A }, select: { id: true } })
+  const createStaff = await request('/api/admin/staff', {
+    method: 'POST',
+    body: JSON.stringify({ email: STAFF, name: 'QA Risk Manager', role: 'RISK_MANAGER' }),
+  }, adminA.cookie)
+  check(
+    'Admin creates a risk manager',
+    createStaff.status === 201 &&
+      createStaff.json?.user?.role === 'RISK_MANAGER' &&
+      typeof createStaff.json?.generatedPassword === 'string',
+    `HTTP ${createStaff.status}`,
+  )
+  const staffUser = await prisma.user.findUnique({ where: { email: STAFF }, select: { role: true } })
+  check('Staff user is persisted with the right role', staffUser?.role === 'RISK_MANAGER', staffUser?.role)
+  const staffAudit = await prisma.auditLog.findFirst({
+    where: { actorId: adminAUser.id, action: 'STAFF_CREATED' },
+    select: { id: true },
+  })
+  check('Staff creation is audited', Boolean(staffAudit?.id))
+
+  const dupStaff = await request('/api/admin/staff', {
+    method: 'POST',
+    body: JSON.stringify({ email: STAFF, name: 'QA Dup', role: 'ADMIN' }),
+  }, adminA.cookie)
+  check('Duplicate staff email is rejected', dupStaff.status === 409, `HTTP ${dupStaff.status}`)
+
+  const staffLogin = await request('/api/admin/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ email: STAFF, password: createStaff.json.generatedPassword }),
+  })
+  check(
+    'Risk manager can sign in',
+    staffLogin.status === 200 && staffLogin.json?.user?.role === 'RISK_MANAGER',
+    `HTTP ${staffLogin.status}`,
+  )
+
+  const staffForbidden = await request('/api/admin/staff', {
+    method: 'POST',
+    body: JSON.stringify({ email: `qa-forbidden-${suffix}@pft.local`, name: 'QA Forbidden', role: 'ADMIN' }),
+  }, staffLogin.cookie)
+  check('Risk manager cannot create staff', staffForbidden.status === 403, `HTTP ${staffForbidden.status}`)
 
   const emptyQueue = await request('/api/admin/funding-approvals', {}, adminA.cookie)
   check('Funding queue endpoint', emptyQueue.status === 200 && Array.isArray(emptyQueue.json?.items), `HTTP ${emptyQueue.status}`)
