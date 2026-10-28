@@ -395,10 +395,12 @@ function NoticeBar() {
   }
 
   const breached = account && (account.status === 'BREACHED' || account.status === 'BREACHED_DAILY' || account.status === 'BREACHED_MAX')
+  // FUNDED accounts trade normally; only non-trading statuses get the banner.
+  const tradingDisabled = account && account.status !== 'ACTIVE' && account.status !== 'FUNDED'
 
   return (
     <>
-      {account && account.status !== 'ACTIVE' ? (
+      {account && tradingDisabled ? (
         <Banner
           tone="danger"
           message={`Account ${account.id} is ${account.status}${account.breachReason ? ` — ${account.breachReason}` : ''}. Trading is disabled.`}

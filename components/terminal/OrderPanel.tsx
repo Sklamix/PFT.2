@@ -115,7 +115,7 @@ export function OrderPanel() {
     parsedUsd > 0 &&
     parsedUsd < minMargin
   const marginExceeds = validLots && margin > freeMargin + 0.005
-  const tradable = accountStatus === 'ACTIVE' && getSymbol(selectedSymbol).available
+  const tradable = (accountStatus === 'ACTIVE' || accountStatus === 'FUNDED') && getSymbol(selectedSymbol).available
 
   useEffect(() => {
     resetForSymbol(selectedSymbol)
@@ -454,7 +454,7 @@ export function OrderPanel() {
         </Button>
         {!tradable && accountStatus ? (
           <p className="font-mono text-[11px] text-muted-foreground">
-            {accountStatus !== 'ACTIVE' ? `Account ${accountStatus.toLowerCase()} — orders disabled` : 'Symbol not tradable on this account'}
+            {accountStatus !== 'ACTIVE' && accountStatus !== 'FUNDED' ? `Account ${accountStatus.toLowerCase()} — orders disabled` : 'Symbol not tradable on this account'}
           </p>
         ) : null}
         {tradable && connectionStatus !== 'CONNECTED' ? (
