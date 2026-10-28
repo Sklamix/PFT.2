@@ -12,6 +12,8 @@ const BREACHED = new Set(['BREACHED', 'BREACHED_DAILY', 'BREACHED_MAX', 'EXPIRED
 export type OverviewAccount = {
   id: string
   displayId: string
+  customName: string | null
+  primaryLabel: string
   planSize: number
   phase: string
   status: string
@@ -100,6 +102,8 @@ export async function getTraderOverview(userId: string): Promise<OverviewData> {
     return {
       id: account.id,
       displayId: account.displayId,
+      customName: account.customName,
+      primaryLabel: account.customName?.trim() || account.displayId,
       planSize: account.planSize,
       phase: account.phase,
       status: account.status,

@@ -73,6 +73,7 @@ export async function getPayoutsData(userId: string): Promise<PayoutsData> {
     select: {
       id: true,
       displayId: true,
+      customName: true,
       planSize: true,
       status: true,
       initialBalance: true,

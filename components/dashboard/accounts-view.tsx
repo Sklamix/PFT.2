@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, ChevronDown, Copy, KeyRound, LineChart, Plus } from 'lucide-react'
+import { ArrowUpRight, Check, ChevronDown, Copy, KeyRound, LineChart, Pencil, Plus, X } from 'lucide-react'
 import { useAccounts, type AccountRow, type AccountTrade } from '@/lib/stores/useAccounts'
 import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
@@ -118,7 +118,7 @@ function CredentialsModal({ account, onClose }: { account: AccountRow; onClose: 
         <dl className="mt-5 space-y-3 text-sm">
           {[
             ['Account ID', account.displayId],
-            ['MT5 Login', account.mt5Login],
+            ['Account Login', account.mt5Login],
             ['Server', account.mt5Server],
             ['Platform', account.platform],
             ['Leverage', '1:100'],
@@ -140,11 +140,118 @@ function CredentialsModal({ account, onClose }: { account: AccountRow; onClose: 
           ))}
         </dl>
         <p className="mt-4 text-[11px] leading-relaxed text-[#94A3B8]">
-          Your MetaTrader password was sent to your registered email when the account was provisioned. We never store
-          or display passwords in the web app.
+          Your trading platform password was sent to your registered email when the account was provisioned. We never
+          store or display passwords in the web app.
         </p>
       </div>
     </div>
+  )
+}
+
+function AccountName({ account }: { account: AccountRow }) {
+  if (!account.customName?.trim()) {
+    return <span className="font-mono text-sm text-slate-100">#{account.displayId}</span>
+  }
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      <span className="truncate text-sm font-semibold text-slate-100">{account.customName}</span>
+      <span className="shrink-0 rounded border border-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-[#94A3B8]">
+        #{account.displayId}
+      </span>
+    </span>
+  )
+}
+
+function RenameControl({
+  account,
+  onRenamed,
+}: {
+  account: AccountRow
+  onRenamed: (customName: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const start = () => {
+    setValue(account.customName ?? '')
+    setError(null)
+    setEditing(true)
+  }
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const response = await fetch(`/api/accounts/${encodeURIComponent(account.id)}/rename`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customName: value }),
+      })
+      const body = (await response.json().catch(() => null)) as { error?: string; customName?: string | null } | null
+      if (!response.ok) {
+        setError(body?.error ?? 'Unable to rename account.')
+      } else {
+        setEditing(false)
+        onRenamed(body?.customName ?? null)
+      }
+    } catch {
+      setError('Network error. Try again.')
+    }
+    setBusy(false)
+  }
+
+  if (editing) {
+    return (
+      <span className="flex min-w-0 flex-wrap items-center gap-2">
+        <input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          maxLength={40}
+          autoFocus
+          placeholder="e.g. Main Challenge 10k"
+          className="h-8 w-52 rounded-md border border-slate-800 bg-[#080C14] px-2 text-sm text-slate-200 outline-none focus:border-slate-600"
+          aria-label="Custom account name"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void save()
+            if (event.key === 'Escape') setEditing(false)
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={busy}
+          className="inline-flex h-8 items-center rounded-md border border-slate-700 px-2 text-slate-200 hover:border-slate-500 disabled:opacity-50"
+          aria-label="Save name"
+        >
+          <Check className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="inline-flex h-8 items-center rounded-md px-2 text-[#94A3B8] hover:text-slate-200"
+          aria-label="Cancel rename"
+        >
+          <X className="size-3.5" />
+        </button>
+        {error ? <span className="w-full text-[11px]" style={{ color: RED }}>{error}</span> : null}
+      </span>
+    )
+  }
+
+  return (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <AccountName account={account} />
+      <button
+        type="button"
+        onClick={start}
+        className="rounded p-0.5 text-slate-600 transition-colors hover:text-slate-300"
+        aria-label="Rename account"
+      >
+        <Pencil className="size-3.5" />
+      </button>
+    </span>
   )
 }
 
@@ -165,8 +272,26 @@ function AccountCard({
     <Card>
       {/* Account header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-sm text-slate-100">#{account.displayId}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <RenameControl
+            account={account}
+            onRenamed={(customName) => {
+              // Update the Zustand store in place, then refresh server figures.
+              useAccounts.setState((state) => ({
+                data: state.data
+                  ? {
+                      ...state.data,
+                      accounts: state.data.accounts.map((item) =>
+                        item.id === account.id
+                          ? { ...item, customName, primaryLabel: customName?.trim() || item.displayId }
+                          : item,
+                      ),
+                    }
+                  : state.data,
+              }))
+              void useAccounts.getState().load()
+            }}
+          />
           <Badge>{account.platform}</Badge>
           <Badge tone={account.isBreached ? 'breach' : account.phase === 'FUNDED' ? 'live' : 'neutral'}>
             {account.phaseLabel}

@@ -13,6 +13,8 @@ export type AccountCategory = 'active' | 'funded' | 'archived'
 export type AccountRow = {
   id: string
   displayId: string
+  customName: string | null
+  primaryLabel: string
   planSize: number
   category: AccountCategory
   phase: string
@@ -81,6 +83,31 @@ function statusLabel(status: string): string {
 export async function getTraderAccounts(userId: string): Promise<AccountsData> {
   const accounts = await prisma.tradingAccount.findMany({
     where: { userId },
+    select: {
+      id: true,
+      displayId: true,
+      customName: true,
+      planSize: true,
+      challengeType: true,
+      phase: true,
+      status: true,
+      mt5Login: true,
+      mt5Server: true,
+      createdAt: true,
+      startingBalance: true,
+      initialBalance: true,
+      balance: true,
+      currentBalance: true,
+      equity: true,
+      currentEquity: true,
+      peakEquity: true,
+      dailyDrawdownPct: true,
+      dailyDrawdownLimitPct: true,
+      maxDrawdownPct: true,
+      maxDrawdownLimitPct: true,
+      profitTarget: true,
+      breachReason: true,
+    },
     orderBy: { createdAt: 'desc' },
   })
 
@@ -150,13 +177,20 @@ export async function getTraderAccounts(userId: string): Promise<AccountsData> {
     return {
       id: account.id,
       displayId: account.displayId,
+      customName: account.customName,
+      primaryLabel: account.customName?.trim() || account.displayId,
       planSize: account.planSize,
       category,
       phase: account.phase,
       status: account.status,
       phaseLabel: phaseLabel(account.phase, account.status),
       statusLabel: statusLabel(account.status),
-      platform: account.mt5Server.toLowerCase().includes('demo') ? 'MT5 · Demo' : 'MT5 · Live',
+      platform:
+        account.status === 'FUNDED' || account.phase === 'FUNDED'
+          ? 'PFT LIVE'
+          : account.mt5Server.toLowerCase().includes('demo')
+            ? 'PFT EVALUATION'
+            : 'PFT TERMINAL',
       mt5Login: account.mt5Login,
       mt5Server: account.mt5Server,
       createdAt: account.createdAt.getTime(),

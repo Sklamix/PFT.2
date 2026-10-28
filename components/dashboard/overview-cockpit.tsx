@@ -134,7 +134,7 @@ export function OverviewCockpit() {
                   aria-label={`Active account ${selected.displayId}. Change account`}
                 >
                   <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: selected.isBreached ? RED : GREEN }} aria-hidden="true" />
-                  <span className="tabular-nums">{selected.displayId}</span>
+                  <span className="tabular-nums">{selected.primaryLabel}</span>
                   <span className="text-xs text-[#94A3B8]">({phaseLabel(selected)})</span>
                   <ChevronDown className="size-3.5 text-[#94A3B8]" />
                 </DropdownMenuTrigger>
@@ -149,7 +149,10 @@ export function OverviewCockpit() {
                               style={{ backgroundColor: account.isBreached ? RED : GREEN }}
                               aria-hidden="true"
                             />
-                            {account.displayId}
+                            {account.primaryLabel}
+                            {account.customName?.trim() ? (
+                              <span className="font-mono text-[10px] font-normal text-slate-500">#{account.displayId}</span>
+                            ) : null}
                           </span>
                           <span className="flex items-center gap-2 text-[11px] text-[#94A3B8]">
                             {phaseLabel(account)} · <span className="font-mono tabular-nums">{usd(account.equity)}</span>

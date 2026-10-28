@@ -204,6 +204,8 @@ model TradingAccount {
   user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   mt5Login             String
   mt5Server            String
+  /** Optional trader-facing alias shown instead of the system displayId. */
+  customName           String?
   planSize             Int
   challengeType        ChallengeType
   phase                AccountPhase
