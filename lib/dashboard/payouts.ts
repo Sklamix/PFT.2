@@ -23,10 +23,23 @@ export type PayoutRow = {
 export type FundedAccountSummary = {
   id: string
   displayId: string
+  customName: string | null
+  primaryLabel: string
   profitSplitPct: number
   available: number
   eligibleAt: number | null
   cycleReferenceAt: number | null
+}
+
+export type AccountOption = {
+  id: string
+  displayId: string
+  customName: string | null
+  primaryLabel: string
+  status: string
+  phase: string
+  statusLabel: string
+  equity: number
 }
 
 export type CertificateCard = {
@@ -43,6 +56,7 @@ export type PayoutsData = {
   payouts: PayoutRow[]
   totals: { withdrawn: number; pending: number }
   fundedAccounts: FundedAccountSummary[]
+  allAccounts: AccountOption[]
   certificates: CertificateCard[]
 }
 
@@ -76,6 +90,9 @@ export async function getPayoutsData(userId: string): Promise<PayoutsData> {
       customName: true,
       planSize: true,
       status: true,
+      phase: true,
+      equity: true,
+      currentEquity: true,
       initialBalance: true,
       currentBalance: true,
       profitSplitPct: true,
@@ -157,12 +174,35 @@ export async function getPayoutsData(userId: string): Promise<PayoutsData> {
     fundedAccounts.push({
       id: account.id,
       displayId: account.displayId,
+      customName: account.customName,
+      primaryLabel: account.customName?.trim() || account.displayId,
       profitSplitPct: account.profitSplitPct,
       available,
       eligibleAt: cycleReference ? cycleReference + PAYOUT_INTERVAL_MS : null,
       cycleReferenceAt: cycleReference,
     })
   }
+
+  const allAccounts: AccountOption[] = accounts.map((account) => {
+    const equity = Number(account.equity) || Number(account.currentEquity) || Number(account.currentBalance)
+    return {
+      id: account.id,
+      displayId: account.displayId,
+      customName: account.customName,
+      primaryLabel: account.customName?.trim() || account.displayId,
+      status: account.status,
+      phase: account.phase,
+      statusLabel:
+        account.status.startsWith('BREACHED') || account.status === 'EXPIRED'
+          ? 'Breached'
+          : account.phase === 'FUNDED' || account.status === 'FUNDED'
+            ? 'Funded'
+            : account.phase === 'PHASE_2'
+              ? 'Phase 2'
+              : 'Phase 1',
+      equity: Math.round(equity * 100) / 100,
+    }
+  })
 
   const certificates: CertificateCard[] = accounts
     .filter((account) => account.status === 'FUNDED' || account.status.startsWith('PASSED'))
@@ -185,5 +225,5 @@ export async function getPayoutsData(userId: string): Promise<PayoutsData> {
       }
     })
 
-  return { payouts: payoutRows, totals: { withdrawn, pending }, fundedAccounts, certificates }
+  return { payouts: payoutRows, totals: { withdrawn, pending }, fundedAccounts, allAccounts, certificates }
 }

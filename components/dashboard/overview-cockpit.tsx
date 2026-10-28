@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useOverview, type OverviewAccount } from '@/lib/stores/useOverview'
+import { useSelectedAccount } from '@/lib/stores/useSelectedAccount'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ChevronDown } from 'lucide-react'
 import { SpaceBackground } from './space-background'
@@ -83,7 +84,6 @@ export function OverviewCockpit() {
   const error = useOverview((state) => state.error)
   const selectedId = useOverview((state) => state.selectedAccountId)
   const load = useOverview((state) => state.load)
-  const select = useOverview((state) => state.select)
 
   useEffect(() => {
     void load()
@@ -92,7 +92,13 @@ export function OverviewCockpit() {
   }, [load])
 
   const accounts = data?.accounts ?? []
-  const selected = accounts.find((account) => account.id === selectedId) ?? accounts[0]
+  // Global selection is the single source of truth (shared with Payouts page).
+  const globalAccountId = useSelectedAccount((state) => state.accountId)
+  const globalSelect = useSelectedAccount((state) => state.select)
+  const effectiveId = accounts.some((account) => account.id === globalAccountId)
+    ? globalAccountId
+    : (selectedId || accounts[0]?.id || '')
+  const selected = accounts.find((account) => account.id === effectiveId) ?? accounts[0]
   const curve = selected && data?.curves ? (data.curves[selected.id] ?? []) : []
 
   if (loadState === 'error') {
@@ -139,7 +145,7 @@ export function OverviewCockpit() {
                   <ChevronDown className="size-3.5 text-[#94A3B8]" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-72 border-slate-800 bg-[#0B0F19]">
-                  <DropdownMenuRadioGroup value={selected.id} onValueChange={(value) => select(String(value))}>
+                  <DropdownMenuRadioGroup value={selected.id} onValueChange={(value) => globalSelect(String(value))}>
                     {accounts.map((account) => (
                       <DropdownMenuRadioItem key={account.id} value={account.id} className="gap-0 py-2">
                         <div className="flex min-w-0 flex-col gap-0.5">

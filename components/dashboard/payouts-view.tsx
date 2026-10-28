@@ -1,8 +1,10 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Award, Download, Eye, Plus, X } from 'lucide-react'
+import { Award, ChevronDown, Download, Eye, Plus, X } from 'lucide-react'
 import { usePayouts, type CertificateCard, type PayoutRow } from '@/lib/stores/usePayouts'
+import { useSelectedAccount } from '@/lib/stores/useSelectedAccount'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
 
@@ -25,6 +27,50 @@ const STATUS_TONE: Record<PayoutRow['status'], { color: string; label: string }>
 const dateFmt = (t: number) =>
   new Date(t).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 
+function AccountSelector({
+  accounts,
+  selectedId,
+  onSelect,
+}: {
+  accounts: { id: string; primaryLabel: string; customName: string | null; displayId: string; statusLabel: string; equity: number }[]
+  selectedId: string
+  onSelect: (id: string) => void
+}) {
+  const selected = accounts.find((account) => account.id === selectedId) ?? accounts[0]
+  if (!selected) return null
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="flex h-9 items-center gap-2 rounded-md border border-slate-800 bg-[#0B0F19]/80 px-3 font-mono text-sm text-slate-200 outline-none transition-colors hover:border-slate-600 focus-visible:border-slate-600 aria-expanded:border-slate-600"
+        aria-label={`Active account ${selected.primaryLabel}. Change account`}
+      >
+        <span className="tabular-nums">{selected.primaryLabel}</span>
+        <span className="text-xs text-[#94A3B8]">({selected.statusLabel})</span>
+        <ChevronDown className="size-3.5 text-[#94A3B8]" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72 border-slate-800 bg-[#0B0F19]">
+        <DropdownMenuRadioGroup value={selected.id} onValueChange={(value) => onSelect(String(value))}>
+          {accounts.map((account) => (
+            <DropdownMenuRadioItem key={account.id} value={account.id} className="gap-0 py-2">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="flex items-center gap-2 font-mono text-xs font-semibold text-slate-100">
+                  {account.primaryLabel}
+                  {account.customName?.trim() ? (
+                    <span className="font-mono text-[10px] font-normal text-slate-500">#{account.displayId}</span>
+                  ) : null}
+                </span>
+                <span className="flex items-center gap-2 text-[11px] text-[#94A3B8]">
+                  {account.statusLabel} · <span className="font-mono tabular-nums">{usd(account.equity)}</span>
+                </span>
+              </div>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function Card({ title, children, className = '' }: { title?: string; children: ReactNode; className?: string }) {
   return (
     <section className={cn('rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-5 backdrop-blur-md', className)}>
@@ -46,7 +92,7 @@ function countdown(target: number | null): string {
   return `${days}d ${hours}h ${minutes}m`
 }
 
-function RequestPayoutModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: () => void }) {
+function RequestPayoutModal({ preselectedId, onClose, onSubmitted }: { preselectedId?: string; onClose: () => void; onSubmitted: () => void }) {
   const data = usePayouts((state) => state.data)
   const [accountId, setAccountId] = useState('')
   const [amount, setAmount] = useState('')
@@ -57,7 +103,7 @@ function RequestPayoutModal({ onClose, onSubmitted }: { onClose: () => void; onS
   const [success, setSuccess] = useState<string | null>(null)
 
   const funded = data?.fundedAccounts ?? []
-  const selected = funded.find((account) => account.id === accountId) ?? funded[0]
+  const selected = funded.find((account) => account.id === accountId) ?? funded.find((account) => account.id === preselectedId) ?? funded[0]
 
   const submit = async () => {
     if (!selected) return
@@ -246,19 +292,34 @@ export function PayoutsView() {
   const setRequestOpen = usePayouts((state) => state.setRequestOpen)
   const setPreview = usePayouts((state) => state.setPreview)
 
+  // Globally selected account, shared with the Overview cockpit.
+  const globalAccountId = useSelectedAccount((state) => state.accountId)
+  const globalSelect = useSelectedAccount((state) => state.select)
+
   useEffect(() => {
     void load()
     const timer = window.setInterval(() => void load(), 10_000)
     return () => window.clearInterval(timer)
   }, [load])
 
-  const payouts = data?.payouts ?? []
-  const certificates = useMemo(() => data?.certificates ?? [], [data])
+  const allPayouts = data?.payouts ?? []
+  const allAccounts = data?.allAccounts ?? []
+  const selectedAccount = allAccounts.find((account) => account.id === globalAccountId) ?? allAccounts[0] ?? null
+
+  // Per-account figures derived from the same fetch (polling keeps them live).
+  const accountPayouts = selectedAccount
+    ? allPayouts.filter((payout) => payout.accountId === selectedAccount.id)
+    : []
+  const withdrawn = accountPayouts
+    .filter((payout) => payout.status === 'DISBURSED')
+    .reduce((sum, payout) => sum + payout.amount, 0)
+  const fundedSummary = data?.fundedAccounts.find((account) => account.id === selectedAccount?.id) ?? null
+  const certificates = useMemo(
+    () => (data?.certificates ?? []).filter((certificate) => !selectedAccount || certificate.id === selectedAccount.id),
+    [data, selectedAccount],
+  )
   const preview = certificates.find((certificate) => certificate.id === previewId) ?? null
-  const nextEligible = data?.fundedAccounts
-    ?.map((account) => account.eligibleAt)
-    .filter((t): t is number => t != null)
-    .sort((a, b) => a - b)[0] ?? null
+  const nextEligible = fundedSummary?.eligibleAt ?? null
 
   return (
     <div className="min-h-dvh">
@@ -266,29 +327,38 @@ export function PayoutsView() {
       <div className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header + tabs */}
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-slate-100">Payouts &amp; Certificates</h1>
-            <nav className="mt-3 flex items-center gap-1" aria-label="Payout sections">
-              {(
-                [
-                  ['payouts', 'Payouts'],
-                  ['certificates', 'Certificates'],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setTab(id)}
-                  aria-pressed={tab === id}
-                  className={cn(
-                    'h-8 rounded-md px-3 text-xs transition-colors',
-                    tab === id ? 'bg-slate-800/60 text-slate-100' : 'text-[#94A3B8] hover:text-slate-200',
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </nav>
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-slate-100">Payouts &amp; Certificates</h1>
+              <nav className="mt-3 flex items-center gap-1" aria-label="Payout sections">
+                {(
+                  [
+                    ['payouts', 'Payouts'],
+                    ['certificates', 'Certificates'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setTab(id)}
+                    aria-pressed={tab === id}
+                    className={cn(
+                      'h-8 rounded-md px-3 text-xs transition-colors',
+                      tab === id ? 'bg-slate-800/60 text-slate-100' : 'text-[#94A3B8] hover:text-slate-200',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+            <div className="mt-1">
+              <AccountSelector
+                accounts={allAccounts}
+                selectedId={selectedAccount?.id ?? ''}
+                onSelect={globalSelect}
+              />
+            </div>
           </div>
           {tab === 'payouts' ? (
             <button
@@ -311,12 +381,12 @@ export function PayoutsView() {
             <div className="mt-6 grid gap-4 sm:grid-cols-3">
               <Card>
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#94A3B8]">Total Withdrawn</p>
-                <p className="mt-2 font-mono text-2xl font-semibold tabular-nums text-slate-100">{usd(data?.totals.withdrawn ?? 0)}</p>
+                <p className="mt-2 font-mono text-2xl font-semibold tabular-nums text-slate-100">{usd(withdrawn)}</p>
               </Card>
               <Card>
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#94A3B8]">Available for Payout</p>
                 <p className="mt-2 font-mono text-2xl font-semibold tabular-nums" style={{ color: GREEN }}>
-                  {usd(data?.fundedAccounts.reduce((sum, account) => sum + account.available, 0) ?? 0)}
+                  {usd(fundedSummary?.available ?? 0)}
                 </p>
               </Card>
               <Card>
@@ -324,14 +394,16 @@ export function PayoutsView() {
                 <p className="mt-2 font-mono text-2xl font-semibold tabular-nums text-slate-100" suppressHydrationWarning>
                   {countdown(nextEligible)}
                 </p>
-                <p className="mt-1 text-[10px] text-slate-600">Next withdrawal window across your funded accounts</p>
+                <p className="mt-1 text-[10px] text-slate-600">
+                  {fundedSummary ? 'Next withdrawal window for this account' : 'Payouts are available on Funded accounts only'}
+                </p>
               </Card>
             </div>
 
             {/* History table */}
             <div className="mt-6">
               <Card title="Payout History">
-                {payouts.length === 0 ? (
+                {accountPayouts.length === 0 ? (
                   <p className="text-sm text-[#94A3B8]">No payout requests yet.</p>
                 ) : (
                   <table className="w-full text-left text-xs">
@@ -345,7 +417,7 @@ export function PayoutsView() {
                       </tr>
                     </thead>
                     <tbody>
-                      {payouts.map((payout) => {
+                      {accountPayouts.map((payout) => {
                         const tone = STATUS_TONE[payout.status]
                         return (
                           <tr key={payout.id} className="border-b border-slate-800/40 last:border-0">
@@ -422,7 +494,11 @@ export function PayoutsView() {
       </div>
 
       {requestOpen ? (
-        <RequestPayoutModal onClose={() => setRequestOpen(false)} onSubmitted={() => void load()} />
+        <RequestPayoutModal
+          preselectedId={selectedAccount?.id}
+          onClose={() => setRequestOpen(false)}
+          onSubmitted={() => void load()}
+        />
       ) : null}
       {preview ? <CertificatePreviewModal certificate={preview} onClose={() => setPreview(null)} /> : null}
     </div>
