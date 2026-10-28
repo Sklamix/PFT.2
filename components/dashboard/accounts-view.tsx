@@ -2,8 +2,9 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowUpRight, Check, ChevronDown, Copy, KeyRound, LineChart, Pencil, Plus, X } from 'lucide-react'
+import { ArrowUpRight, Check, ChevronDown, Copy, KeyRound, LineChart, Pencil, Plus, RotateCcw, X } from 'lucide-react'
 import { useAccounts, type AccountRow, type AccountTrade } from '@/lib/stores/useAccounts'
+import { ResetAccountDialog } from '@/components/terminal/ResetAccountDialog'
 import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
 
@@ -261,12 +262,14 @@ function AccountCard({
   expanded,
   onToggleExpand,
   onShowCredentials,
+  onReset,
 }: {
   account: AccountRow
   trades: AccountTrade[]
   expanded: boolean
   onToggleExpand: () => void
   onShowCredentials: () => void
+  onReset: () => void
 }) {
   return (
     <Card>
@@ -374,6 +377,16 @@ function AccountCard({
           <LineChart className="size-3.5" /> View Analytics
           <ChevronDown className={cn('size-3.5 transition-transform', expanded && 'rotate-180')} />
         </button>
+        {account.isBreached ? (
+          <button
+            type="button"
+            onClick={onReset}
+            className="inline-flex h-8 items-center gap-2 rounded-md px-3 text-xs font-medium"
+            style={{ color: GREEN, border: '1px solid rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.08)' }}
+          >
+            <RotateCcw className="size-3.5" /> Reset −20%
+          </button>
+        ) : null}
       </div>
 
       {/* Expanded trade history */}
@@ -420,6 +433,7 @@ export function AccountsView() {
   const setFilter = useAccounts((state) => state.setFilter)
   const toggleExpanded = useAccounts((state) => state.toggleExpanded)
   const [credentialsId, setCredentialsId] = useState<string | null>(null)
+  const [resetId, setResetId] = useState<string | null>(null)
 
   useEffect(() => {
     void load()
@@ -504,6 +518,7 @@ export function AccountsView() {
                 expanded={expandedId === account.id}
                 onToggleExpand={() => toggleExpanded(account.id)}
                 onShowCredentials={() => setCredentialsId(account.id)}
+                onReset={() => setResetId(account.id)}
               />
             ))
           )}
@@ -513,6 +528,7 @@ export function AccountsView() {
       {credentialsAccount ? (
         <CredentialsModal account={credentialsAccount} onClose={() => setCredentialsId(null)} />
       ) : null}
+      {resetId ? <ResetAccountDialog accountId={resetId} open onOpenChange={(open) => !open && setResetId(null)} /> : null}
     </div>
   )
 }
