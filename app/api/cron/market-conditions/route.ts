@@ -4,6 +4,7 @@ import type { TerminalSymbolId } from '@/lib/constants/symbols'
 import { prisma } from '@/lib/prisma'
 import { getQuoteSnapshots } from '@/lib/trading/market-quotes'
 import { spreadToDisplayUnits, terminalSymbolForCondition } from '@/lib/market/conditions-service'
+import { safeSecretEqual } from '@/lib/security/secret-compare'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,7 +14,7 @@ const SAMPLE_INTERVAL_MS = 10 * 60_000
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
   const auth = request.headers.get('authorization')
-  if (!secret || auth !== `Bearer ${secret}`) {
+  if (!secret || !auth || !safeSecretEqual(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 })
   }
 

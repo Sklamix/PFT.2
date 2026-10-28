@@ -42,11 +42,7 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
       if (!response.ok) throw new Error(data.error || 'Unable to send a code.')
       setStage('code')
       setResendIn(60)
-      setInfo(
-        data.purpose === 'register'
-          ? 'We sent a registration code. Enter it to create your account.'
-          : 'This email is already registered. We sent a sign-in code; enter it to log in.',
-      )
+      setInfo('If this email can use PFT sign-in, a code has been sent to it.')
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to send a code.')
     } finally {

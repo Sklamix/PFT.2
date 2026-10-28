@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
-import { requireStaff } from '@/lib/admin/auth'
+import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
 import { syncChallengeStatus } from '@/lib/kyc/state'
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
-  const { session, error } = await requireStaff()
+  const { session, error } = await requireAdmin()
   if (error) return error
   try {
     const { id } = await context.params

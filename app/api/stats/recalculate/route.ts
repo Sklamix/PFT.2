@@ -2,13 +2,14 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
 import { recalculatePlatformStats } from '@/lib/stats/public-stats'
+import { safeSecretEqual } from '@/lib/security/secret-compare'
 
 export const dynamic = 'force-dynamic'
 
 async function authorized(request: Request) {
   const secret = process.env.CRON_SECRET
   const authorization = request.headers.get('authorization')
-  if (secret && authorization === `Bearer ${secret}`) return true
+  if (secret && authorization && safeSecretEqual(authorization, `Bearer ${secret}`)) return true
 
   const { error } = await requireAdmin()
   return !error

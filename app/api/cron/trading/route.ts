@@ -3,6 +3,7 @@ import { scanInactiveAccounts } from '@/lib/accounts/inactivity'
 import { reconcileAccountLimits, reconcileRelatedAccounts } from '@/lib/accounts/reconciliation'
 import { snapshotAbuseScores } from '@/lib/admin/abuse-score'
 import { notifyBookEvents } from '@/lib/email/trade-events'
+import { safeSecretEqual } from '@/lib/security/secret-compare'
 import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
 import { enforceBreachMatrix } from '@/lib/rules/enforcement'
@@ -173,7 +174,7 @@ async function run() {
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
   const auth = request.headers.get('authorization')
-  if (!secret || auth !== `Bearer ${secret}`) {
+  if (!secret || !auth || !safeSecretEqual(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 })
   }
   try {

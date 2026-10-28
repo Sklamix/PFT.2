@@ -6,6 +6,7 @@ import { sendEmail } from '@/lib/email/resend'
 const CODE_TTL_MS = 10 * 60_000
 const RESEND_INTERVAL_MS = 60_000
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const GENERIC_MESSAGE = 'If this email can use PFT sign-in, a code has been sent to it.'
 type EmailCodePurpose = 'REGISTER' | 'LOGIN'
 
 function codeHash(email: string, code: string, purpose: EmailCodePurpose) {
@@ -37,12 +38,7 @@ export async function POST(request: Request) {
     }
 
     const existingUser = await prisma.user.findUnique({ where: { email }, select: { role: true } })
-    if (existingUser && existingUser.role !== 'TRADER') {
-      return NextResponse.json(
-        { error: 'This email is already registered for a staff account. Use the staff sign-in page.' },
-        { status: 409 },
-      )
-    }
+    const isStaff = Boolean(existingUser && existingUser.role !== 'TRADER')
     const purpose: EmailCodePurpose = existingUser ? 'LOGIN' : 'REGISTER'
 
     const now = new Date()
@@ -61,6 +57,13 @@ export async function POST(request: Request) {
       create: { email, codeHash: hashedCode, expiresAt: new Date(now.getTime() + CODE_TTL_MS), sentAt: now, attempts: 0 },
       update: { codeHash: hashedCode, expiresAt: new Date(now.getTime() + CODE_TTL_MS), sentAt: now, attempts: 0 },
     })
+
+    // Staff emails never receive a trader code, but the row is still written so the
+    // resend throttle and the response stay identical and a staff address cannot be
+    // distinguished from a non-existent one.
+    if (isStaff) {
+      return NextResponse.json({ ok: true, message: GENERIC_MESSAGE })
+    }
 
     const safeEmail = escapeHtml(email)
     const isRegistration = purpose === 'REGISTER'
@@ -82,13 +85,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unable to send an email code right now.' }, { status: 503 })
     }
 
-    return NextResponse.json({
-      ok: true,
-      purpose: purpose.toLowerCase(),
-      message: isRegistration
-        ? 'A registration code has been sent to your email.'
-        : 'This email is already registered. A sign-in code has been sent.',
-    })
+    return NextResponse.json({ ok: true, message: GENERIC_MESSAGE })
   } catch (error) {
     console.error('Email login code request failed', error)
     return NextResponse.json({ error: 'Unable to request a sign-in code right now.' }, { status: 500 })

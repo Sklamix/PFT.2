@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/email/resend'
+import { escapeHtml } from '@/lib/email/escape'
 
 /**
  * User-level risk flag (rulebook v1.6, 9.4). Repeated news-window violations
@@ -90,8 +91,8 @@ export async function refreshUserRiskFlags(now = new Date()): Promise<RiskFlagRe
       ].join('\n'),
       html: `
         <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
-          <p>Hi ${user.name},</p>
-          <p>We opened a risk review on your trading activity: <strong>${reason}</strong>.</p>
+          <p>Hi ${escapeHtml(user.name)},</p>
+          <p>We opened a risk review on your trading activity: <strong>${escapeHtml(reason)}</strong>.</p>
           <p>During the review, new purchases and payout requests are paused. Trading on existing accounts is unaffected.</p>
           <p>Reply to this email with any context you want the risk team to consider.</p>
           <p>PFT Risk</p>

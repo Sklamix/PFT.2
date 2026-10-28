@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { sendEmail } from '@/lib/email/resend'
+import { escapeHtml } from '@/lib/email/escape'
 
 /**
  * Session risk signals (rulebook v1.6, section 11). Every login leaves a
@@ -199,12 +200,12 @@ async function sendSessionAlert(
     ].join('\n'),
     html: `
       <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
-        <p>Hi ${user.name},</p>
-        <p><strong>${label}</strong> was detected on your PFT account.</p>
-        <p>Time: ${time}<br/>Location: ${location}</p>
+        <p>Hi ${escapeHtml(user.name)},</p>
+        <p><strong>${escapeHtml(label)}</strong> was detected on your PFT account.</p>
+        <p>Time: ${escapeHtml(time)}<br/>Location: ${escapeHtml(location)}</p>
         <p>${
           signal === 'VPS_LOCATION_MISMATCH'
-            ? `You declared trading from a VPS in ${user.declaredVpsCountry}. A sign-in from another country must be declared before you trade from it.`
+            ? `You declared trading from a VPS in ${escapeHtml(user.declaredVpsCountry ?? '')}. A sign-in from another country must be declared before you trade from it.`
             : 'If this was you, no action is needed. If not, change your password immediately and contact support.'
         }</p>
         <p>Repeated alerts can open a risk review. Payouts are paused while a review is open.</p>

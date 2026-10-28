@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getLastEconomicSyncAt, syncEconomicCalendar } from '@/lib/market/economic-calendar'
+import { safeSecretEqual } from '@/lib/security/secret-compare'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,7 +9,7 @@ const SYNC_INTERVAL_MS = 60 * 60_000
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET
   const auth = request.headers.get('authorization')
-  if (!secret || auth !== `Bearer ${secret}`) {
+  if (!secret || !auth || !safeSecretEqual(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 })
   }
 

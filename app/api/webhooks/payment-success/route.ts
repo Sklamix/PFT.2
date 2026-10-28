@@ -73,17 +73,14 @@ export async function POST(req: Request) {
   }
 
   const secret = process.env.NOWPAYMENTS_IPN_SECRET || process.env.NOWPAYMENTS_IPN_KEY
-  if (secret) {
-    const signature = req.headers.get('x-nowpayments-sig')
-    if (!signature || !isValidSignature(ipn, signature, secret)) {
-      console.warn('NOWPayments IPN rejected: invalid signature', ipn.order_id)
-      return json({ error: 'Invalid signature' }, 401)
-    }
-  } else if (process.env.NODE_ENV === 'production') {
-    console.error('NOWPayments IPN rejected: NOWPAYMENTS_IPN_SECRET is not configured')
-    return json({ error: 'IPN verification is not configured' }, 500)
-  } else {
-    console.warn('NOWPayments IPN signature check skipped: NOWPAYMENTS_IPN_SECRET is not configured')
+  if (!secret) {
+    console.error('NOWPayments IPN rejected: IPN secret is not configured')
+    return json({ error: 'IPN verification is not configured' }, 503)
+  }
+  const signature = req.headers.get('x-nowpayments-sig')
+  if (!signature || !isValidSignature(ipn, signature, secret)) {
+    console.warn('NOWPayments IPN rejected: invalid signature', ipn.order_id)
+    return json({ error: 'Invalid signature' }, 401)
   }
 
   const orderId = typeof ipn.order_id === 'string' ? ipn.order_id.trim() : ''

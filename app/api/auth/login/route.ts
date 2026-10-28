@@ -3,6 +3,11 @@ import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
 import { authenticateTrader } from '@/lib/trader/accounts'
 import { isRateLimited, resetRateLimit } from '@/lib/trader/rate-limit'
 
+function clientIp(request: Request) {
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+  return forwarded || request.headers.get('x-real-ip')?.trim() || 'unknown'
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as { email?: unknown; password?: unknown } | null
@@ -11,7 +16,8 @@ export async function POST(request: Request) {
     if (!email || !password) return NextResponse.json({ error: 'Email and password are required' }, { status: 400 })
 
     const key = `login:${email}`
-    if (isRateLimited(key, 10, 15 * 60_000)) {
+    const ipKey = `login-ip:${clientIp(request)}`
+    if (isRateLimited(key, 10, 15 * 60_000) || isRateLimited(ipKey, 100, 15 * 60_000)) {
       return NextResponse.json({ error: 'Too many attempts. Try again in a few minutes.' }, { status: 429 })
     }
 
@@ -20,6 +26,7 @@ export async function POST(request: Request) {
 
     const issued = await issueTraderSession(session, request)
     resetRateLimit(key)
+    resetRateLimit(ipKey)
     return applyTraderCookie(NextResponse.json({ trader: issued }), issued)
   } catch (error) {
     console.error('Trader login failed', error)
