@@ -23,6 +23,7 @@ export function RiskTable({
   onOverride,
   onRefresh,
   onRiskFlag,
+  onGrantAccount,
 }: {
   rows: TraderRow[]
   onTrades: (row: TraderRow) => void
@@ -31,6 +32,7 @@ export function RiskTable({
   onOverride: (row: TraderRow) => void
   onRefresh: (row: TraderRow) => void
   onRiskFlag: (row: TraderRow) => void
+  onGrantAccount: (row: TraderRow) => void
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -129,6 +131,7 @@ export function RiskTable({
                     <DropdownMenuItem onClick={() => onTrades(row)}>View trade history</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onRefresh(row)}>Reload account data</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onKyc(row)}>Manage KYC</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onGrantAccount(row)}>Grant account</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onOverride(row)}>Override status</DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onRiskFlag(row)}>
                       {row.riskFlagged ? 'Clear risk review' : 'Open risk review'}

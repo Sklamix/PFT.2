@@ -80,6 +80,12 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [error, setError] = useState<string | null>(null)
   const [breachType, setBreachType] = useState<'BREACHED_DAILY' | 'BREACHED_MAX'>('BREACHED_DAILY')
   const [staffOpen, setStaffOpen] = useState(false)
+  const [grantOpen, setGrantOpen] = useState(false)
+  const [grantBusy, setGrantBusy] = useState(false)
+  const [grantPlanSize, setGrantPlanSize] = useState(10_000)
+  const [grantType, setGrantType] = useState<'1-Step' | '2-Step'>('1-Step')
+  const [grantAs, setGrantAs] = useState<'evaluation' | 'funded'>('evaluation')
+  const [grantReason, setGrantReason] = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -395,6 +401,11 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             setOverrideOpen(true)
           }}
           onRiskFlag={(row) => void toggleRiskFlag(row)}
+          onGrantAccount={(row) => {
+            setSelected(row)
+            setGrantReason(`Granted to ${row.traderEmail}`)
+            setGrantOpen(true)
+          }}
         />
       </section>
 
@@ -478,6 +489,80 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       />
 
       <CreateStaffDialog open={staffOpen} onOpenChange={setStaffOpen} onCreated={() => void load()} />
+
+      <Dialog open={grantOpen} onOpenChange={setGrantOpen}>
+        <DialogContent className="border-border bg-card sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Grant account to {selected?.traderName ?? 'trader'}</DialogTitle>
+            <DialogDescription>
+              Creates a new account of any type instantly. Minor action — audited, but no second-admin approval is
+              required.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            <label className="grid gap-1 text-sm">
+              <span className="text-muted-foreground">Plan size</span>
+              <select
+                value={grantPlanSize}
+                onChange={(event) => setGrantPlanSize(Number(event.target.value))}
+                className="h-8 rounded-md border border-border bg-background px-2 font-mono text-sm"
+              >
+                {[1_000, 3_000, 5_000, 10_000, 25_000, 50_000, 100_000, 200_000].map((size) => (
+                  <option key={size} value={size}>
+                    ${size.toLocaleString('en-US')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="flex gap-2">
+              {(['1-Step', '2-Step'] as const).map((type) => (
+                <Button key={type} size="xs" variant={grantType === type ? 'default' : 'outline'} onClick={() => setGrantType(type)}>
+                  {type}
+                </Button>
+              ))}
+              {(['evaluation', 'funded'] as const).map((mode) => (
+                <Button key={mode} size="xs" variant={grantAs === mode ? 'default' : 'outline'} onClick={() => setGrantAs(mode)}>
+                  {mode === 'evaluation' ? 'Evaluation' : 'Funded'}
+                </Button>
+              ))}
+            </div>
+            <input
+              value={grantReason}
+              onChange={(event) => setGrantReason(event.target.value)}
+              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              placeholder="Audit reason (e.g. sponsorship, support credit)"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={grantBusy || grantReason.trim().length < 4}
+              onClick={async () => {
+                if (!selected) return
+                setGrantBusy(true)
+                try {
+                  await api(`/api/admin/users/${selected.userId}/grant-account`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                      planSize: grantPlanSize,
+                      challengeType: grantType,
+                      grantAs,
+                      reason: grantReason,
+                    }),
+                  })
+                  setGrantOpen(false)
+                  setGrantBusy(false)
+                  await load()
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Grant failed')
+                  setGrantBusy(false)
+                }
+              }}
+            >
+              {grantBusy ? 'Granting…' : 'Grant account'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
         <DialogContent className="border-border bg-card sm:max-w-md">
