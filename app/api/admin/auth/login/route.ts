@@ -3,6 +3,7 @@ import { applySessionCookie, hashPassword, signSession, verifyPassword } from '@
 import { jsonError, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
 import { createAttemptLimiter } from '@/lib/security/attempt-limiter'
+import { clientIp } from '@/lib/security/client-ip'
 import type { Role } from '@/lib/admin/types'
 
 const WINDOW_MS = 15 * 60_000
@@ -11,11 +12,6 @@ const emailLimiter = createAttemptLimiter({ limit: 5, windowMs: WINDOW_MS })
 const ipLimiter = createAttemptLimiter({ limit: 30, windowMs: WINDOW_MS })
 // Verified for unknown emails so a missing account does not answer measurably faster than a wrong password.
 const DUMMY_PASSWORD_HASH = hashPassword('pft-admin-login-placeholder')
-
-function clientIp(request: Request) {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return forwarded || request.headers.get('x-real-ip')?.trim() || 'unknown'
-}
 
 function tooManyAttempts(retryAfterMs: number) {
   const seconds = Math.max(1, Math.ceil(retryAfterMs / 1_000))
@@ -32,19 +28,22 @@ export async function POST(request: Request) {
 
     const emailKey = `email:${email.trim().toLowerCase()}`
     const ipKey = `ip:${clientIp(request)}`
-    const retryAfterMs = Math.max(emailLimiter.retryAfterMs(emailKey), ipLimiter.retryAfterMs(ipKey))
+    const [emailRetry, ipRetry] = await Promise.all([
+      emailLimiter.retryAfterMs(emailKey),
+      ipLimiter.retryAfterMs(ipKey),
+    ])
+    const retryAfterMs = Math.max(emailRetry, ipRetry)
     if (retryAfterMs > 0) return tooManyAttempts(retryAfterMs)
 
     const user = await adminRepo.findStaffByEmail(email)
     const passwordValid = verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
     if (!user || !passwordValid) {
-      emailLimiter.recordFailure(emailKey)
-      ipLimiter.recordFailure(ipKey)
+      await Promise.all([emailLimiter.recordFailure(emailKey), ipLimiter.recordFailure(ipKey)])
       return jsonError('Invalid credentials', 401)
     }
     if (user.role === 'TRADER') return jsonError('Staff role required', 403)
 
-    emailLimiter.reset(emailKey)
+    await emailLimiter.reset(emailKey)
 
     const tokenVersionValue = (user as unknown as { tokenVersion?: number }).tokenVersion
     const tokenVersion = typeof tokenVersionValue === 'number' && Number.isInteger(tokenVersionValue)

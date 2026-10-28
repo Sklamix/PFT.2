@@ -577,3 +577,14 @@ model MarketCandle {
   @@unique([symbol, minute])
   @@index([symbol, minute])
 }
+
+/// Durable fixed-window rate-limit buckets (login brute-force, email-code, etc.).
+/// Keys are caller-defined; expired rows are pruned by the trading cron.
+model RateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+}

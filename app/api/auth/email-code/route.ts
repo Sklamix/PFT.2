@@ -10,8 +10,8 @@ const GENERIC_MESSAGE = 'If this email can use PFT sign-in, a code has been sent
 type EmailCodePurpose = 'REGISTER' | 'LOGIN'
 
 function codeHash(email: string, code: string, purpose: EmailCodePurpose) {
-  const secret = process.env.TRADER_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET
-  if (!secret || secret.length < 16) throw new Error('A session secret is required to issue email login codes')
+  const secret = process.env.TRADER_SESSION_SECRET
+  if (!secret || secret.length < 16) throw new Error('TRADER_SESSION_SECRET is required to issue email login codes')
   return createHmac('sha256', secret).update(`${purpose}:${email}:${code}`).digest('hex')
 }
 

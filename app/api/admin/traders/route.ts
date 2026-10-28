@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
-import { requireStaff } from '@/lib/admin/auth'
+import { requireAdmin } from '@/lib/admin/auth'
 import { parseFilter, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
 
 export async function GET(request: Request) {
-  const { error } = await requireStaff()
+  const { error } = await requireAdmin()
   if (error) return error
   try {
     const url = new URL(request.url)

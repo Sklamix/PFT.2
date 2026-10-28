@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAdmin, requireStaff } from '@/lib/admin/auth'
+import { requireAdmin } from '@/lib/admin/auth'
 import { prisma } from '@/lib/prisma'
 import { getUserKycState, refreshKycFromDidit, setKycStatus } from '@/lib/kyc/state'
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 const ACTIONS = new Set(['approve', 'reject', 'reset'])
 
 export async function GET(request: Request) {
-  const { error } = await requireStaff()
+  const { error } = await requireAdmin()
   if (error) return error
 
   const userId = new URL(request.url).searchParams.get('userId')?.trim()

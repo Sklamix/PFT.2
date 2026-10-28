@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as { email?: unknown } | null
     const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
     if (!email.includes('@')) return NextResponse.json({ error: 'Enter a valid email' }, { status: 400 })
-    if (isRateLimited(`forgot:${email}`, 3, 15 * 60_000)) return NextResponse.json(GENERIC)
+    if (await isRateLimited(`forgot:${email}`, 3, 15 * 60_000)) return NextResponse.json(GENERIC)
 
     const trader = await findTraderByEmail(email)
     if (trader) {

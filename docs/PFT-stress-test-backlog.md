@@ -34,8 +34,9 @@
 - [x] Public copy alignment — 80%, weekly payouts, no refund, news windows, terminal naming
 - [x] Regression + build (`npx tsc --noEmit`, `npm run build`)
 - [x] Production migrations — 6 SQL files застосовано через guarded deploy 27.10.2026
-- [ ] Production migrations P1 — `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql`
+- [ ] Production migrations P1 — `account-appeals.sql`, `risk-flags-and-backups.sql`, `session-risk.sql`, `rules-versioning.sql`, `rate-limit.sql`
 - [x] Manual QA — 96/96 на локальному production build (`npm run qa:smoke`)
+- [x] Security hardening (пост-аудит) — fail-closed IPN, timing-safe secret-порівняння, CSP frame-ancestors, durable rate-limit (`RateLimitBucket`), trusted client IP, окремий `TRADER_SESSION_SECRET`, email escaping, анти-енумерація email-code, RISK_MANAGER → admin-only для breach і payout/trader/order/KYC PII.
 - [x] Readiness self-check — `npm run doctor` (env, schema columns, cron freshness)
 - [x] Cloudflare cron — schedule `* * * * *`, secrets присутні, живий цикл підтверджено `wrangler tail`
 - [x] Backup / rollback plan — `docs/PFT-operations-runbook.md`, `npm run db:backup` перевірено

@@ -19,10 +19,10 @@ export interface TraderSession {
 }
 
 function sessionSecret() {
-  const secret = process.env.TRADER_SESSION_SECRET || process.env.ADMIN_SESSION_SECRET
+  const secret = process.env.TRADER_SESSION_SECRET
   if (secret && secret.length >= 16) return secret
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('TRADER_SESSION_SECRET (or ADMIN_SESSION_SECRET) is required in production')
+    throw new Error('TRADER_SESSION_SECRET is required in production')
   }
   return 'pft-dev-trader-session-secret'
 }

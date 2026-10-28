@@ -1,17 +1,15 @@
-const buckets = new Map<string, { count: number; resetAt: number }>()
+import { incrementRateLimit, resetRateLimit as clearRateLimit } from '@/lib/security/rate-limit-store'
 
-/** Process-local fixed-window limiter; returns true once `key` exceeded `limit` hits within `windowMs`. */
-export function isRateLimited(key: string, limit: number, windowMs: number) {
-  const now = Date.now()
-  const bucket = buckets.get(key)
-  if (!bucket || bucket.resetAt <= now) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs })
-    return false
-  }
-  bucket.count += 1
-  return bucket.count > limit
+/**
+ * Counts one attempt and reports whether the key is now over `limit` within the
+ * window. Durable across serverless instances via the rate-limit store.
+ */
+export async function isRateLimited(key: string, limit: number, windowMs: number): Promise<boolean> {
+  const state = await incrementRateLimit(key, windowMs)
+  return state.count > limit
 }
 
-export function resetRateLimit(key: string) {
-  buckets.delete(key)
+/** Clears failures for a key (after a successful login). */
+export async function resetRateLimit(key: string): Promise<void> {
+  await clearRateLimit(key)
 }

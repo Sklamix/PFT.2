@@ -4,6 +4,7 @@ import { reconcileAccountLimits, reconcileRelatedAccounts } from '@/lib/accounts
 import { snapshotAbuseScores } from '@/lib/admin/abuse-score'
 import { notifyBookEvents } from '@/lib/email/trade-events'
 import { safeSecretEqual } from '@/lib/security/secret-compare'
+import { pruneRateLimitBuckets } from '@/lib/security/rate-limit-store'
 import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
 import { enforceBreachMatrix } from '@/lib/rules/enforcement'
@@ -21,6 +22,7 @@ export const dynamic = 'force-dynamic'
 async function run() {
   const riskFlags = await refreshUserRiskFlags()
   await pruneAccessEvents()
+  await pruneRateLimitBuckets()
   const rules = await announceRuleChanges()
   const abuseScores = await snapshotAbuseScores()
 

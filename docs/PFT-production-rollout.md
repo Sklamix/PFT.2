@@ -38,6 +38,7 @@ npx prisma db execute --file prisma/sql/account-appeals.sql --schema prisma/sche
 npx prisma db execute --file prisma/sql/risk-flags-and-backups.sql --schema prisma/schema.prisma
 npx prisma db execute --file prisma/sql/session-risk.sql --schema prisma/schema.prisma
 npx prisma db execute --file prisma/sql/rules-versioning.sql --schema prisma/schema.prisma
+npx prisma db execute --file prisma/sql/rate-limit.sql --schema prisma/schema.prisma
 ```
 
 Очікувано: `Script executed successfully.` для кожного файлу.
@@ -64,6 +65,7 @@ WHERE table_name = 'Order' AND column_name = 'rulesVersion';
 |---|---|---|
 | `DATABASE_URL` | ✅ Secret | не змінювати |
 | `CRON_SECRET` | ✅ Secret | не змінювати; той самий у Cloudflare |
+| `TRADER_SESSION_SECRET` | ❌ відсутній | додати (32+ байт); більше не фолбечиться на ADMIN_SESSION_SECRET |
 | `NOWPAYMENTS_API_KEY` | ✅ Secret | не змінювати |
 | `NOWPAYMENTS_IPN_KEY` | ✅ Secret | код приймає як fallback для IPN secret |
 | `RESEND_API_KEY` | ✅ Secret | не змінювати |
@@ -73,6 +75,7 @@ WHERE table_name = 'Order' AND column_name = 'rulesVersion';
 | `DIDIT_WEBHOOK_SECRET` | ❌ відсутній | додати; без нього KYC webhook відхиляється |
 
 ```powershell
+npx vercel env add TRADER_SESSION_SECRET production
 npx vercel env add RESEND_FROM_EMAIL production
 npx vercel env add DIDIT_API_KEY production
 npx vercel env add DIDIT_WORKFLOW_ID production

@@ -2,11 +2,7 @@ import { NextResponse } from 'next/server'
 import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
 import { authenticateTrader } from '@/lib/trader/accounts'
 import { isRateLimited, resetRateLimit } from '@/lib/trader/rate-limit'
-
-function clientIp(request: Request) {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  return forwarded || request.headers.get('x-real-ip')?.trim() || 'unknown'
-}
+import { clientIp } from '@/lib/security/client-ip'
 
 export async function POST(request: Request) {
   try {
@@ -17,7 +13,11 @@ export async function POST(request: Request) {
 
     const key = `login:${email}`
     const ipKey = `login-ip:${clientIp(request)}`
-    if (isRateLimited(key, 10, 15 * 60_000) || isRateLimited(ipKey, 100, 15 * 60_000)) {
+    const [emailLimited, ipLimited] = await Promise.all([
+      isRateLimited(key, 10, 15 * 60_000),
+      isRateLimited(ipKey, 100, 15 * 60_000),
+    ])
+    if (emailLimited || ipLimited) {
       return NextResponse.json({ error: 'Too many attempts. Try again in a few minutes.' }, { status: 429 })
     }
 
@@ -25,8 +25,7 @@ export async function POST(request: Request) {
     if (!session) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
 
     const issued = await issueTraderSession(session, request)
-    resetRateLimit(key)
-    resetRateLimit(ipKey)
+    await Promise.all([resetRateLimit(key), resetRateLimit(ipKey)])
     return applyTraderCookie(NextResponse.json({ trader: issued }), issued)
   } catch (error) {
     console.error('Trader login failed', error)
