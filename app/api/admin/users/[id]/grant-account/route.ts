@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { provisionChallengeAccounts, type ChallengePlan } from '@/lib/provisioning/challenge-account'
 import { fundingResetData } from '@/lib/trading/funding'
 import { CHALLENGES } from '@/lib/challenges'
+import { AccountLimitError } from '@/lib/accounts/limits'
 import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
 
@@ -58,12 +59,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const provisioned = await provisionChallengeAccounts(tx, {
-        userId: id,
-        orderId: `admin-grant-${randomUUID()}`,
-        providerOrderId: `admin-grant-${randomUUID()}`,
-        plan,
-      })
+      const provisioned = await provisionChallengeAccounts(
+        tx,
+        {
+          userId: id,
+          orderId: `admin-grant-${randomUUID()}`,
+          providerOrderId: `admin-grant-${randomUUID()}`,
+          plan,
+        },
+        { skipAllocationLimit: true },
+      )
 
       if (grantAs === 'funded') {
         await tx.tradingAccount.update({
@@ -104,6 +109,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       standby: result.standby?.displayId ?? null,
     }, { status: 201 })
   } catch (err) {
+    if (err instanceof AccountLimitError) {
+      return jsonError(err.message, 400)
+    }
     return safeError(err)
   }
 }

@@ -102,9 +102,13 @@ const SELECT = { id: true, displayId: true, mt5Login: true, mt5Server: true, sta
 export async function provisionChallengeAccounts(
   tx: Prisma.TransactionClient,
   input: { userId: string; orderId: string; providerOrderId: string; plan: ChallengePlan },
+  /** Admin grants skip the retail per-trader allocation caps (the grant itself is audited). */
+  options?: { skipAllocationLimit?: boolean },
 ): Promise<ProvisionResult> {
-  const usage = await checkAccountLimits(tx, input.userId, input.plan.planSize)
-  if (!usage.ok) throw accountLimitError(usage)
+  if (!options?.skipAllocationLimit) {
+    const usage = await checkAccountLimits(tx, input.userId, input.plan.planSize)
+    if (!usage.ok) throw accountLimitError(usage)
+  }
 
   const primary = (await tx.tradingAccount.create({
     data: accountData(input.userId, input.plan, false),
