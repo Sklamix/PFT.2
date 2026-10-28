@@ -5,7 +5,7 @@ export const DASHBOARD_VIEWS = [
   { id: 'accounts', label: 'Trading Accounts', icon: Layers, href: '/dashboard/accounts' },
   { id: 'payouts', label: 'Payouts & Certificates', icon: Award, href: '/dashboard/payouts' },
   { id: 'journal', label: 'Trading Journal', icon: BookOpen, href: '/dashboard/journal' },
-  { id: 'billing', label: 'Billing & Orders', icon: Receipt },
+  { id: 'billing', label: 'Billing & Orders', icon: Receipt, href: '/dashboard/billing' },
   { id: 'settings', label: 'Settings & KYC', icon: ShieldCheck },
 ] as const
 
