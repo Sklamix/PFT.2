@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Award, Download, Eye, Plus, X } from 'lucide-react'
 import { usePayouts, type CertificateCard, type PayoutRow } from '@/lib/stores/usePayouts'
+import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
 
 const BG = '#080C14'
@@ -26,7 +27,7 @@ const dateFmt = (t: number) =>
 
 function Card({ title, children, className = '' }: { title?: string; children: ReactNode; className?: string }) {
   return (
-    <section className={cn('rounded-xl border border-slate-800/80 p-5', className)} style={{ backgroundColor: CARD }}>
+    <section className={cn('rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-5 backdrop-blur-md', className)}>
       {title ? (
         <h2 className="mb-4 text-[11px] font-medium uppercase tracking-[0.18em] text-[#94A3B8]">{title}</h2>
       ) : null}
@@ -260,8 +261,9 @@ export function PayoutsView() {
     .sort((a, b) => a - b)[0] ?? null
 
   return (
-    <div className="min-h-dvh" style={{ backgroundColor: BG }}>
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-dvh">
+      <SpaceBackground />
+      <div className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header + tabs */}
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -369,7 +371,7 @@ export function PayoutsView() {
         ) : (
           /* Certificates grid */
           certificates.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-slate-800/80 p-10 text-center" style={{ backgroundColor: CARD }}>
+            <div className="mt-6 rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-10 text-center backdrop-blur-md">
               <Award className="mx-auto size-6 text-[#94A3B8]" />
               <p className="mt-3 text-sm text-[#94A3B8]">
                 No certificates yet — pass an evaluation phase or get funded to earn one.

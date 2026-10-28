@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, ChevronDown, Copy, KeyRound, LineChart, Plus } from 'lucide-react'
 import { useAccounts, type AccountRow, type AccountTrade } from '@/lib/stores/useAccounts'
+import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
 
 const BG = '#080C14'
@@ -37,7 +38,7 @@ function Card({
   className?: string
 }) {
   return (
-    <section className={cn('rounded-xl border border-slate-800/60 p-5', className)} style={{ backgroundColor: CARD }}>
+    <section className={cn('rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-5 backdrop-blur-md', className)}>
       {title ? (
         <h2 className="mb-4 text-[11px] font-medium uppercase tracking-[0.18em] text-[#94A3B8]">{title}</h2>
       ) : null}
@@ -313,8 +314,9 @@ export function AccountsView() {
   const credentialsAccount = accounts.find((account) => account.id === credentialsId) ?? null
 
   return (
-    <div className="min-h-dvh" style={{ backgroundColor: BG }}>
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="min-h-dvh">
+      <SpaceBackground />
+      <div className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header bar */}
         <header className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-lg font-semibold tracking-tight text-slate-100">Trading Accounts</h1>
@@ -355,7 +357,7 @@ export function AccountsView() {
           ) : loadState !== 'ready' ? (
             <p className="text-sm text-[#94A3B8]">Loading accounts…</p>
           ) : visible.length === 0 ? (
-            <div className="rounded-xl border border-slate-800/60 p-10 text-center" style={{ backgroundColor: CARD }}>
+            <div className="rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-10 text-center backdrop-blur-md">
               <p className="text-sm text-[#94A3B8]">
                 {filter === 'all'
                   ? 'No trading accounts yet — buy a challenge to get started.'

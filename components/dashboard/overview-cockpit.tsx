@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useOverview, type OverviewAccount } from '@/lib/stores/useOverview'
+import { SpaceBackground } from './space-background'
 
 const BG = '#080C14'
 const SLATE_LABEL = '#94A3B8'
@@ -32,7 +33,7 @@ function phaseLabel(account: OverviewAccount): string {
 
 function Card({ title, children, className = '' }: { title?: string; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-xl border border-slate-800/60 bg-[#0C1220] p-5 ${className}`}>
+    <section className={`rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-5 backdrop-blur-md ${className}`}>
       {title ? (
         <h2 className="mb-4 text-[11px] font-medium uppercase tracking-[0.18em] text-[#94A3B8]">{title}</h2>
       ) : null}
@@ -55,7 +56,7 @@ function Bar({ value, danger = false }: { value: number; danger?: boolean }) {
 
 function Kpi({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl border border-slate-800/60 bg-[#0C1220] p-5">
+    <div className="rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-5 backdrop-blur-md">
       <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#94A3B8]">{label}</p>
       <div className="mt-2 font-mono text-2xl font-semibold tabular-nums tracking-tight text-slate-100">{children}</div>
     </div>
@@ -94,7 +95,7 @@ export function OverviewCockpit() {
 
   if (loadState === 'error') {
     return (
-      <div className="min-h-dvh bg-[#080C14] px-6 py-16 text-center text-sm text-[#94A3B8]">
+      <div className="min-h-dvh bg-transparent px-6 py-16 text-center text-sm text-[#94A3B8]">
         {error ?? 'Unable to load overview.'}
       </div>
     )
@@ -102,7 +103,7 @@ export function OverviewCockpit() {
 
   if (!selected && loadState === 'ready') {
     return (
-      <div className="min-h-dvh bg-[#080C14] px-6 py-16 text-center">
+      <div className="min-h-dvh bg-transparent px-6 py-16 text-center">
         <p className="text-sm text-[#94A3B8]">No trading accounts yet.</p>
         <Link href="/dashboard/terminal" className="mt-3 inline-flex items-center gap-1 text-sm text-sky-300 hover:text-sky-200">
           Open Terminal <ArrowUpRight className="size-4" />
@@ -114,8 +115,9 @@ export function OverviewCockpit() {
   const pnlColor = (n: number) => (n >= 0 ? GREEN : RED)
 
   return (
-    <div className="min-h-dvh" style={{ backgroundColor: BG }}>
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="relative min-h-dvh">
+      <SpaceBackground />
+      <div className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>

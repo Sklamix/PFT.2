@@ -13,7 +13,7 @@ export function OverviewShell() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
-    <div className="flex min-h-dvh bg-[#080C14] lg:pl-64">
+    <div className="flex min-h-dvh bg-transparent lg:pl-64">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border bg-sidebar lg:block">
         <SidebarContent view="overview" onNavigate={() => router.push('/dashboard/terminal')} />
       </aside>
