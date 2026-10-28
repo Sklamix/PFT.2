@@ -370,8 +370,25 @@ model TradeHistory {
   closeReason      CloseReason
   openedAt         DateTime
   closedAt         DateTime       @default(now())
+  journal          JournalEntry?
 
   @@index([tradingAccountId, closedAt])
+}
+
+/// Reflective journal records attached to closed trades: notes, strategy tags and
+/// an optional chart screenshot (stored as a small data URL).
+model JournalEntry {
+  id         String        @id @default(cuid())
+  tradeId    String        @unique
+  trade      TradeHistory  @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  userId     String
+  note       String        @default("")
+  tags       String        @default("[]")
+  screenshot String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([userId, updatedAt])
 }
 
 model Payout {

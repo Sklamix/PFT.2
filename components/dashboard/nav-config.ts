@@ -4,7 +4,7 @@ export const DASHBOARD_VIEWS = [
   { id: 'overview', label: 'Overview / Cockpit', icon: LayoutDashboard, href: '/dashboard/overview' },
   { id: 'accounts', label: 'Trading Accounts', icon: Layers, href: '/dashboard/accounts' },
   { id: 'payouts', label: 'Payouts & Certificates', icon: Award, href: '/dashboard/payouts' },
-  { id: 'journal', label: 'Trading Journal', icon: BookOpen },
+  { id: 'journal', label: 'Trading Journal', icon: BookOpen, href: '/dashboard/journal' },
   { id: 'billing', label: 'Billing & Orders', icon: Receipt },
   { id: 'settings', label: 'Settings & KYC', icon: ShieldCheck },
 ] as const
