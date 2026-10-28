@@ -12,6 +12,8 @@ import {
   YAxis,
 } from 'recharts'
 import { useOverview, type OverviewAccount } from '@/lib/stores/useOverview'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { ChevronDown } from 'lucide-react'
 import { SpaceBackground } from './space-background'
 
 const BG = '#080C14'
@@ -120,27 +122,49 @@ export function OverviewCockpit() {
       <div className="relative z-10 mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Header */}
         <header className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-slate-100">Overview</h1>
-            <p className="mt-0.5 text-sm text-[#94A3B8]">Equity, PnL and drawdown guardrails at a glance.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight text-slate-100">Overview</h1>
+              <p className="mt-0.5 text-sm text-[#94A3B8]">Equity, PnL and drawdown guardrails at a glance.</p>
+            </div>
+            {selected && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="flex h-9 items-center gap-2 rounded-md border border-slate-800 bg-[#0B0F19]/80 px-3 font-mono text-sm text-slate-200 outline-none transition-colors hover:border-slate-600 focus-visible:border-slate-600 aria-expanded:border-slate-600"
+                  aria-label={`Active account ${selected.displayId}. Change account`}
+                >
+                  <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: selected.isBreached ? RED : GREEN }} aria-hidden="true" />
+                  <span className="tabular-nums">{selected.displayId}</span>
+                  <span className="text-xs text-[#94A3B8]">({phaseLabel(selected)})</span>
+                  <ChevronDown className="size-3.5 text-[#94A3B8]" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72 border-slate-800 bg-[#0B0F19]">
+                  <DropdownMenuRadioGroup value={selected.id} onValueChange={(value) => select(String(value))}>
+                    {accounts.map((account) => (
+                      <DropdownMenuRadioItem key={account.id} value={account.id} className="gap-0 py-2">
+                        <div className="flex min-w-0 flex-col gap-0.5">
+                          <span className="flex items-center gap-2 font-mono text-xs font-semibold text-slate-100">
+                            <span
+                              className="inline-block size-1.5 rounded-full"
+                              style={{ backgroundColor: account.isBreached ? RED : GREEN }}
+                              aria-hidden="true"
+                            />
+                            {account.displayId}
+                          </span>
+                          <span className="flex items-center gap-2 text-[11px] text-[#94A3B8]">
+                            {phaseLabel(account)} · <span className="font-mono tabular-nums">{usd(account.equity)}</span>
+                          </span>
+                        </div>
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
           <div className="flex items-center gap-3">
-            {accounts.length > 1 && (
-              <select
-                value={selected?.id ?? ''}
-                onChange={(event) => select(event.target.value)}
-                className="h-9 rounded-md border border-slate-800 bg-[#0C1220] px-3 font-mono text-sm text-slate-200 outline-none focus:border-slate-600"
-                aria-label="Select account"
-              >
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.displayId}
-                  </option>
-                ))}
-              </select>
-            )}
             <Link
-              href="/dashboard/terminal"
+              href={selected ? `/dashboard/terminal?account=${encodeURIComponent(selected.id)}` : '/dashboard/terminal'}
               className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-800 px-3 text-sm text-slate-300 transition-colors hover:border-slate-600 hover:text-slate-100"
             >
               <CandlestickChart className="size-4" /> Open Terminal
