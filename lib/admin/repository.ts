@@ -201,6 +201,8 @@ function mapOrder(
 
 function filterClause(filter: TraderFilter): Prisma.TradingAccountWhereInput {
   if (filter === 'breached') return { status: { in: ['BREACHED_DAILY', 'BREACHED_MAX'] } }
+  if (filter === 'funded') return { status: 'FUNDED' }
+  if (filter === 'evaluation') return { status: 'ACTIVE', phase: { in: ['PHASE_1', 'PHASE_2'] } }
   return {}
 }
 

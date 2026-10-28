@@ -14,7 +14,7 @@ export type AccountStatus =
   | 'BREACHED'
   | 'PASSED'
   | 'EXPIRED'
-export type TraderFilter = 'all' | 'near_limit' | 'breached' | 'passing'
+export type TraderFilter = 'all' | 'near_limit' | 'breached' | 'passing' | 'funded' | 'evaluation'
 
 export type PendingAccountOverride = {
   requestId: string

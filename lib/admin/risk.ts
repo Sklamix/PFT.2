@@ -33,6 +33,8 @@ export function matchesTraderFilter(row: TraderRow, filter: TraderFilter) {
   if (filter === 'breached') return isBreached(row.status)
   if (filter === 'passing') return isPassing(row.status) && !isNearLimit(row)
   if (filter === 'near_limit') return isNearLimit(row)
+  if (filter === 'funded') return row.status === 'FUNDED' || row.phase === 'FUNDED'
+  if (filter === 'evaluation') return !isBreached(row.status) && row.phase !== 'FUNDED' && row.status !== 'FUNDED'
   return true
 }
 

@@ -39,6 +39,8 @@ import type {
 
 const FILTERS: { id: TraderFilter; label: string }[] = [
   { id: 'all', label: 'All' },
+  { id: 'evaluation', label: 'Evaluation' },
+  { id: 'funded', label: 'Funded' },
   { id: 'near_limit', label: 'Near Limit (Alerts)' },
   { id: 'breached', label: 'Breached' },
   { id: 'passing', label: 'Active - Passing' },
@@ -55,6 +57,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const router = useRouter()
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<TraderFilter>('all')
+  const [traderId, setTraderId] = useState('all')
   const [metrics, setMetrics] = useState<OverviewMetrics | null>(null)
   const [rows, setRows] = useState<TraderRow[]>([])
   const [orders, setOrders] = useState<OrderRow[]>([])
@@ -268,6 +271,22 @@ export function AdminDesk({ user }: { user: AdminSession }) {
     }
   }
 
+  // Distinct traders across the loaded account rows, for the per-trader filter.
+  const traders = (() => {
+    const map = new Map<string, { userId: string; label: string; count: number }>()
+    for (const row of rows) {
+      const existing = map.get(row.userId)
+      if (existing) existing.count += 1
+      else
+        map.set(row.userId, {
+          userId: row.userId,
+          label: `${row.traderName || row.traderEmail} (${row.traderEmail})`,
+          count: 1,
+        })
+    }
+    return [...map.values()].sort((a, b) => a.label.localeCompare(b.label))
+  })()
+
   return (
     <AdminDeskFrame
       user={user}
@@ -356,12 +375,25 @@ export function AdminDesk({ user }: { user: AdminSession }) {
                   {item.label}
                 </Button>
               ))}
+              <select
+                value={traderId}
+                onChange={(event) => setTraderId(event.target.value)}
+                className="h-6 rounded-md border border-border bg-background px-2 text-xs"
+                aria-label="Filter by trader"
+              >
+                <option value="all">All traders</option>
+                {traders.map((trader) => (
+                  <option key={trader.userId} value={trader.userId}>
+                    {trader.label} — {trader.count} {trader.count === 1 ? 'account' : 'accounts'}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
 
-        <RiskTable
-          rows={rows}
+          <RiskTable
+          rows={traderId === 'all' ? rows : rows.filter((row) => row.userId === traderId)}
           onTrades={async (row) => {
             try {
               const [data, hold] = await Promise.all([
