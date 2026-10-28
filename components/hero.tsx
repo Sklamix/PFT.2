@@ -27,26 +27,44 @@ const PLATFORMS = ['PFT Web Terminal']
 export function Hero() {
   return (
     <section id="top" className="relative isolate min-h-[100svh] overflow-hidden border-b border-white/5 bg-[#02040a]">
+      {/* Background layer (z-0): dark cosmos + technical grid */}
       <div className="pointer-events-none absolute inset-0 z-0">
-        <div className="absolute -left-52 top-1/2 size-[42rem] -translate-y-1/2 rounded-full bg-amber-300/30 blur-[90px]" />
-        <div
-          className="absolute -left-24 top-1/2 size-[34rem] -translate-y-1/2 rounded-full opacity-90 blur-2xl"
-          style={{ background: 'radial-gradient(circle, rgba(255,190,92,0.58) 0%, rgba(255,122,26,0.22) 40%, transparent 70%)' }}
-        />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_44%,rgba(37,99,235,0.16),transparent_34%),radial-gradient(circle_at_56%_68%,rgba(14,165,233,0.09),transparent_28%)]" />
         <div className="absolute inset-0 opacity-[0.22] [background-image:radial-gradient(#e0f2fe_1px,transparent_1px)] [background-size:42px_42px]" />
         <div className="absolute inset-0 opacity-[0.14] [background-image:linear-gradient(rgba(148,163,184,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,.18)_1px,transparent_1px)] [background-size:72px_72px]" />
       </div>
 
-      <div className="absolute inset-0 z-10">
+      {/* Glow layer (z-10): cropped Sun + dual orange-gold flare + astronaut backlight */}
+      <div className="pointer-events-none absolute inset-0 z-10">
+        <div
+          className="absolute -top-40 -left-40 size-[30rem] rounded-full"
+          style={{
+            background:
+              'radial-gradient(circle at 62% 62%, rgba(255,246,214,1) 0%, rgba(255,205,112,0.95) 24%, rgba(255,150,46,0.6) 46%, rgba(255,122,26,0.2) 62%, transparent 74%)',
+            boxShadow: '0 0 140px 48px rgba(255,150,58,0.45)',
+          }}
+        />
+        <div
+          className="absolute -top-44 -left-44 size-[46rem] rounded-full blur-[80px]"
+          style={{ background: 'radial-gradient(circle, rgba(255,196,96,0.42) 0%, rgba(255,122,26,0.2) 42%, transparent 70%)' }}
+        />
+        <div
+          className="absolute -top-28 -left-28 size-[36rem] rounded-full mix-blend-screen blur-2xl"
+          style={{ background: 'radial-gradient(circle, rgba(255,226,154,0.6) 0%, rgba(255,140,34,0.28) 40%, transparent 68%)' }}
+        />
+        <div
+          className="absolute top-[52%] left-[88%] size-[24rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[60px]"
+          style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.5) 0%, rgba(14,165,233,0.22) 40%, transparent 70%)' }}
+        />
+      </div>
+
+      {/* Middle layer (z-20): Earth, orbital rings and astronaut */}
+      <div className="absolute inset-0 z-20">
         <HeroSpaceScene variant="solar" />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 z-20 bg-[linear-gradient(90deg,rgba(2,4,10,0.84)_0%,rgba(2,4,10,0.78)_26%,rgba(2,4,10,0.36)_54%,transparent_80%)] max-lg:bg-[linear-gradient(180deg,#02040a_0%,rgba(2,4,10,0.82)_34%,rgba(2,4,10,0.12)_70%,#02040a_100%)]" />
-      <div
-        className="pointer-events-none absolute top-1/2 -left-64 z-20 size-[30rem] -translate-y-1/2 rounded-full opacity-80 blur-2xl mix-blend-screen"
-        style={{ background: 'radial-gradient(circle, rgba(255,190,92,0.6) 0%, rgba(255,122,26,0.22) 42%, transparent 70%)' }}
-      />
+      {/* Legibility gradient (z-[25]): keeps the left text readable over the scene */}
+      <div className="pointer-events-none absolute inset-0 z-[25] bg-[linear-gradient(90deg,rgba(2,4,10,0.86)_0%,rgba(2,4,10,0.72)_26%,rgba(2,4,10,0.3)_54%,transparent_78%)] max-lg:bg-[linear-gradient(180deg,#02040a_0%,rgba(2,4,10,0.82)_34%,rgba(2,4,10,0.12)_70%,#02040a_100%)]" />
 
       <div className="relative z-30 mx-auto flex min-h-[calc(100svh-4rem)] max-w-7xl flex-col justify-center px-4 pt-[clamp(4.25rem,8.5vh,7rem)] pb-[clamp(2.25rem,4.5vh,3.5rem)] sm:px-6 lg:px-8 2xl:max-w-[1600px]">
         <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-[48rem]">

@@ -12,23 +12,19 @@ const SCENES: Record<
   HeroSceneVariant,
   {
     ring: string
-    sun: [number, number, number]
     star: string
   }
 > = {
   orbit: {
     ring: '#f5c76a',
-    sun: [-9.2, 1.4, -4],
     star: '#bae6fd',
   },
   nebula: {
     ring: '#67e8f9',
-    sun: [-10, 2.4, -5],
     star: '#c4b5fd',
   },
   solar: {
     ring: '#fbbf24',
-    sun: [-8.6, 0.4, -3.8],
     star: '#fde68a',
   },
 }
@@ -134,6 +130,12 @@ function Earth({
         />
       </mesh>
 
+      {/* Outer cyan/blue atmosphere glow around the planet perimeter */}
+      <mesh scale={2.4}>
+        <sphereGeometry args={[1, 32, 32]} />
+        <meshBasicMaterial color="#38bdf8" transparent opacity={0.1} blending={THREE.AdditiveBlending} depthWrite={false} />
+      </mesh>
+
       <mesh rotation={[0.18, 0, -0.08]}>
         <torusGeometry args={[2.62, 0.014, 8, 160]} />
         <meshStandardMaterial color={ringColor} emissive={ringColor} emissiveIntensity={2.4} toneMapped={false} />
@@ -146,21 +148,6 @@ function Earth({
       <mesh position={[1.55, 1.75, 0.8]} scale={0.055}>
         <sphereGeometry args={[1, 8, 8]} />
         <meshBasicMaterial color="#fef3c7" toneMapped={false} />
-      </mesh>
-    </group>
-  )
-}
-
-function Sun({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      <mesh scale={3}>
-        <sphereGeometry args={[1, 24, 24]} />
-        <meshBasicMaterial color="#ffb45b" toneMapped={false} />
-      </mesh>
-      <mesh scale={3.8}>
-        <sphereGeometry args={[1, 24, 24]} />
-        <meshBasicMaterial color="#ff8a24" transparent opacity={0.14} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
     </group>
   )
@@ -195,12 +182,12 @@ function Scene({
   const earthPoint: [number, number] = mobile
     ? [0.52, 0.7]
     : portrait
-      ? [0.62, 0.7]
+      ? [0.62, 0.68]
       : wide
-        ? [0.61, 0.54]
+        ? [0.7, 0.5]
         : large
-          ? [0.65, 0.54]
-          : [0.78, 0.7]
+          ? [0.72, 0.5]
+          : [0.76, 0.55]
   const astronautPoint: [number, number] = mobile
     ? [0.62, 0.3]
     : portrait
@@ -233,7 +220,6 @@ function Scene({
   const earthScale = earthRadiusPx / (2.62 * pixelsPerWorldUnitAt(earthZ))
   const astronautScale = astronautHeightPx / (3 * pixelsPerWorldUnitAt(astronautZ))
   const motionScale = Math.min(1, 900 / Math.max(size.height, 1)) * 0.65
-  const sunPosition: [number, number, number] = mobile || portrait ? [-7.8, 2.3, -5] : scene.sun
 
   return (
     <>
@@ -246,7 +232,6 @@ function Scene({
       <Stars radius={85} depth={50} count={mobile ? 1400 : wide ? 3400 : 2600} factor={3.1} saturation={0} fade speed={0.2} />
       <Sparkles count={mobile ? 35 : wide ? 90 : 70} scale={[16, 9, 8]} size={1.4} speed={0.18} color={scene.star} opacity={0.55} />
 
-      <Sun position={sunPosition} />
       <Earth
         position={earthPosition}
         scale={earthScale}
