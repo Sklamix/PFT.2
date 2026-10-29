@@ -1,14 +1,8 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import dynamic from 'next/dynamic'
 import { cn } from '@/lib/utils'
-
-// The 3D scene is the only client-only piece; the static overlay (logo, progress)
-// renders in the initial HTML so the intro is visible from the very first paint.
-const VenusCanvas = dynamic(() => import('./venus-scene').then((mod) => mod.VenusCanvas), {
-  ssr: false,
-})
+import { VenusCanvas } from './venus-scene'
 
 /**
  * Full-screen brand intro: PFT wordmark, a rotating procedural Venus and a thin

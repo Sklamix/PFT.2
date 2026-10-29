@@ -79,6 +79,79 @@ function makeVenusTexture(): THREE.CanvasTexture {
   return texture
 }
 
+/**
+ * Fresnel-based atmosphere shader. Rendered on an inward-facing (BackSide) shell
+ * slightly larger than the planet, so the glow hugs the limb, is brightest on the
+ * sunlit side, and fades into deep space with no geometric boundary.
+ */
+const ATMO_VERTEX = /* glsl */ `
+  varying vec3 vNormalW;
+  varying vec3 vViewDirW;
+  void main() {
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vNormalW = normalize(mat3(modelMatrix) * normal);
+    vViewDirW = normalize(cameraPosition - worldPos.xyz);
+    gl_Position = projectionMatrix * viewMatrix * worldPos;
+  }
+`
+
+const ATMO_FRAGMENT = /* glsl */ `
+  uniform vec3 uLightDir;
+  uniform vec3 uColor;
+  uniform float uIntensity;
+  uniform float uPower;
+  varying vec3 vNormalW;
+  varying vec3 vViewDirW;
+  void main() {
+    vec3 N = normalize(vNormalW);
+    vec3 V = normalize(vViewDirW);
+    float ndv = abs(dot(N, V));
+    float fres = pow(clamp(1.0 - ndv, 0.0, 1.0), uPower);
+    // Soft base on the shadow side, much brighter toward the lit limb.
+    float lit = 0.16 + 0.84 * pow(clamp(dot(N, normalize(uLightDir)), 0.0, 1.0), 1.35);
+    float a = clamp(fres * lit * uIntensity, 0.0, 1.0);
+    gl_FragColor = vec4(uColor, a);
+  }
+`
+
+type AtmoProps = {
+  radius: number
+  color: string
+  intensity: number
+  power: number
+  lightDir: [number, number, number]
+}
+
+function Atmosphere({ radius, color, intensity, power, lightDir }: AtmoProps) {
+  const material = useMemo(() => {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uLightDir: { value: new THREE.Vector3(...lightDir).normalize() },
+        uColor: { value: new THREE.Color(color) },
+        uIntensity: { value: intensity },
+        uPower: { value: power },
+      },
+      vertexShader: ATMO_VERTEX,
+      fragmentShader: ATMO_FRAGMENT,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.BackSide,
+    })
+  }, [color, intensity, power, lightDir])
+
+  useEffect(() => () => material.dispose(), [material])
+
+  return (
+    <mesh material={material}>
+      <sphereGeometry args={[radius, 64, 64]} />
+    </mesh>
+  )
+}
+
+const LIGHT_DIR: [number, number, number] = [4, 2, 4]
+
 function Venus({ exiting }: { exiting: boolean }) {
   const group = useRef<THREE.Group>(null)
   const mesh = useRef<THREE.Mesh>(null)
@@ -87,7 +160,7 @@ function Venus({ exiting }: { exiting: boolean }) {
 
   useEffect(() => () => texture.dispose(), [texture])
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     if (mesh.current && !exiting) {
       // Continuous self-rotation, independent of frame rate.
       mesh.current.rotation.y += delta * 0.1
@@ -100,57 +173,27 @@ function Venus({ exiting }: { exiting: boolean }) {
       group.current.rotation.z += delta * 0.14
       if (mesh.current) mesh.current.rotation.y += delta * 0.6
     }
-    // Subtle breathing of the atmosphere is handled by the static light.
-    void state
   })
 
   return (
     <group ref={group}>
+      {/* A. Lit surface: warm, textured, one side lit / other in shadow */}
       <mesh ref={mesh}>
         <sphereGeometry args={[1.08, 64, 64]} />
         <meshStandardMaterial
           map={texture}
-          roughness={0.96}
+          roughness={0.92}
           metalness={0}
-          emissive="#3a1e0c"
-          emissiveIntensity={0.22}
+          emissive="#2f1809"
+          emissiveIntensity={0.16}
         />
       </mesh>
-      {/* Soft warm atmosphere rim */}
-      <mesh scale={1.05}>
-        <sphereGeometry args={[1.08, 48, 48]} />
-        <meshBasicMaterial
-          color="#ffb46b"
-          transparent
-          opacity={0.1}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          side={THREE.BackSide}
-        />
-      </mesh>
-      {/* Outer golden-orange halo, matching the hero Earth's glow treatment */}
-      <mesh scale={2.6}>
-        <sphereGeometry args={[1.08, 32, 32]} />
-        <meshBasicMaterial
-          color="#f59e0b"
-          transparent
-          opacity={0.08}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-        />
-      </mesh>
-      {/* Tight rim-light glow hugging the limb */}
-      <mesh scale={1.18}>
-        <sphereGeometry args={[1.08, 48, 48]} />
-        <meshBasicMaterial
-          color="#ffce8a"
-          transparent
-          opacity={0.14}
-          blending={THREE.AdditiveBlending}
-          depthWrite={false}
-          side={THREE.BackSide}
-        />
-      </mesh>
+
+      {/* B. Atmospheric rim glow — thin, bright golden edge on the lit limb */}
+      <Atmosphere radius={1.08 * 1.14} color="#ffd98a" intensity={1.35} power={4.4} lightDir={LIGHT_DIR} />
+
+      {/* C. Outer soft bloom — wide amber aura that dissolves into the black */}
+      <Atmosphere radius={1.08 * 2.05} color="#d97a2e" intensity={0.42} power={3.0} lightDir={LIGHT_DIR} />
     </group>
   )
 }
@@ -158,9 +201,9 @@ function Venus({ exiting }: { exiting: boolean }) {
 export function VenusScene({ exiting }: { exiting: boolean }) {
   return (
     <>
-      <ambientLight intensity={0.6} color="#ffe0b8" />
-      <directionalLight position={[4, 2, 4]} intensity={2.6} color="#ffd9a8" />
-      <directionalLight position={[-4, -1, -2]} intensity={0.5} color="#5b3417" />
+      <ambientLight intensity={0.4} color="#ffe0b8" />
+      <directionalLight position={[4, 2, 4]} intensity={3.4} color="#ffd9a8" />
+      <directionalLight position={[-4, -1, -2]} intensity={0.35} color="#5b3417" />
       <pointLight position={[3, -1, 2]} intensity={7} distance={11} color="#ff9d4d" />
       {/* Warm backlight so the glow reads as Venus's own radiance */}
       <pointLight position={[-2.2, 0.4, -1.4]} intensity={9} distance={9} color="#ff8a3c" />
