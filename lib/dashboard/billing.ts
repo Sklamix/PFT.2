@@ -18,6 +18,7 @@ export type BillingOrder = {
   paidAt: number | null
   invoiceId: string | null
   accountDisplayId: string | null
+  paymentUrl: string | null
 }
 
 export type BillingData = {
@@ -67,6 +68,7 @@ export async function getBillingData(userId: string): Promise<BillingData> {
       paidAt: order.provisionedAt ? order.provisionedAt.getTime() : null,
       invoiceId: order.providerInvoiceId,
       accountDisplayId: order.account?.displayId ?? null,
+      paymentUrl: order.paymentUrl,
     }
   })
 

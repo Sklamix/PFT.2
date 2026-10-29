@@ -181,6 +181,18 @@ export function TerminalWorkspace() {
             <Banner
               tone="info"
               message="New challenge is processing — the account will appear in the selector automatically once the payment confirms."
+              action={
+                pendingOrders[0]?.paymentUrl ? (
+                  <a
+                    href={pendingOrders[0].paymentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-3 text-xs font-semibold text-primary-foreground transition-[background-position] duration-300 hover:bg-right"
+                  >
+                    Return to payment
+                  </a>
+                ) : undefined
+              }
             />
           )}
           {activatedAccount && (

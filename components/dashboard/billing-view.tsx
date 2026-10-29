@@ -163,13 +163,24 @@ export function BillingView() {
                           {tone.label}
                         </td>
                         <td className="py-2.5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => setInvoice(order.id)}
-                            className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-800 px-2.5 text-[11px] text-slate-300 hover:border-slate-600 hover:text-slate-100"
-                          >
-                            <Download className="size-3" /> Receipt
-                          </button>
+                          {order.status === 'PENDING' && order.paymentUrl ? (
+                            <a
+                              href={order.paymentUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-600 px-2.5 text-[11px] text-slate-100 transition-colors hover:bg-slate-800/60"
+                            >
+                              <Plus className="size-3" /> Pay now
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setInvoice(order.id)}
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-800 px-2.5 text-[11px] text-slate-300 hover:border-slate-600 hover:text-slate-100"
+                            >
+                              <Download className="size-3" /> Receipt
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )
