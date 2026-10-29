@@ -5,7 +5,7 @@ import type { CertificateType } from './types'
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // unambiguous, no 0/O/1/I
 
 function newPublicId(): string {
-  const bytes = randomBytes(8)
+  const bytes = randomBytes(10) // 10 chars, one byte per char
   let suffix = ''
   for (let i = 0; i < 10; i += 1) suffix += ALPHABET[bytes[i] % ALPHABET.length]
   return `PFT-${suffix}`
