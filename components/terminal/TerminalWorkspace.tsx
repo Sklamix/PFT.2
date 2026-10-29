@@ -187,7 +187,7 @@ export function TerminalWorkspace() {
                     href={pendingOrders[0].paymentUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-7 items-center gap-1.5 rounded-md bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-3 text-xs font-semibold text-primary-foreground transition-[background-position] duration-300 hover:bg-right"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-3 text-xs font-semibold text-emerald-950 shadow-[0_0_18px_-6px_rgba(16,185,129,0.7)] transition hover:bg-emerald-400"
                   >
                     Return to payment
                   </a>
@@ -276,7 +276,7 @@ function PaymentProcessingState({ orders, onRefresh }: { orders: CheckoutOrder[]
                 href={latest.paymentUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-5 text-sm font-semibold text-emerald-950 shadow-[0_0_28px_-10px_rgba(16,185,129,0.7)] transition hover:bg-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-400/60 focus-visible:outline-none"
               >
                 Return to payment
               </a>
@@ -310,7 +310,7 @@ function PaymentFailedState({ orders, onNewChallenge }: { orders: CheckoutOrder[
                 href={latest.paymentUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-700 px-4 text-sm font-medium text-slate-200 transition hover:border-slate-500"
+                className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 text-sm font-semibold text-emerald-300 transition hover:border-emerald-400/60 hover:bg-emerald-500/20"
               >
                 Return to payment
               </a>

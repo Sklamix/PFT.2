@@ -168,7 +168,7 @@ export function BillingView() {
                               href={order.paymentUrl}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-slate-600 px-2.5 text-[11px] text-slate-100 transition-colors hover:bg-slate-800/60"
+                              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-2.5 text-[11px] font-semibold text-emerald-950 transition hover:bg-emerald-400"
                             >
                               <Plus className="size-3" /> Pay now
                             </a>
