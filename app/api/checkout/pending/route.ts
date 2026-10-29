@@ -12,6 +12,8 @@ export interface CheckoutOrderSummary {
   createdAt: string
   planSize: number | null
   evaluationLabel: string | null
+  /** Provider invoice URL the trader can reopen to finish or retry payment. */
+  paymentUrl: string | null
 }
 
 /**
@@ -44,7 +46,7 @@ export async function GET() {
     },
     orderBy: { createdAt: 'desc' },
     take: 10,
-    select: { id: true, status: true, amount: true, createdAt: true, rawPayload: true },
+    select: { id: true, status: true, amount: true, createdAt: true, rawPayload: true, paymentUrl: true },
   })
 
   const orders: CheckoutOrderSummary[] = rows.map((row) => {
@@ -59,6 +61,7 @@ export async function GET() {
       createdAt: row.createdAt.toISOString(),
       planSize: Number.isInteger(payload.planSize) ? Number(payload.planSize) : null,
       evaluationLabel: typeof payload.evaluationType === 'string' ? payload.evaluationType : null,
+      paymentUrl: row.paymentUrl,
     }
   })
 

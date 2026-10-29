@@ -30,6 +30,7 @@ type CheckoutOrder = {
   createdAt: string
   planSize: number | null
   evaluationLabel: string | null
+  paymentUrl: string | null
 }
 
 function switchAccount(accountId: string) {
@@ -258,6 +259,16 @@ function PaymentProcessingState({ orders, onRefresh }: { orders: CheckoutOrder[]
         ]}
         actions={
           <>
+            {latest.paymentUrl ? (
+              <a
+                href={latest.paymentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              >
+                Return to payment
+              </a>
+            ) : null}
             <Button variant="outline" size="sm" className="gap-1.5" onClick={onRefresh} aria-label="Check payment status now">
               <RefreshCw className="size-3.5" aria-hidden="true" />
               Check status now
@@ -281,14 +292,26 @@ function PaymentFailedState({ orders, onNewChallenge }: { orders: CheckoutOrder[
         title="Your payment was not completed"
         description={`Your last order${latest?.planSize ? `, ${Math.round(latest.planSize / 1000)}k ${latest?.evaluationLabel ?? ''},` : ''} expired or failed before the transfer confirmed — you were not charged for a challenge account. Start a new checkout to try again.`}
         actions={
-          <button
-            type="button"
-            onClick={onNewChallenge}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            New Challenge
-          </button>
+          <>
+            {latest.paymentUrl ? (
+              <a
+                href={latest.paymentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-700 px-4 text-sm font-medium text-slate-200 transition hover:border-slate-500"
+              >
+                Return to payment
+              </a>
+            ) : null}
+            <button
+              type="button"
+              onClick={onNewChallenge}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              New Challenge
+            </button>
+          </>
         }
       />
     </main>
