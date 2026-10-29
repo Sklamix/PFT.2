@@ -65,6 +65,8 @@ export async function renderCertificateSvg(input: CertificateRenderInput): Promi
   })
 
   const fontSize = nameFontSize(input.displayName)
+  // Clamp extremely long names (rare) inside the artwork instead of overflowing the frame.
+  const nameClamp = input.displayName.length > 55 ? ' textLength="1100" lengthAdjust="spacingAndGlyphs"' : ''
   const symbolGlyph = input.symbol ? `<text x="1184" y="150" font-size="72" text-anchor="end">${escapeXml(input.symbol)}</text>` : ''
 
   const amountRow = input.amountLabel
@@ -118,7 +120,7 @@ export async function renderCertificateSvg(input: CertificateRenderInput): Promi
   ${statusMark}
 
   <!-- Trader name -->
-  <text x="88" y="388" font-size="${fontSize}" font-weight="600" fill="#f4f7fb">${escapeXml(input.displayName)}</text>
+  <text x="88" y="388" font-size="${fontSize}" font-weight="600" fill="#f4f7fb"${nameClamp}>${escapeXml(input.displayName)}</text>
 
   ${accountRow}
   ${amountRow}

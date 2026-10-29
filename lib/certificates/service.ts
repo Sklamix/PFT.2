@@ -151,8 +151,10 @@ export async function saveCertificateDesign(userId: string, publicId: string, in
     const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { legalName: true, certificateNameConsentAt: true } })
     if (input.displayNameMode === 'KYC') {
       if (!user.legalName) return { error: 'No verified legal name is available from KYC.' as const }
-      if (input.kycConsent !== true) return { error: 'Consent to public display is required.' as const }
-      await prisma.user.update({ where: { id: userId }, data: { certificateNameConsentAt: new Date() } })
+      // Explicit consent is required once; an already-recorded consent stays valid
+      // so the trader can keep editing the design without re-consenting each save.
+      if (!user.certificateNameConsentAt && input.kycConsent !== true) return { error: 'Consent to public display is required.' as const }
+      if (!user.certificateNameConsentAt) await prisma.user.update({ where: { id: userId }, data: { certificateNameConsentAt: new Date() } })
     }
     data.displayNameMode = input.displayNameMode
   }

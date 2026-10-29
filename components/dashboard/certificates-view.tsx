@@ -77,7 +77,7 @@ function Customizer({
   const [theme, setTheme] = useState(cert.theme)
   const [symbol, setSymbol] = useState<string | null>(cert.symbol)
   const [nameMode, setNameMode] = useState<'PROFILE' | 'KYC'>(cert.displayNameMode as 'PROFILE' | 'KYC')
-  const [kycConsent, setKycConsent] = useState(false)
+  const [kycConsent, setKycConsent] = useState(cert.kycConsentGiven)
   const [showAmount, setShowAmount] = useState(cert.showAmount)
   const [svg, setSvg] = useState<string | null>(null)
   const [kycPending, setKycPending] = useState(false)
