@@ -18,6 +18,7 @@ import { PayoutQueue } from '@/components/admin/payout-queue'
 import { PayoutsManagement } from '@/components/admin/payouts-management'
 import { RiskTable } from '@/components/admin/risk-table'
 import { StaffMessages } from '@/components/admin/staff-messages'
+import { SupportDesk } from '@/components/admin/support-desk'
 import { ActivityLog } from '@/components/admin/activity-log'
 import { TradingConditionsManagement } from '@/components/admin/trading-conditions-management'
 import { TelemetryController } from '@/components/admin/telemetry-controller'
@@ -53,6 +54,7 @@ const SECTIONS = [
   { id: 'monitor', label: 'Risk Monitor' },
   { id: 'reviews', label: 'Reviews & Approvals' },
   { id: 'operations', label: 'Operations' },
+  { id: 'support', label: 'Support' },
   { id: 'messages', label: 'Messages' },
   { id: 'activity', label: 'Activity log' },
 ] as const
@@ -502,6 +504,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       ) : null}
 
       {section === 'messages' ? <StaffMessages /> : null}
+      {section === 'support' ? <SupportDesk role={user.role} userId={user.sub} /> : null}
       {section === 'activity' ? <ActivityLog role={user.role} /> : null}
 
       <PayoutQueue

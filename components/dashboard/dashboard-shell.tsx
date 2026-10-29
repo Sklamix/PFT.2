@@ -23,6 +23,7 @@ const VIEW_DESCRIPTIONS: Record<DashboardView, string> = {
   journal: 'Every closed position with performance statistics.',
   calendar: 'Track high-impact economic releases and news-window risk.',
   billing: 'Challenge orders, invoices and payment history.',
+  support: 'Talk to the PFT support desk and track your requests.',
   settings: 'Identity verification, security and notification preferences.',
 }
 

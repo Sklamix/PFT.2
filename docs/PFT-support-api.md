@@ -78,6 +78,15 @@ Re-sending the current status is a no-op (retry-safe). Any other transition retu
 
 `RESOLVED` sets `resolvedAt`; `CLOSED` sets `closedAt`; reopening to `IN_PROGRESS` clears `closedAt`.
 
+## UI notes (Stage 2)
+
+The admin desk can assign a ticket **to the signed-in agent** or unassign it. There is no staff-directory
+endpoint yet, so assigning an arbitrary colleague from the UI is intentionally not offered. An `ADMIN` can
+still call `PATCH` with any staff id; adding a `GET /api/admin/staff` (id/name/email/role) would let the UI
+offer a proper assignee picker.
+
+The trader UI displays staff messages as **PFT Support** (the API does not expose staff identity to traders).
+
 ## Audit
 
 Staff actions are written to `AuditLog` via `recordActivity`:
