@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { requireTrader } from '@/lib/trader/auth'
 import { saveUserPreferences, validatePreferences } from '@/lib/settings/preferences'
+import { recordActivity } from '@/lib/admin/activity'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +28,12 @@ export async function PATCH(request: Request) {
 
   try {
     const preferences = await saveUserPreferences(session.sub, result.data)
+    void recordActivity({
+      actorId: session.sub,
+      action: 'TRADER_PREFERENCES_UPDATED',
+      request,
+      metadata: { ...result.data },
+    })
     const response = NextResponse.json({ preferences })
     if (result.data.timeZone) {
       // Mirror the saved zone into a readable cookie so the terminal and calendar pick it up

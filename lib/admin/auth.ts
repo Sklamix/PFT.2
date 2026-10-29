@@ -5,7 +5,7 @@ import { ADMIN_COOKIE } from '@/lib/admin/constants'
 import type { AdminSession, Role } from '@/lib/admin/types'
 
 export { ADMIN_COOKIE }
-const STAFF_ROLES: Role[] = ['ADMIN', 'RISK_MANAGER']
+const STAFF_ROLES: Role[] = ['ADMIN', 'RISK_MANAGER', 'SUPPORT']
 
 function sessionSecret() {
   const secret = process.env.ADMIN_SESSION_SECRET

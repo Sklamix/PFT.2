@@ -4,6 +4,7 @@ import { recomputeMetrics } from '@/lib/admin/risk'
 import { checkPayoutEligibility, type PayoutEligibilityCode } from '@/lib/payouts/eligibility'
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
+import { recordActivity } from '@/lib/admin/activity'
 
 const ELIGIBILITY_STATUS: Record<PayoutEligibilityCode, number> = {
   ACCOUNT_NOT_FOUND: 404,
@@ -248,6 +249,16 @@ export async function POST(request: Request) {
       )
     }
 
+    void recordActivity({
+      actorId: session.sub,
+      action: 'TRADER_PAYOUT_REQUESTED',
+      request,
+      metadata: {
+        payoutId: payout.payout.id,
+        amount: Number(payout.payout.amount),
+        network: payout.payout.network,
+      },
+    })
     return NextResponse.json({ payout: payout.payout }, { status: 201 })
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034') {

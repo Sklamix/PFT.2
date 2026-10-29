@@ -18,6 +18,7 @@ import { PayoutQueue } from '@/components/admin/payout-queue'
 import { PayoutsManagement } from '@/components/admin/payouts-management'
 import { RiskTable } from '@/components/admin/risk-table'
 import { StaffMessages } from '@/components/admin/staff-messages'
+import { ActivityLog } from '@/components/admin/activity-log'
 import { TradingConditionsManagement } from '@/components/admin/trading-conditions-management'
 import { TelemetryController } from '@/components/admin/telemetry-controller'
 import { TradeHistoryModal } from '@/components/admin/trade-history-modal'
@@ -53,6 +54,7 @@ const SECTIONS = [
   { id: 'reviews', label: 'Reviews & Approvals' },
   { id: 'operations', label: 'Operations' },
   { id: 'messages', label: 'Messages' },
+  { id: 'activity', label: 'Activity log' },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]['id']
@@ -500,6 +502,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       ) : null}
 
       {section === 'messages' ? <StaffMessages /> : null}
+      {section === 'activity' ? <ActivityLog role={user.role} /> : null}
 
       <PayoutQueue
         open={queueOpen}

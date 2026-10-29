@@ -7,13 +7,14 @@ import { parseOrderInput } from '@/lib/trading/validation'
 import { authorizeAccount } from '@/lib/trader/guard'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
 import { isIndexMarketOpen } from '@/lib/market/index-sessions'
+import { recordActivity } from '@/lib/admin/activity'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: Request) {
   try {
     const input = parseOrderInput(await readJson(request))
-    const { error } = await authorizeAccount(input.accountId)
+    const { session, error } = await authorizeAccount(input.accountId)
     if (error) return error
     if (await isTargetLocked(input.accountId)) {
       return NextResponse.json(
@@ -32,7 +33,23 @@ export async function POST(request: Request) {
     }
     const quote = (await getFreshMarketQuotes())[input.symbol]
     if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
-    return respond(await placeMarketOrder({ ...input, quote }))
+    const result = await placeMarketOrder({ ...input, quote })
+    if (result.ok) {
+      void recordActivity({
+        actorId: session?.sub ?? null,
+        action: 'TRADER_ORDER_PLACED',
+        request,
+        metadata: {
+          accountId: input.accountId,
+          symbol: input.symbol,
+          side: input.side,
+          lots: input.lots,
+          stopLoss: input.stopLoss ?? null,
+          takeProfit: input.takeProfit ?? null,
+        },
+      })
+    }
+    return respond(result)
   } catch (error) {
     return handleError(error)
   }

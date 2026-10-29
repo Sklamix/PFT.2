@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
-const STAFF_ROLES = ['ADMIN', 'RISK_MANAGER'] as const
+const STAFF_ROLES = ['ADMIN', 'RISK_MANAGER', 'SUPPORT'] as const
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 12
 
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     if (!EMAIL_PATTERN.test(email) || email.length > 254) return jsonError('Enter a valid email address.', 400)
     if (name.length < 2) return jsonError('Enter the staff member’s full name.', 400)
     if (!STAFF_ROLES.includes(role as (typeof STAFF_ROLES)[number])) {
-      return jsonError('Role must be ADMIN or RISK_MANAGER.', 400)
+      return jsonError('Role must be ADMIN, RISK_MANAGER or SUPPORT.', 400)
     }
     if (providedPassword && providedPassword.length < MIN_PASSWORD_LENGTH) {
       return jsonError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`, 400)
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       data: {
         email,
         name,
-        role: role as 'ADMIN' | 'RISK_MANAGER',
+        role: role as 'ADMIN' | 'RISK_MANAGER' | 'SUPPORT',
         passwordHash: hashPassword(password),
         kycStatus: 'APPROVED',
         emailVerifiedAt: new Date(),

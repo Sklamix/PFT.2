@@ -4,6 +4,7 @@ import {
   saveCertificateDesign,
 } from '@/lib/certificates/service'
 import { requireTrader } from '@/lib/trader/auth'
+import { recordActivity } from '@/lib/admin/activity'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,6 +32,18 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ public
     kycConsent: body.kycConsent,
   })
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+
+  void recordActivity({
+    actorId: session.sub,
+    action: 'TRADER_CERTIFICATE_UPDATED',
+    request: req,
+    metadata: {
+      publicId,
+      theme: typeof body.theme === 'string' ? body.theme : undefined,
+      displayNameMode: typeof body.displayNameMode === 'string' ? body.displayNameMode : undefined,
+      showAmount: typeof body.showAmount === 'boolean' ? body.showAmount : undefined,
+    },
+  })
 
   const list = await getOwnerCertificates(session.sub)
   const cert = list.find((c) => c.publicId === publicId)

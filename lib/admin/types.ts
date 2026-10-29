@@ -1,4 +1,4 @@
-export type Role = 'TRADER' | 'ADMIN' | 'RISK_MANAGER'
+export type Role = 'TRADER' | 'ADMIN' | 'RISK_MANAGER' | 'SUPPORT'
 export type KycStatus = 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED'
 export type ChallengeStatus = 'IN_PROGRESS' | 'PASSED' | 'FAILED'
 export type ChallengeType = 'ONE_STEP' | 'TWO_STEP' | 'FUNDED'

@@ -223,7 +223,7 @@ export const adminRepo = {
     const prisma = await db()
     if (!prisma) return mockStore.findStaffByEmail(email)
     return prisma.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' }, role: { in: ['ADMIN', 'RISK_MANAGER'] } },
+      where: { email: { equals: email, mode: 'insensitive' }, role: { in: ['ADMIN', 'RISK_MANAGER', 'SUPPORT'] } },
     })
   },
 

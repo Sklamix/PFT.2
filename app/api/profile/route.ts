@@ -3,6 +3,7 @@ import { parsePhoneNumberFromString } from 'libphonenumber-js'
 import { prisma } from '@/lib/prisma'
 import { countryByValue } from '@/lib/countries'
 import { requireTrader } from '@/lib/trader/auth'
+import { recordActivity } from '@/lib/admin/activity'
 
 export const dynamic = 'force-dynamic'
 
@@ -114,6 +115,12 @@ export async function PATCH(request: Request) {
         phone: true,
         declaredVpsCountry: true,
       },
+    })
+    void recordActivity({
+      actorId: session.sub,
+      action: 'TRADER_PROFILE_UPDATED',
+      request,
+      metadata: { country: residence.code, vpsDeclared: Boolean(vpsResidence), hasVpsField },
     })
     return NextResponse.json({
       profile: { ...profile, dateOfBirth: profile.dateOfBirth?.toISOString().slice(0, 10) ?? '' },

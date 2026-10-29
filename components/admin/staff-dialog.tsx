@@ -141,6 +141,7 @@ export function CreateStaffDialog({
               >
                 <option value="RISK_MANAGER">Risk manager</option>
                 <option value="ADMIN">Administrator</option>
+                <option value="SUPPORT">Support (activity logs only)</option>
               </select>
             </label>
             <label className="block text-xs text-muted-foreground">

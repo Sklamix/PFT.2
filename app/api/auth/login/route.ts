@@ -3,6 +3,7 @@ import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
 import { authenticateTrader } from '@/lib/trader/accounts'
 import { isRateLimited, resetRateLimit } from '@/lib/trader/rate-limit'
 import { clientIp } from '@/lib/security/client-ip'
+import { recordActivity } from '@/lib/admin/activity'
 
 export async function POST(request: Request) {
   try {
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
 
     const issued = await issueTraderSession(session, request)
     await Promise.all([resetRateLimit(key), resetRateLimit(ipKey)])
+    void recordActivity({ actorId: issued.sub, action: 'TRADER_LOGIN', request, metadata: { method: 'password' } })
     return applyTraderCookie(NextResponse.json({ trader: issued }), issued)
   } catch (error) {
     console.error('Trader login failed', error)

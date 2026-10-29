@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { applySessionCookie, hashPassword, signSession, verifyPassword } from '@/lib/admin/auth'
+import { applySessionCookie, signSession, verifyPassword, hashPassword } from '@/lib/admin/auth'
+import { recordActivity } from '@/lib/admin/activity'
 import { jsonError, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
 import { createAttemptLimiter } from '@/lib/security/attempt-limiter'
@@ -58,6 +59,12 @@ export async function POST(request: Request) {
     })
     const response = NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
+    })
+    void recordActivity({
+      actorId: user.id,
+      action: 'STAFF_LOGIN',
+      request,
+      metadata: { role: user.role },
     })
     return applySessionCookie(response, token)
   } catch (error) {

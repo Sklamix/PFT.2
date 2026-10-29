@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
+import { recordActivity } from '@/lib/admin/activity'
 
 const MAX_ATTEMPTS = 5
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -125,6 +126,7 @@ export async function POST(request: Request) {
       profileComplete: profileComplete(user),
       redirectTo: profileComplete(user) ? '/dashboard' : '/profile/setup',
     })
+    void recordActivity({ actorId: user.id, action: 'TRADER_LOGIN', request, metadata: { method: 'email_code' } })
     return applyTraderCookie(response, issued)
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

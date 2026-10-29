@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
+import { recordActivity } from '@/lib/admin/activity'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,6 +78,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ tr
       },
     })
 
+    void recordActivity({
+      actorId: session.sub,
+      action: 'TRADER_JOURNAL_UPDATED',
+      request,
+      metadata: {
+        tradeId,
+        hasNote: Boolean(note && note.length > 0),
+        tags: tags?.length ?? 0,
+        hasScreenshot: screenshot !== undefined ? screenshot !== null : undefined,
+      },
+    })
     return NextResponse.json({
       tradeId,
       note: entry.note,

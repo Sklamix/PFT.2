@@ -15,6 +15,7 @@ import {
 import { isEmailConfigured } from '@/lib/email/resend'
 import { sendCheckoutInvoiceEmail, type CheckoutInvoiceDetails } from '@/lib/email/checkout-invoice'
 import { appUrl } from '@/lib/email/account-credentials'
+import { recordActivity } from '@/lib/admin/activity'
 import { RULES_VERSION } from '@/lib/rules/version'
 import { getTraderSession } from '@/lib/trader/auth'
 
@@ -235,6 +236,14 @@ export async function POST(req: Request) {
     // Runs after the response is sent so a slow or failing email provider never blocks the redirect.
     after(() => deliverInvoiceEmail(invoiceDetails, persistedOrderId))
 
+    if (traderSession) {
+      void recordActivity({
+        actorId: traderSession.sub,
+        action: 'TRADER_CHECKOUT_CREATED',
+        request: req,
+        metadata: { orderId, planSize, evaluation: evaluationLabel, amount },
+      })
+    }
     return NextResponse.json({ url: invoiceUrl, orderId })
   } catch (error) {
     console.error('Checkout route error:', error)

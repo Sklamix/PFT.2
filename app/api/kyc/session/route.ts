@@ -3,10 +3,11 @@ import { requireTrader } from '@/lib/trader/auth'
 import { createDiditSession } from '@/lib/kyc/didit'
 import { getUserKycState } from '@/lib/kyc/state'
 import { prisma } from '@/lib/prisma'
+import { recordActivity } from '@/lib/admin/activity'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST() {
+export async function POST(request: Request) {
   const { session, error } = await requireTrader()
   if (error) return error
 
@@ -44,6 +45,7 @@ export async function POST() {
       },
     })
 
+    void recordActivity({ actorId: user.id, action: 'TRADER_KYC_STARTED', request, metadata: { sessionId: didit.session_id } })
     return NextResponse.json({
       session_id: didit.session_id,
       session_url: didit.url,

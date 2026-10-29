@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
 import { signOut } from '@/auth'
-import { clearTraderCookie, endTraderSession } from '@/lib/trader/auth'
+import { clearTraderCookie, endTraderSession, verifyTraderSession, TRADER_COOKIE } from '@/lib/trader/auth'
+import { recordActivity } from '@/lib/admin/activity'
 
 /**
  * Auth.js may store the session in a secure variant or in chunked cookies depending on
@@ -41,12 +43,15 @@ function expiredAuthCookies(response: NextResponse) {
   return response
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  const store = await cookies()
+  const session = verifyTraderSession(store.get(TRADER_COOKIE)?.value)
   await endTraderSession()
   try {
     await signOut({ redirect: false })
   } catch (error) {
     console.error('Auth.js sign-out failed during logout', error)
   }
+  if (session?.sub) void recordActivity({ actorId: session.sub, action: 'TRADER_LOGOUT', request })
   return clearTraderCookie(expiredAuthCookies(NextResponse.json({ ok: true })))
 }
