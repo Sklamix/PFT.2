@@ -11,12 +11,21 @@ type FeedEvent = {
   country?: unknown
   date?: unknown
   impact?: unknown
+  forecast?: unknown
+  previous?: unknown
+  actual?: unknown
 }
 
-const ALLOWED_IMPACTS = new Set(['HIGH', 'MEDIUM'])
+const ALLOWED_IMPACTS = new Set(['HIGH', 'MEDIUM', 'LOW'])
 
 function externalIdFor(country: string, title: string, time: Date) {
   return createHash('sha1').update(`${country}|${title}|${time.toISOString()}`).digest('hex')
+}
+
+function optionalString(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }
 
 async function fetchFeed(url: string) {
@@ -37,6 +46,9 @@ export async function syncEconomicCalendar() {
     title: string
     impact: string
     country: string
+    forecast: string | null
+    previous: string | null
+    actual: string | null
     externalId: string
   }>()
 
@@ -53,7 +65,16 @@ export async function syncEconomicCalendar() {
       if (!title || !country || !time || Number.isNaN(time.getTime())) continue
       if (!ALLOWED_IMPACTS.has(impact)) continue
       const externalId = externalIdFor(country, title, time)
-      events.set(externalId, { time, title, impact, country, externalId })
+      events.set(externalId, {
+        time,
+        title,
+        impact,
+        country,
+        forecast: optionalString(raw.forecast),
+        previous: optionalString(raw.previous),
+        actual: optionalString(raw.actual),
+        externalId,
+      })
     }
   }
 
@@ -71,6 +92,9 @@ export async function syncEconomicCalendar() {
           impact: event.impact,
           isTradable: true,
           country: event.country,
+          forecast: event.forecast,
+          previous: event.previous,
+          actual: event.actual,
         },
         update: {
           time: event.time,
@@ -78,6 +102,9 @@ export async function syncEconomicCalendar() {
           impact: event.impact,
           isTradable: true,
           country: event.country,
+          forecast: event.forecast,
+          previous: event.previous,
+          actual: event.actual,
         },
       })
     }
@@ -97,6 +124,9 @@ function serializeEvent(row: {
   impact: string
   isTradable: boolean
   country: string
+  forecast: string | null
+  previous: string | null
+  actual: string | null
 }): EconomicEventItem {
   return {
     id: row.id,
@@ -105,6 +135,9 @@ function serializeEvent(row: {
     impact: row.impact,
     isTradable: row.isTradable,
     country: row.country,
+    forecast: row.forecast,
+    previous: row.previous,
+    actual: row.actual,
   }
 }
 
@@ -141,4 +174,32 @@ export async function getLastEconomicSyncAt() {
     select: { updatedAt: true },
   })
   return latest?.updatedAt ?? null
+}
+
+/**
+ * Full economic calendar for the trader widget: all impact levels across a date
+ * window. Returns the requested frontend shape (currency, event name, impact,
+ * actual/forecast/previous).
+ */
+export async function getEconomicCalendarEvents(from: Date, to: Date): Promise<EconomicEventItem[]> {
+  let rows = await prisma.economicEvent.findMany({
+    where: { time: { gte: from, lte: to } },
+    orderBy: { time: 'asc' },
+    take: 400,
+  })
+
+  if (rows.length === 0) {
+    try {
+      await syncEconomicCalendar()
+      rows = await prisma.economicEvent.findMany({
+        where: { time: { gte: from, lte: to } },
+        orderBy: { time: 'asc' },
+        take: 400,
+      })
+    } catch (error) {
+      console.warn('[pft calendar] No cached events in window and sync failed', error)
+    }
+  }
+
+  return rows.map(serializeEvent)
 }

@@ -21,6 +21,7 @@ const VIEW_DESCRIPTIONS: Record<DashboardView, string> = {
   accounts: 'All evaluation and funded accounts linked to your profile.',
   payouts: 'Weekly disbursements, revenue share and official certificates.',
   journal: 'Every closed position with performance statistics.',
+  calendar: 'Track high-impact economic releases and news-window risk.',
   billing: 'Challenge orders, invoices and payment history.',
   settings: 'Identity verification, security and notification preferences.',
 }

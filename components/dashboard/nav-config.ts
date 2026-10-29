@@ -1,10 +1,11 @@
-import { Award, BookOpen, CandlestickChart, Layers, LayoutDashboard, Receipt, ShieldCheck } from 'lucide-react'
+import { Award, BookOpen, CalendarRange, CandlestickChart, Layers, LayoutDashboard, Receipt, ShieldCheck } from 'lucide-react'
 
 export const DASHBOARD_VIEWS = [
   { id: 'overview', label: 'Overview / Cockpit', icon: LayoutDashboard, href: '/dashboard/overview' },
   { id: 'accounts', label: 'Trading Accounts', icon: Layers, href: '/dashboard/accounts' },
   { id: 'payouts', label: 'Payouts & Certificates', icon: Award, href: '/dashboard/payouts' },
   { id: 'journal', label: 'Trading Journal', icon: BookOpen, href: '/dashboard/journal' },
+  { id: 'calendar', label: 'Economic Calendar', icon: CalendarRange, href: '/dashboard/calendar' },
   { id: 'billing', label: 'Billing & Orders', icon: Receipt, href: '/dashboard/billing' },
   { id: 'settings', label: 'Settings & KYC', icon: ShieldCheck },
 ] as const

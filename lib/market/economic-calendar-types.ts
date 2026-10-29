@@ -5,6 +5,9 @@ export type EconomicEventItem = {
   impact: string
   isTradable: boolean
   country: string
+  forecast: string | null
+  previous: string | null
+  actual: string | null
 }
 
 export type NewsCalendarPayload = {

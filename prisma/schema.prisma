@@ -554,6 +554,9 @@ model EconomicEvent {
   isTradable Boolean  @default(true)
   country    String
   externalId String?  @unique
+  forecast   String?
+  previous   String?
+  actual     String?
   updatedAt  DateTime @updatedAt
 
   @@index([time])

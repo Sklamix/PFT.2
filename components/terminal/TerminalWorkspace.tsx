@@ -13,6 +13,7 @@ import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
 import { AppealDialog } from './AppealDialog'
+import { EconomicCalendarPanel } from './EconomicCalendarPanel'
 import { OrderPanel } from './OrderPanel'
 import { PositionsTable } from './PositionsTable'
 import { ResetAccountDialog } from './ResetAccountDialog'
@@ -204,6 +205,7 @@ export function TerminalWorkspace() {
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
               <TradingChart />
               <PositionsTable />
+              <EconomicCalendarPanel />
             </div>
             <OrderPanel />
           </div>
