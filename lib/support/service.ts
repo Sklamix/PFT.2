@@ -167,7 +167,9 @@ export async function getTraderTicket(userId: string, ref: string, pagination: {
   const found = await resolveTicket(ref)
   if (!found || found.userId !== userId) return null
 
-  const ticket = await prisma.supportTicket.findUniqueOrThrow({ where: { id: found.id }, select: SUMMARY_SELECT })
+  // A ticket can be deleted between the lookup and this read; treat that as 404, not 500.
+  const ticket = await prisma.supportTicket.findUnique({ where: { id: found.id }, select: SUMMARY_SELECT })
+  if (!ticket) return null
   const [messages, total] = await Promise.all([
     prisma.supportMessage.findMany({
       where: { ticketId: found.id },
@@ -361,7 +363,7 @@ export async function getStaffTicket(ref: string, pagination: { page: number; pa
   const found = await resolveTicket(ref)
   if (!found) return null
 
-  const ticket = await prisma.supportTicket.findUniqueOrThrow({
+  const ticket = await prisma.supportTicket.findUnique({
     where: { id: found.id },
     select: {
       ...SUMMARY_SELECT,
@@ -369,6 +371,7 @@ export async function getStaffTicket(ref: string, pagination: { page: number; pa
       assignedTo: { select: { id: true, name: true, email: true } },
     },
   })
+  if (!ticket) return null
   const [messages, total] = await Promise.all([
     prisma.supportMessage.findMany({
       where: { ticketId: found.id },
@@ -447,6 +450,12 @@ export async function addStaffMessage(input: {
   }
 
   const isActive = found.status === 'OPEN' || found.status === 'IN_PROGRESS' || found.status === 'WAITING_FOR_STAFF'
+  // A staff reply on a resolved ticket reopens it for follow-up (documented contract).
+  const replyStatus = isActive
+    ? { status: 'WAITING_FOR_USER' as const }
+    : found.status === 'RESOLVED'
+      ? { status: 'IN_PROGRESS' as const, resolvedAt: null }
+      : {}
 
   try {
     const message = await prisma.$transaction(async (tx) => {
@@ -464,7 +473,7 @@ export async function addStaffMessage(input: {
         where: { id: found.id },
         data: {
           updatedAt: new Date(),
-          ...(isActive ? { status: 'WAITING_FOR_USER' } : {}),
+          ...replyStatus,
         },
       })
       return created
@@ -590,7 +599,11 @@ export async function updateStaffTicket(input: {
     return { error: 'Ticket changed while you were editing it. Refresh and retry.' as const, status: 409 }
   }
 
-  const updated = await prisma.supportTicket.findUniqueOrThrow({ where: { id: found.id }, select: SUMMARY_SELECT })
+  const updated = await prisma.supportTicket.findUnique({ where: { id: found.id }, select: SUMMARY_SELECT })
+  if (!updated) {
+    // Deleted between the guarded update and this read.
+    return { error: 'Ticket not found.' as const, status: 404 }
+  }
   for (const entry of audit) {
     void recordActivity({
       actorId: input.actorId,

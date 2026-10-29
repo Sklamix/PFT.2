@@ -24,7 +24,7 @@ export async function GET(request: Request) {
       ...pagination,
       ...(status ? { status } : {}),
     })
-    return NextResponse.json(result)
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (cause) {
     return handleSupportError(cause)
   }
@@ -64,3 +64,4 @@ export async function POST(request: Request) {
     return handleSupportError(cause)
   }
 }
+

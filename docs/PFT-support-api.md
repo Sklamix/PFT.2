@@ -62,6 +62,8 @@ supported field returns `400` (no mass assignment). `SUPPORT` may assign only to
 `ADMIN` may assign any staff member. Assigning a trader is rejected (`400`).
 
 A staff reply moves `OPEN` / `IN_PROGRESS` / `WAITING_FOR_STAFF` tickets to `WAITING_FOR_USER`.
+Replying to a `RESOLVED` ticket reopens it to `IN_PROGRESS` and clears `resolvedAt` (the issue needs
+follow-up); replying to a `CLOSED` ticket returns `409`.
 
 ## Status transitions
 
@@ -90,9 +92,14 @@ The trader UI displays staff messages as **PFT Support** (the API does not expos
 ## Security hardening (Stage 3)
 
 - **CSRF**: all state-changing Support endpoints run `assertSameOrigin` (`lib/security/csrf.ts`).
-  Requests with `Sec-Fetch-Site: cross-site` or a foreign `Origin` are rejected with `403`. Requests without
-  an `Origin` (curl, server-to-server, native clients) are allowed — they cannot be triggered by another site
-  with the user's cookies. `SameSite=Lax` remains as defence in depth.
+  Requests with `Sec-Fetch-Site: cross-site` or a foreign `Origin` are rejected with `403`. Host matching uses
+  the request URL host plus `NEXT_PUBLIC_APP_URL`; **`x-forwarded-host`/`x-forwarded-proto` are not trusted** and
+  cannot widen the allow-list. Requests without an `Origin` (curl, server-to-server, native clients) are allowed.
+- **Caching**: every Support `GET` response carries `Cache-Control: no-store`, so private conversations never
+  land in a shared CDN cache.
+- **Rate limits**: counters live in Postgres (`RateLimitBucket`) and are incremented with one atomic
+  `INSERT … ON CONFLICT … RETURNING`. The limit is shared across serverless instances, survives cold starts and
+  redeploys, and parallel bursts cannot exceed it. The in-memory map is only used in demo mode (no `DATABASE_URL`).
 - **Body size**: JSON bodies above 64 KB are rejected with `413` before parsing into the domain layer.
 - **Idempotency**: keys are namespaced per sender (`TRADER:<id>:<key>`, `STAFF:<id>:<key>`), so a trader and an
   agent can use the same key on one ticket without collisions or wrong "duplicate" responses. Concurrent retries

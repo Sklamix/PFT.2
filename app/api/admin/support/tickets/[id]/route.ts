@@ -18,8 +18,8 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     const { id } = await context.params
     const result = await getStaffTicket(id, parsePagination(new URL(request.url)))
-    if (!result) return NextResponse.json({ error: 'Ticket not found.' }, { status: 404 })
-    return NextResponse.json(result)
+    if (!result) return NextResponse.json({ error: 'Ticket not found.' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (cause) {
     return handleSupportError(cause)
   }
@@ -69,3 +69,4 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return handleSupportError(cause)
   }
 }
+

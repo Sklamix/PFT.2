@@ -15,9 +15,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     const pagination = parsePagination(new URL(request.url))
     const result = await getTraderTicket(session.sub, id, pagination)
     // Same response for "missing" and "not yours": ids cannot be enumerated.
-    if (!result) return NextResponse.json({ error: 'Ticket not found.' }, { status: 404 })
-    return NextResponse.json(result)
+    if (!result) return NextResponse.json({ error: 'Ticket not found.' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (cause) {
     return handleSupportError(cause)
   }
 }
+

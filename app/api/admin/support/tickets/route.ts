@@ -42,8 +42,9 @@ export async function GET(request: Request) {
       ...(assigned && assigned !== 'unassigned' ? { assignedToId: assigned === 'me' ? session.sub : assigned } : {}),
       sort,
     })
-    return NextResponse.json(result)
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (cause) {
     return handleSupportError(cause)
   }
 }
+
