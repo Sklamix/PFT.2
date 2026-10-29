@@ -48,7 +48,6 @@ export function TerminalHeader() {
     <header className="flex flex-col gap-3 border-b border-border bg-card/80 px-3 py-2.5 backdrop-blur-md xl:px-4">
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
         <SymbolPicker selectedSymbol={selectedSymbol} onSelect={setSelectedSymbol} />
-
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 font-mono">
           <QuoteStack label="Bid" value={formatPrice(selectedSymbol, bid)} tone="danger" />
           <QuoteStack label="Ask" value={formatPrice(selectedSymbol, ask)} tone="primary" />
@@ -74,6 +73,10 @@ export function TerminalHeader() {
             />
             {feedLabel}
           </span>
+        </div>
+
+        <div className="ml-auto shrink-0">
+          <TimezoneClock />
         </div>
       </div>
 
@@ -115,8 +118,6 @@ export function TerminalHeader() {
           </div>
         </div>
       </dl>
-
-      <TimezoneClock />
     </header>
   )
 }
