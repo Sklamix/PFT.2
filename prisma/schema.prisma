@@ -164,9 +164,15 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  /** Verified legal name from KYC, displayed on certificates only after explicit consent. */
+  legalName     String?
+  /** When the trader consented to show their KYC legal name publicly on certificates. */
+  certificateNameConsentAt DateTime?
+
   accounts        TradingAccount[]
   orders          Order[]
   payouts         Payout[]
+  certificates    Certificate[]
   auditLogs       AuditLog[] @relation("AuditActor")
   reviewedPayouts Payout[]   @relation("PayoutReviewer")
   appeals         AccountAppeal[] @relation("AppealTrader")
@@ -251,6 +257,7 @@ model TradingAccount {
   tradeHistory  TradeHistory[]
   pendingTradeOrders PendingTradeOrder[]
   appeals       AccountAppeal[]
+  certificates  Certificate[]
 
   @@index([status])
   @@index([mt5Login])
@@ -412,6 +419,7 @@ model Payout {
   reviewedAt       DateTime?
   reviewedById     String?
   reviewedBy       User?          @relation("PayoutReviewer", fields: [reviewedById], references: [id])
+  certificates    Certificate[]
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
@@ -593,6 +601,43 @@ model ChallengePricing {
   updatedAt     DateTime @updatedAt
 
   @@unique([accountSize, challengeType, dailyLossType])
+}
+
+/// Public trader achievement certificate with a personalizable, shareable design.
+/// Issued idempotently from authoritative events (phase completion, funded
+/// activation, confirmed payout) via a unique (userId, type, eventKey) key.
+model Certificate {
+  id              String    @id @default(cuid())
+  publicId        String    @unique
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// PHASE_1 | PHASE_2 | FUNDED | PAYOUT
+  type            String
+  /// Stable reference to the achievement event (accountId or payoutId) for idempotent issuance.
+  eventKey        String
+  accountId       String?
+  account         TradingAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  payoutId        String?
+  payout          Payout?         @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  /// VERIFIED | REVOKED
+  status          String    @default("VERIFIED")
+  revokedAt       DateTime?
+  revokeReason    String?
+  revokedById     String?
+  /// GOLD | SILVER | NEBULA
+  theme           String    @default("GOLD")
+  /// Approved emoji symbol, or null when hidden.
+  symbol          String?   @default("🪐")
+  /// PROFILE | KYC
+  displayNameMode String    @default("PROFILE")
+  /// Payout certificates only: whether to show the confirmed amount publicly.
+  showAmount      Boolean   @default(true)
+  issuedAt        DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([userId, type, eventKey])
+  @@index([userId])
+  @@index([status])
 }
 
 /// Aggregated from live spot ticks recorded by the server. One row per minute per symbol;

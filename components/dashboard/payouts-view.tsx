@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Award, ChevronDown, Download, Eye, Plus, X } from 'lucide-react'
-import { usePayouts, type CertificateCard, type PayoutRow } from '@/lib/stores/usePayouts'
+import { useEffect, useState, type ReactNode } from 'react'
+import { ChevronDown, Plus, X } from 'lucide-react'
+import { usePayouts, type PayoutRow } from '@/lib/stores/usePayouts'
 import { useSelectedAccount } from '@/lib/stores/useSelectedAccount'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { SpaceBackground } from './space-background'
+import { CertificatesView } from './certificates-view'
 import { cn } from '@/lib/utils'
 
 const BG = '#080C14'
@@ -238,59 +239,15 @@ function RequestPayoutModal({ preselectedId, onClose, onSubmitted }: { preselect
   )
 }
 
-function CertificatePreviewModal({ certificate, onClose }: { certificate: CertificateCard; onClose: () => void }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-lg rounded-xl border border-slate-800/80 p-8 text-center"
-        style={{ backgroundColor: CARD }}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#94A3B8]">Professional Funded Trader</p>
-        <h3 className="mt-6 text-lg font-semibold text-slate-100">{certificate.title}</h3>
-        <p className="mt-2 text-xs text-[#94A3B8]">Awarded to account</p>
-        <p className="mt-1 font-mono text-sm text-slate-100">#{certificate.displayId}</p>
-        <p className="mt-6 font-mono text-3xl font-semibold tabular-nums text-slate-100">
-          ${(certificate.planSize / 1000).toFixed(0)}k
-        </p>
-        <p className="mt-2 text-xs text-[#94A3B8]">Issued {dateFmt(certificate.issuedAt)}</p>
-        <p className="mt-6 font-mono text-[10px] uppercase tracking-[0.2em] text-slate-600">PFT · Rules v1.6</p>
-        <div className="mt-6 flex justify-center gap-2">
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-slate-800 px-4 text-xs text-slate-200 hover:border-slate-600"
-          >
-            <Download className="size-3.5" /> Download PDF
-          </button>
-          <button type="button" onClick={onClose} className="h-9 rounded-md px-4 text-xs text-[#94A3B8] hover:text-slate-200">
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function PayoutsView() {
   const data = usePayouts((state) => state.data)
   const loadState = usePayouts((state) => state.loadState)
   const error = usePayouts((state) => state.error)
   const tab = usePayouts((state) => state.tab)
   const requestOpen = usePayouts((state) => state.requestOpen)
-  const previewId = usePayouts((state) => state.previewId)
   const load = usePayouts((state) => state.load)
   const setTab = usePayouts((state) => state.setTab)
   const setRequestOpen = usePayouts((state) => state.setRequestOpen)
-  const setPreview = usePayouts((state) => state.setPreview)
 
   // Globally selected account, shared with the Overview cockpit.
   const globalAccountId = useSelectedAccount((state) => state.accountId)
@@ -314,11 +271,6 @@ export function PayoutsView() {
     .filter((payout) => payout.status === 'DISBURSED')
     .reduce((sum, payout) => sum + payout.amount, 0)
   const fundedSummary = data?.fundedAccounts.find((account) => account.id === selectedAccount?.id) ?? null
-  const certificates = useMemo(
-    () => (data?.certificates ?? []).filter((certificate) => !selectedAccount || certificate.id === selectedAccount.id),
-    [data, selectedAccount],
-  )
-  const preview = certificates.find((certificate) => certificate.id === previewId) ?? null
   const nextEligible = fundedSummary?.eligibleAt ?? null
 
   return (
@@ -441,55 +393,10 @@ export function PayoutsView() {
             </div>
           </>
         ) : (
-          /* Certificates grid */
-          certificates.length === 0 ? (
-            <div className="mt-6 rounded-xl border border-slate-800/80 bg-[#0B0F19]/80 p-10 text-center backdrop-blur-md">
-              <Award className="mx-auto size-6 text-[#94A3B8]" />
-              <p className="mt-3 text-sm text-[#94A3B8]">
-                No certificates yet — pass an evaluation phase or get funded to earn one.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {certificates.map((certificate) => (
-                <Card key={certificate.id}>
-                  <div className="flex items-start justify-between gap-3">
-                    <Award className="size-5" style={{ color: certificate.kind === 'FUNDED' ? GREEN : LABEL }} />
-                    <span
-                      className="rounded border border-slate-800 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide"
-                      style={{ color: certificate.kind === 'FUNDED' ? GREEN : LABEL }}
-                    >
-                      {certificate.statusLabel}
-                    </span>
-                  </div>
-                  <h3 className="mt-4 text-sm font-semibold text-slate-100">{certificate.title}</h3>
-                  <p className="mt-1 font-mono text-xs text-[#94A3B8]">#{certificate.displayId}</p>
-                  <p className="mt-3 font-mono text-2xl font-semibold tabular-nums text-slate-100">
-                    ${(certificate.planSize / 1000).toFixed(0)}k
-                  </p>
-                  <p className="mt-1 font-mono text-[10px] text-slate-600">{dateFmt(certificate.issuedAt)}</p>
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPreview(certificate.id)}
-                      className="inline-flex h-8 flex-1 items-center justify-center gap-2 rounded-md border border-slate-800 px-3 text-xs text-slate-300 hover:border-slate-600 hover:text-slate-100"
-                    >
-                      <Eye className="size-3.5" /> View Certificate
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPreview(certificate.id)
-                      }}
-                      className="inline-flex h-8 items-center justify-center gap-2 rounded-md border border-slate-800 px-3 text-xs text-slate-300 hover:border-slate-600 hover:text-slate-100"
-                    >
-                      <Download className="size-3.5" /> PDF
-                    </button>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )
+          /* Certificates (real QR-verified certificates with personalization) */
+          <div className="mt-6">
+            <CertificatesView />
+          </div>
         )}
       </div>
 
@@ -500,7 +407,6 @@ export function PayoutsView() {
           onSubmitted={() => void load()}
         />
       ) : null}
-      {preview ? <CertificatePreviewModal certificate={preview} onClose={() => setPreview(null)} /> : null}
     </div>
   )
 }
