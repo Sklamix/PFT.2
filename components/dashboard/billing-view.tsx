@@ -55,7 +55,7 @@ function InvoiceModal({ order, onClose }: { order: BillingOrder; onClose: () => 
         <div className="flex items-start justify-between">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[0.3em] text-[#94A3B8]">Receipt</p>
-            <h3 className="mt-2 font-mono text-sm text-slate-100">#{order.id.slice(-10).toUpperCase()}</h3>
+            <h3 className="mt-2 font-mono text-sm text-slate-100">{order.orderId}</h3>
           </div>
           <button type="button" onClick={onClose} className="text-xs text-[#94A3B8] hover:text-slate-200" aria-label="Close">
             <X className="size-4" />
@@ -154,7 +154,7 @@ export function BillingView() {
                     const tone = STATUS[order.status]
                     return (
                       <tr key={order.id} className="border-b border-slate-800/40 last:border-0">
-                        <td className="py-2.5 pr-4 font-mono text-slate-200">#{order.id.slice(-10).toUpperCase()}</td>
+                        <td className="py-2.5 pr-4 font-mono text-slate-200">{order.orderId}</td>
                         <td className="py-2.5 pr-4 text-slate-200">{order.label}</td>
                         <td className="py-2.5 pr-4 font-mono tabular-nums text-slate-100">{usd(order.amount)}</td>
                         <td className="py-2.5 pr-4 font-mono text-[#94A3B8]">{order.provider}</td>

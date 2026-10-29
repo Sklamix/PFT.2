@@ -7,6 +7,8 @@ import { prisma } from '@/lib/prisma'
 
 export type BillingOrder = {
   id: string
+  /** Canonical order ID shown to the trader (matches the invoice email), e.g. PFT-1729…. */
+  orderId: string
   label: string
   amount: number
   currency: string
@@ -55,6 +57,7 @@ export async function getBillingData(userId: string): Promise<BillingData> {
         : {}
     return {
       id: order.id,
+      orderId: order.providerOrderId,
       label: orderLabel(payload, null),
       amount: round2(Number(order.amount)),
       currency: order.currency,

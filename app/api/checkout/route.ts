@@ -96,6 +96,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Dynamic challenge pricing is temporarily unavailable.' }, { status: 503 })
     }
     const { prisma } = await import('@/lib/prisma')
+
+    const evaluationLabel = evaluationType === 'one-step' ? '1-Step' : '2-Step'
+
+    // Resume an existing pending order for the same plan instead of creating a
+    // duplicate invoice. This keeps the email's "Pay" link and the order ID stable
+    // when the trader retries or re-opens checkout.
+    if (traderSession) {
+      const pending = await prisma.order.findMany({
+        where: { userId: traderSession.sub, status: 'PENDING' },
+        select: { id: true, providerOrderId: true, paymentUrl: true, rawPayload: true },
+        orderBy: { createdAt: 'desc' },
+      })
+      const existing = pending.find((order) => {
+        const payload =
+          order.rawPayload && typeof order.rawPayload === 'object' && !Array.isArray(order.rawPayload)
+            ? (order.rawPayload as Record<string, unknown>)
+            : {}
+        return (
+          Number(payload.planSize) === planSize &&
+          payload.evaluationType === evaluationLabel &&
+          (typeof payload.drawdownMode === 'string' ? payload.drawdownMode : 'trailing') === drawdownMode &&
+          (typeof payload.dailyLossType === 'number' ? payload.dailyLossType : evaluationType === 'one-step' ? 4 : 3) ===
+            dailyLossType &&
+          (payload.hasFrozenBackup === true) === hasFrozenBackup
+        )
+      })
+      if (existing?.paymentUrl) {
+        return NextResponse.json({ url: existing.paymentUrl, orderId: existing.providerOrderId, resumed: true })
+      }
+    }
+
     const limitUserId =
       traderSession?.sub ??
       (await prisma.user.findUnique({ where: { email: traderEmail }, select: { id: true } }))?.id
@@ -132,7 +163,6 @@ export async function POST(req: Request) {
     const frozenBackupPrice = hasFrozenBackup ? getFrozenBackupPrice(fee) : 0
     const totalAmount = getCheckoutTotal(fee, hasFrozenBackup)
     const amount = Number(totalAmount.toFixed(2))
-    const evaluationLabel = evaluationType === 'one-step' ? '1-Step' : '2-Step'
     const countryCode = typeof country === 'string' ? country : undefined
     const promo = typeof promoCode === 'string' ? promoCode : undefined
     const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : traderEmail.split('@')[0]
