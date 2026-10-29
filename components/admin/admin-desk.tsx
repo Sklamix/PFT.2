@@ -100,6 +100,12 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [grantType, setGrantType] = useState<'1-Step' | '2-Step'>('1-Step')
   const [grantAs, setGrantAs] = useState<'evaluation' | 'funded'>('evaluation')
   const [grantReason, setGrantReason] = useState('')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleteMode, setDeleteMode] = useState<'account' | 'trader'>('account')
+  const [deleteReason, setDeleteReason] = useState('')
+  const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('')
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const [section, setSection] = useState<SectionId>('monitor')
 
   const load = useCallback(async () => {
@@ -452,6 +458,14 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             setGrantReason(`Granted to ${row.traderEmail}`)
             setGrantOpen(true)
           }}
+          onDelete={(row) => {
+            setSelected(row)
+            setDeleteMode('account')
+            setDeleteReason('')
+            setDeleteConfirmEmail('')
+            setNotice(null)
+            setDeleteOpen(true)
+          }}
         />
           </section>
         </>
@@ -642,8 +656,113 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent className="border-border bg-card sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete {deleteMode === 'account' ? `account ${selected?.displayId ?? ''}` : `trader ${selected?.traderEmail ?? ''}`}</DialogTitle>
+            <DialogDescription>
+              Deletion is permanent. Trades, positions, orders and payouts belonging to the
+              {deleteMode === 'account' ? ' account' : ' trader'} are removed with it. Certificates are detached from the
+              deleted account but stay verifiable.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3">
+            <div className="flex gap-2">
+              <Button
+                size="xs"
+                variant={deleteMode === 'account' ? 'default' : 'outline'}
+                onClick={() => setDeleteMode('account')}
+              >
+                This account only
+              </Button>
+              <Button
+                size="xs"
+                variant={deleteMode === 'trader' ? 'destructive' : 'outline'}
+                onClick={() => setDeleteMode('trader')}
+              >
+                Entire trader
+              </Button>
+            </div>
+
+            {deleteMode === 'trader' ? (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px] leading-relaxed text-destructive">
+                This removes the trader login and every account, order, payout and certificate on the account. The action
+                is recorded in the audit log and cannot be undone.
+              </div>
+            ) : null}
+
+            <textarea
+              value={deleteReason}
+              onChange={(event) => setDeleteReason(event.target.value)}
+              className="min-h-20 rounded-md border border-border bg-background p-2 text-sm"
+              placeholder={
+                deleteMode === 'account'
+                  ? 'Reason (min. 4 characters), e.g. duplicate test account'
+                  : 'Reason (min. 10 characters), e.g. fraudulent signup / duplicate record'
+              }
+            />
+
+            {deleteMode === 'trader' ? (
+              <label className="grid gap-1 text-sm">
+                <span className="text-muted-foreground">
+                  Type <span className="font-mono text-foreground">{selected?.traderEmail}</span> to confirm
+                </span>
+                <input
+                  value={deleteConfirmEmail}
+                  onChange={(event) => setDeleteConfirmEmail(event.target.value)}
+                  className="h-9 rounded-md border border-border bg-background px-2 font-mono text-sm"
+                  autoComplete="off"
+                />
+              </label>
+            ) : null}
+
+            {notice ? <p className="text-xs text-destructive">{notice}</p> : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteBusy}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={
+                deleteBusy ||
+                deleteReason.trim().length < (deleteMode === 'account' ? 4 : 10) ||
+                (deleteMode === 'trader' && deleteConfirmEmail.trim().toLowerCase() !== (selected?.traderEmail ?? '').toLowerCase())
+              }
+              onClick={async () => {
+                if (!selected) return
+                setDeleteBusy(true)
+                setNotice(null)
+                try {
+                  if (deleteMode === 'account') {
+                    await api(`/api/admin/accounts/${selected.id}`, {
+                      method: 'DELETE',
+                      body: JSON.stringify({ reason: deleteReason }),
+                    })
+                  } else {
+                    await api(`/api/admin/users/${selected.userId}`, {
+                      method: 'DELETE',
+                      body: JSON.stringify({ reason: deleteReason, confirmEmail: deleteConfirmEmail }),
+                    })
+                  }
+                  setDeleteOpen(false)
+                  setDeleteBusy(false)
+                  await load()
+                } catch (err) {
+                  setNotice(err instanceof Error ? err.message : 'Delete failed')
+                  setDeleteBusy(false)
+                }
+              }}
+            >
+              {deleteBusy ? 'Deleting…' : deleteMode === 'account' ? 'Delete account' : 'Delete trader'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={overrideOpen} onOpenChange={setOverrideOpen}>        <DialogContent className="border-border bg-card sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Override {selected?.displayId}</DialogTitle>
             <DialogDescription>

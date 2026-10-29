@@ -24,6 +24,7 @@ export function RiskTable({
   onRefresh,
   onRiskFlag,
   onGrantAccount,
+  onDelete,
 }: {
   rows: TraderRow[]
   onTrades: (row: TraderRow) => void
@@ -33,6 +34,7 @@ export function RiskTable({
   onRefresh: (row: TraderRow) => void
   onRiskFlag: (row: TraderRow) => void
   onGrantAccount: (row: TraderRow) => void
+  onDelete: (row: TraderRow) => void
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -138,6 +140,9 @@ export function RiskTable({
                     </DropdownMenuItem>
                     <DropdownMenuItem variant="destructive" onClick={() => onBreach(row)}>
                       Kill-switch / breach
+                    </DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" onClick={() => onDelete(row)}>
+                      Delete account / trader…
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
