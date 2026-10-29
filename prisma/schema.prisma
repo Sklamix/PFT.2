@@ -127,6 +127,38 @@ enum AppealStatus {
   WITHDRAWN
 }
 
+enum SupportCategory {
+  GENERAL
+  CHALLENGE
+  PAYOUT
+  KYC
+  ACCOUNT
+  TECHNICAL
+  RULES
+}
+
+enum SupportStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_FOR_USER
+  WAITING_FOR_STAFF
+  RESOLVED
+  CLOSED
+}
+
+enum SupportPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum SupportSenderType {
+  TRADER
+  STAFF
+  AI
+}
+
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -189,6 +221,9 @@ model User {
   appeals         AccountAppeal[] @relation("AppealTrader")
   reviewedAppeals AccountAppeal[] @relation("AppealReviewer")
   accessEvents    AccessEvent[]
+  supportTickets  SupportTicket[] @relation("SupportTrader")
+  assignedTickets SupportTicket[] @relation("SupportAssignee")
+  supportMessages SupportMessage[] @relation("SupportMessageSender")
 }
 
 /// One login fingerprint. Used for new-device, country-change and sharing alerts.
@@ -486,6 +521,53 @@ model AdminMessage {
 
   @@index([createdAt])
   @@index([audience])
+}
+
+/// Two-way trader ↔ staff support conversation. `publicId` is the stable,
+/// unguessable reference used in URLs; internal ids stay server-side.
+model SupportTicket {
+  id           String          @id @default(cuid())
+  publicId     String          @unique
+  userId       String
+  user         User            @relation("SupportTrader", fields: [userId], references: [id], onDelete: Cascade)
+  subject      String
+  category     SupportCategory @default(GENERAL)
+  status       SupportStatus   @default(OPEN)
+  priority     SupportPriority @default(NORMAL)
+  assignedToId String?
+  assignedTo   User?           @relation("SupportAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  resolvedAt   DateTime?
+  closedAt     DateTime?
+  messages     SupportMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedToId])
+  @@index([updatedAt])
+}
+
+/// One message inside a support ticket. `senderUserId` is intentionally
+/// `SetNull` on delete so removing a staff member never erases history.
+model SupportMessage {
+  id             String            @id @default(cuid())
+  ticketId       String
+  ticket         SupportTicket     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderType     SupportSenderType
+  senderUserId   String?
+  senderUser     User?             @relation("SupportMessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+  body           String
+  /// Reserved for future AI answers (sources, confidence). Never used for money/status changes.
+  metadata       Json?
+  /// Optional client key; (ticketId, idempotencyKey) is unique so retries do not duplicate messages.
+  idempotencyKey String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([ticketId, idempotencyKey])
+  @@index([ticketId, createdAt])
 }
 
 /// Durable idempotency records for signed inbound webhooks.
