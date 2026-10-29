@@ -1,8 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { ArrowRight, CalendarClock, Clock, KeyRound, MousePointer2, Sparkles, Star } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { ArrowRight, CalendarClock, Clock, KeyRound, MousePointer2, Sparkles } from 'lucide-react'
 
 const HeroSpaceScene = dynamic(
   () => import('@/components/home/hero-space-scene').then((mod) => mod.HeroSpaceScene),
@@ -119,12 +118,8 @@ export function Hero() {
 
           <div className="mt-[clamp(1rem,min(1.4vw,1.8vh),1.4rem)] flex flex-wrap items-center gap-x-5 gap-y-2 text-[clamp(0.65rem,0.75vw,0.82rem)] text-slate-500">
             <span className="inline-flex items-center gap-1.5">
-              <span className="flex gap-0.5" aria-hidden="true">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <Star key={index} className={cn('size-[clamp(0.65rem,0.75vw,0.8rem)]', index < 4 ? 'fill-primary text-primary' : 'fill-slate-700 text-slate-700')} />
-                ))}
-              </span>
-              <span className="font-semibold text-slate-300">4.8/5</span> · 3,200+ reviews
+              <Sparkles className="size-[clamp(0.8rem,1vw,1.05rem)] text-primary" />
+              80% profit split · weekly payouts
             </span>
             <span className="hidden h-3 w-px bg-white/10 sm:block" />
             <span className="inline-flex items-center gap-1.5">

@@ -20,16 +20,6 @@ const compactUsd = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const integer = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })
-
-function formatRewards(value: number) {
-  return `${compactUsd.format(value)}+`
-}
-
-function formatAvgPayout(hours: number) {
-  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hrs`
-}
-
 function PayoutCard({
   payout,
   duplicate,
@@ -99,16 +89,17 @@ function usePublicStats() {
 }
 
 export function PayoutProofs() {
-  const { stats, payouts } = usePublicStats()
+  const { payouts } = usePublicStats()
   const cards = payouts.slice(0, 12)
   const useMarquee = cards.length >= 5
   const marquee = [...cards, ...cards]
 
+  // Real, verifiable platform facts — no fabricated social proof.
   const tiles = [
-    { value: formatRewards(stats.totalRewardsPaid), label: 'Total rewards paid' },
-    { value: `${integer.format(stats.fundedTradersCount)}+`, label: 'Funded traders' },
-    { value: formatAvgPayout(stats.avgPayoutTimeHours), label: 'Avg. payout time' },
-    { value: `${integer.format(stats.countriesServedCount)}+`, label: 'Countries served' },
+    { value: '$200K', label: 'Max simulated capital' },
+    { value: '80%', label: 'Profit split' },
+    { value: '7 days', label: 'Payout cycle' },
+    { value: '0', label: 'Time limits' },
   ]
 
   return (
@@ -126,16 +117,15 @@ export function PayoutProofs() {
         <div className="flex flex-col gap-9 lg:flex-row lg:items-end lg:justify-between">
           <SectionHeading
             id="payouts-heading"
-            eyebrow="Payout proofs"
-            title="Verified rewards, paid every day."
-            description="Real performance rewards to funded traders — settled in crypto or by bank wire."
+            eyebrow="The PFT standard"
+            title="Clear terms. No fine print."
+            description="Simulated capital, a transparent profit split, weekly payouts and no time limits — the same conditions for every trader."
             align="left"
           />
           <dl className="grid w-full grid-cols-2 gap-2.5 sm:grid-cols-4 lg:w-auto lg:min-w-[560px]">
             {tiles.map((tile) => (
               <div
                 key={tile.label}
-                title={tile.label === 'Total rewards paid' ? usd.format(stats.totalRewardsPaid) : undefined}
                 className="relative flex flex-col-reverse gap-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 backdrop-blur-md"
               >
                 <span className="absolute top-3.5 right-3.5 size-1.5 rounded-full bg-primary shadow-[0_0_10px_2px_rgba(59,130,246,0.45)]" />
@@ -148,20 +138,20 @@ export function PayoutProofs() {
           </dl>
         </div>
 
-        <div className="mt-10 flex items-center justify-between gap-4">
-          <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Recent payouts</p>
-          <p className="hidden items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-600 sm:flex">
-            <span className="size-1.5 rounded-full bg-highlight" />
-            Crypto · bank wire
-          </p>
-        </div>
+        {cards.length > 0 ? (
+          <>
+            <div className="mt-10 flex items-center justify-between gap-4">
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Recent payouts</p>
+              <p className="hidden items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-600 sm:flex">
+                <span className="size-1.5 rounded-full bg-highlight" />
+                Crypto · bank wire
+              </p>
+            </div>
+          </>
+        ) : null}
       </div>
 
-      {cards.length === 0 ? (
-        <div className="relative mx-4 mt-4 rounded-2xl border border-white/10 bg-white/[0.025] px-5 py-8 text-center text-sm text-slate-500 sm:mx-6 lg:mx-8">
-          No payouts have been published yet.
-        </div>
-      ) : useMarquee ? (
+      {cards.length === 0 ? null : useMarquee ? (
         <div className="relative mt-4 overflow-hidden mask-[linear-gradient(to_right,transparent,#000_8%,#000_92%,transparent)]">
           <ul className="animate-marquee flex w-max gap-3.5" aria-label="Recent payouts">
             {marquee.map((payout, index) => (

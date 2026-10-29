@@ -14,7 +14,7 @@ const COLUMNS = [
     title: 'Resources',
     links: [
       { label: 'Evaluation Rules', href: '#rules' },
-      { label: 'Payout Proofs', href: '#payouts' },
+      { label: 'Why PFT', href: '#payouts' },
       { label: 'Trader Portal', href: '#dashboard' },
       { label: 'FAQ', href: '#faq' },
     ],
@@ -107,9 +107,8 @@ export function SiteFooter() {
             </p>
             <p>
               Trading leveraged products such as Forex, CFDs, indices and cryptocurrencies involves substantial risk and may
-              not be suitable for all individuals. Past simulated performance is not indicative of future results.
-              Testimonials and payout figures shown may not be representative of other traders. Services are not available
-              in jurisdictions where they would be contrary to local law or regulation.
+              not be suitable for all individuals. Past simulated performance is not indicative of future results. Services
+              are not available in jurisdictions where they would be contrary to local law or regulation.
             </p>
           </div>
         </div>

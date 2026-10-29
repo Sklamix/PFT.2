@@ -30,7 +30,7 @@ const FAQS = [
   {
     question: 'Which countries are restricted?',
     answer:
-      'We serve traders in 170+ countries. Residents of sanctioned jurisdictions cannot participate. The full list is available in our Terms of Service.',
+      'Residents of sanctioned jurisdictions cannot participate. The full list of available and restricted jurisdictions is available in our Terms of Service.',
   },
 ]
 
@@ -52,7 +52,7 @@ export function FaqSection() {
             id="faq-heading"
             eyebrow="FAQ"
             title="Questions, answered."
-            description="Can't find what you need? Our support desk responds in under 5 minutes, 24/7."
+            description="Can't find what you need? Contact our support desk."
             align="left"
           />
           <a
