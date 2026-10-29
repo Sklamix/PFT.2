@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { cookies } from 'next/headers'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { PFTIntroProvider } from '@/components/pft-intro/PFTIntroProvider'
 import './globals.css'
@@ -37,16 +38,18 @@ export const viewport: Viewport = {
   themeColor: '#02040a',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const introShown = (await cookies()).has('pft_intro')
+
   return (
     <html lang="en" className={`dark ${geistSans.variable} ${geistMono.variable} bg-background`}>
       <body className="antialiased">
         <TooltipProvider>
-          <PFTIntroProvider>{children}</PFTIntroProvider>
+          <PFTIntroProvider initialShow={!introShown}>{children}</PFTIntroProvider>
         </TooltipProvider>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>

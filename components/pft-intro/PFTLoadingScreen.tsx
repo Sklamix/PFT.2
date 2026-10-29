@@ -1,9 +1,14 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { Canvas } from '@react-three/fiber'
+import dynamic from 'next/dynamic'
 import { cn } from '@/lib/utils'
-import { VenusScene } from './venus-scene'
+
+// The 3D scene is the only client-only piece; the static overlay (logo, progress)
+// renders in the initial HTML so the intro is visible from the very first paint.
+const VenusCanvas = dynamic(() => import('./venus-scene').then((mod) => mod.VenusCanvas), {
+  ssr: false,
+})
 
 /**
  * Full-screen brand intro: PFT wordmark, a rotating procedural Venus and a thin
@@ -89,14 +94,7 @@ export function PFTLoadingScreen({ exiting, reduced }: { exiting: boolean; reduc
           exiting && 'translate-x-[22%] blur-md opacity-90',
         )}
       >
-        <Canvas
-          dpr={[1, 1.6]}
-          gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
-          camera={{ position: [0, 0, 4.4], fov: 44 }}
-          style={{ pointerEvents: 'none' }}
-        >
-          <VenusScene exiting={exiting} />
-        </Canvas>
+        <VenusCanvas exiting={exiting} />
       </div>
 
       {/* Progress line + percentage */}

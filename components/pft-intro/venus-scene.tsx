@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef } from 'react'
-import { useFrame } from '@react-three/fiber'
+import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
 /**
@@ -128,6 +128,29 @@ function Venus({ exiting }: { exiting: boolean }) {
           side={THREE.BackSide}
         />
       </mesh>
+      {/* Outer golden-orange halo, matching the hero Earth's glow treatment */}
+      <mesh scale={2.6}>
+        <sphereGeometry args={[1.08, 32, 32]} />
+        <meshBasicMaterial
+          color="#f59e0b"
+          transparent
+          opacity={0.08}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+      {/* Tight rim-light glow hugging the limb */}
+      <mesh scale={1.18}>
+        <sphereGeometry args={[1.08, 48, 48]} />
+        <meshBasicMaterial
+          color="#ffce8a"
+          transparent
+          opacity={0.14}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+          side={THREE.BackSide}
+        />
+      </mesh>
     </group>
   )
 }
@@ -139,7 +162,22 @@ export function VenusScene({ exiting }: { exiting: boolean }) {
       <directionalLight position={[4, 2, 4]} intensity={2.6} color="#ffd9a8" />
       <directionalLight position={[-4, -1, -2]} intensity={0.5} color="#5b3417" />
       <pointLight position={[3, -1, 2]} intensity={7} distance={11} color="#ff9d4d" />
+      {/* Warm backlight so the glow reads as Venus's own radiance */}
+      <pointLight position={[-2.2, 0.4, -1.4]} intensity={9} distance={9} color="#ff8a3c" />
       <Venus exiting={exiting} />
     </>
+  )
+}
+
+export function VenusCanvas({ exiting }: { exiting: boolean }) {
+  return (
+    <Canvas
+      dpr={[1, 1.6]}
+      gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
+      camera={{ position: [0, 0, 4.4], fov: 44 }}
+      style={{ pointerEvents: 'none' }}
+    >
+      <VenusScene exiting={exiting} />
+    </Canvas>
   )
 }
