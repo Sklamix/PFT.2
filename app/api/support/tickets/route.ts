@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { requireTrader } from '@/lib/trader/auth'
 import { createTicket, listTraderTickets } from '@/lib/support/service'
-import { enforceRateLimit, handleSupportError } from '@/lib/support/http'
+import { enforceRateLimit, handleSupportError, readSupportJson } from '@/lib/support/http'
+import { assertSameOrigin } from '@/lib/security/csrf'
 import { isSupportCategory, isSupportStatus, parsePagination } from '@/lib/support/types'
 
 export const dynamic = 'force-dynamic'
@@ -34,6 +35,9 @@ export async function POST(request: Request) {
   const { session, error } = await requireTrader()
   if (error) return error
 
+  const originError = assertSameOrigin(request)
+  if (originError) return originError
+
   const limited = await enforceRateLimit(
     `support:create:${session.sub}`,
     10,
@@ -43,10 +47,7 @@ export async function POST(request: Request) {
   if (limited) return limited
 
   try {
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return NextResponse.json({ error: 'Request body must be an object.' }, { status: 400 })
-    }
+    const body = await readSupportJson(request)
     if (!isSupportCategory(body.category)) {
       return NextResponse.json({ error: 'Unsupported category.' }, { status: 400 })
     }

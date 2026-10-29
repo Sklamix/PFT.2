@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { addStaffMessage } from '@/lib/support/service'
-import { enforceRateLimit, handleSupportError, requireSupportWrite } from '@/lib/support/http'
+import { enforceRateLimit, handleSupportError, readSupportJson, requireSupportWrite } from '@/lib/support/http'
+import { assertSameOrigin } from '@/lib/security/csrf'
 import { parseIdempotencyKey } from '@/lib/support/types'
 
 export const dynamic = 'force-dynamic'
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const { session, error } = await requireSupportWrite()
   if (error) return error
+
+  const originError = assertSameOrigin(request)
+  if (originError) return originError
 
   const limited = await enforceRateLimit(
     `support:staff-message:${session.sub}`,
@@ -20,10 +24,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   try {
     const { id } = await context.params
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return NextResponse.json({ error: 'Request body must be an object.' }, { status: 400 })
-    }
+    const body = await readSupportJson(request)
     const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
 
     const result = await addStaffMessage({

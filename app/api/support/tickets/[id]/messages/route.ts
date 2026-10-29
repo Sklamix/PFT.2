@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { requireTrader } from '@/lib/trader/auth'
 import { addTraderMessage } from '@/lib/support/service'
-import { enforceRateLimit, handleSupportError } from '@/lib/support/http'
+import { enforceRateLimit, handleSupportError, readSupportJson } from '@/lib/support/http'
+import { assertSameOrigin } from '@/lib/security/csrf'
 import { parseIdempotencyKey } from '@/lib/support/types'
 
 export const dynamic = 'force-dynamic'
@@ -15,6 +16,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { session, error } = await requireTrader()
   if (error) return error
 
+  const originError = assertSameOrigin(request)
+  if (originError) return originError
+
   const limited = await enforceRateLimit(
     `support:message:${session.sub}`,
     60,
@@ -25,10 +29,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   try {
     const { id } = await context.params
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return NextResponse.json({ error: 'Request body must be an object.' }, { status: 400 })
-    }
+    const body = await readSupportJson(request)
     const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
 
     const result = await addTraderMessage({

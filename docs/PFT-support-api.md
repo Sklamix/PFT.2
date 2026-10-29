@@ -87,6 +87,21 @@ offer a proper assignee picker.
 
 The trader UI displays staff messages as **PFT Support** (the API does not expose staff identity to traders).
 
+## Security hardening (Stage 3)
+
+- **CSRF**: all state-changing Support endpoints run `assertSameOrigin` (`lib/security/csrf.ts`).
+  Requests with `Sec-Fetch-Site: cross-site` or a foreign `Origin` are rejected with `403`. Requests without
+  an `Origin` (curl, server-to-server, native clients) are allowed — they cannot be triggered by another site
+  with the user's cookies. `SameSite=Lax` remains as defence in depth.
+- **Body size**: JSON bodies above 64 KB are rejected with `413` before parsing into the domain layer.
+- **Idempotency**: keys are namespaced per sender (`TRADER:<id>:<key>`, `STAFF:<id>:<key>`), so a trader and an
+  agent can use the same key on one ticket without collisions or wrong "duplicate" responses. Concurrent retries
+  store exactly one row (unique index remains the final guard).
+- **Concurrency**: ticket updates use an optimistic `updateMany` guarded by the previously read status. A losing
+  concurrent request receives `409` instead of applying an invalid transition.
+- **Logging**: unexpected failures log only an error kind/Prisma code/target — never message bodies or payloads.
+- **Pagination**: `page` is clamped to 1 000 and `pageSize` to 50.
+
 ## Audit
 
 Staff actions are written to `AuditLog` via `recordActivity`:

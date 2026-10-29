@@ -62,7 +62,7 @@ export type Pagination = { page: number; pageSize: number }
 export function parsePagination(url: URL): Pagination {
   const rawPage = Number(url.searchParams.get('page') ?? 1)
   const rawSize = Number(url.searchParams.get('pageSize') ?? SUPPORT_LIMITS.pageSizeDefault)
-  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.min(Math.floor(rawPage), 1_000) : 1
   const pageSize = Number.isFinite(rawSize) && rawSize >= 1
     ? Math.min(Math.floor(rawSize), SUPPORT_LIMITS.pageSizeMax)
     : SUPPORT_LIMITS.pageSizeDefault

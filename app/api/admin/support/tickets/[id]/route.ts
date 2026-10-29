@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getStaffTicket, updateStaffTicket } from '@/lib/support/service'
-import { handleSupportError, requireSupportRead, requireSupportWrite } from '@/lib/support/http'
+import { handleSupportError, readSupportJson, requireSupportRead, requireSupportWrite } from '@/lib/support/http'
+import { assertSameOrigin } from '@/lib/security/csrf'
 import {
   isSupportPriority,
   isSupportStatus,
@@ -32,12 +33,12 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const { session, error } = await requireSupportWrite()
   if (error) return error
 
+  const originError = assertSameOrigin(request)
+  if (originError) return originError
+
   try {
     const { id } = await context.params
-    const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
-    if (!body || typeof body !== 'object' || Array.isArray(body)) {
-      return NextResponse.json({ error: 'Request body must be an object.' }, { status: 400 })
-    }
+    const body = await readSupportJson(request)
 
     const status = body.status
     const priority = body.priority

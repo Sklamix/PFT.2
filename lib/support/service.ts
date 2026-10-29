@@ -15,6 +15,15 @@ import {
 
 const PUBLIC_ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 
+/**
+ * Idempotency keys are namespaced by sender so a trader and a staff member can
+ * never collide on the same ticket, and a retry can only ever return the
+ * caller's own message.
+ */
+function scopedIdempotencyKey(senderType: 'TRADER' | 'STAFF', actorId: string, key: string | null) {
+  return key ? `${senderType}:${actorId}:${key}` : null
+}
+
 function newPublicId() {
   const bytes = randomBytes(10)
   let suffix = ''
@@ -201,10 +210,12 @@ export async function addTraderMessage(input: {
     field: 'Message',
   })
 
+  const storedKey = scopedIdempotencyKey('TRADER', input.userId, input.idempotencyKey)
+
   // Fast path for retries: return the stored message instead of attempting a duplicate insert.
-  if (input.idempotencyKey) {
+  if (storedKey) {
     const existing = await prisma.supportMessage.findFirst({
-      where: { ticketId: found.id, idempotencyKey: input.idempotencyKey },
+      where: { ticketId: found.id, idempotencyKey: storedKey },
       select: { id: true, senderType: true, body: true, createdAt: true },
     })
     if (existing) {
@@ -231,7 +242,7 @@ export async function addTraderMessage(input: {
           senderType: 'TRADER',
           senderUserId: input.userId,
           body,
-          idempotencyKey: input.idempotencyKey,
+          idempotencyKey: storedKey,
         },
         select: { id: true, senderType: true, body: true, createdAt: true },
       })
@@ -264,9 +275,9 @@ export async function addTraderMessage(input: {
     }
   } catch (error) {
     // Retried request with the same idempotency key: return the original message.
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && input.idempotencyKey) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && storedKey) {
       const existing = await prisma.supportMessage.findFirst({
-        where: { ticketId: found.id, idempotencyKey: input.idempotencyKey },
+        where: { ticketId: found.id, idempotencyKey: storedKey },
         select: { id: true, senderType: true, body: true, createdAt: true },
       })
       if (existing) {
@@ -413,10 +424,12 @@ export async function addStaffMessage(input: {
     field: 'Message',
   })
 
+  const storedKey = scopedIdempotencyKey('STAFF', input.actorId, input.idempotencyKey)
+
   // Retry fast path (see trader endpoint); the unique index still guards races.
-  if (input.idempotencyKey) {
+  if (storedKey) {
     const existing = await prisma.supportMessage.findFirst({
-      where: { ticketId: found.id, idempotencyKey: input.idempotencyKey },
+      where: { ticketId: found.id, idempotencyKey: storedKey },
       select: { id: true, senderType: true, body: true, createdAt: true },
     })
     if (existing) {
@@ -443,7 +456,7 @@ export async function addStaffMessage(input: {
           senderType: 'STAFF',
           senderUserId: input.actorId,
           body,
-          idempotencyKey: input.idempotencyKey,
+          idempotencyKey: storedKey,
         },
         select: { id: true, senderType: true, body: true, createdAt: true },
       })
@@ -475,9 +488,9 @@ export async function addStaffMessage(input: {
       duplicate: false,
     }
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && input.idempotencyKey) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && storedKey) {
       const existing = await prisma.supportMessage.findFirst({
-        where: { ticketId: found.id, idempotencyKey: input.idempotencyKey },
+        where: { ticketId: found.id, idempotencyKey: storedKey },
         select: { id: true, senderType: true, body: true, createdAt: true },
       })
       if (existing) {
@@ -509,7 +522,7 @@ export async function updateStaffTicket(input: {
   const found = await resolveTicket(input.ref)
   if (!found) return { error: 'Ticket not found.' as const, status: 404 }
 
-  const data: Prisma.SupportTicketUpdateInput = {}
+  const data: Prisma.SupportTicketUncheckedUpdateManyInput = {}
   const audit: { action: string; metadata: Record<string, unknown> }[] = []
 
   if (input.status) {
@@ -553,7 +566,7 @@ export async function updateStaffTicket(input: {
         return { error: 'Support staff can only assign tickets to themselves.' as const, status: 403 }
       }
     }
-    data.assignedTo = target ? { connect: { id: target } } : { disconnect: true }
+    data.assignedToId = target
     audit.push({
       action: 'SUPPORT_TICKET_ASSIGNED',
       metadata: { publicId: found.publicId, assignedToId: target },
@@ -566,11 +579,18 @@ export async function updateStaffTicket(input: {
 
   data.updatedAt = new Date()
 
-  const updated = await prisma.supportTicket.update({
-    where: { id: found.id },
+  // Optimistic concurrency: only apply when the status is still the one we read.
+  // Two admins acting at the same time can therefore never apply conflicting
+  // transitions; the loser gets a 409 and retries against fresh state.
+  const applied = await prisma.supportTicket.updateMany({
+    where: { id: found.id, status: found.status },
     data,
-    select: SUMMARY_SELECT,
   })
+  if (applied.count === 0) {
+    return { error: 'Ticket changed while you were editing it. Refresh and retry.' as const, status: 409 }
+  }
+
+  const updated = await prisma.supportTicket.findUniqueOrThrow({ where: { id: found.id }, select: SUMMARY_SELECT })
   for (const entry of audit) {
     void recordActivity({
       actorId: input.actorId,
@@ -588,3 +608,5 @@ export function isValidationError(error: unknown): error is ValidationError {
 }
 
 export { ValidationError }
+
+
