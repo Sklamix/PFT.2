@@ -169,6 +169,16 @@ model User {
   /** When the trader consented to show their KYC legal name publicly on certificates. */
   certificateNameConsentAt DateTime?
 
+  /** Platform preferences (Settings → Platform Preferences). */
+  interfaceLanguage String @default("en")
+  dateFormat        String @default("DD/MM/YYYY")
+  numberFormat      String @default("1,234.56")
+  /** Display-only currency label. Amounts are always settled in USD. */
+  displayCurrency   String @default("USD")
+  /** IANA timezone used for displaying timestamps. Stored timestamps stay in UTC. */
+  timeZone          String @default("UTC")
+  lastPasswordChangedAt DateTime?
+
   accounts        TradingAccount[]
   orders          Order[]
   payouts         Payout[]

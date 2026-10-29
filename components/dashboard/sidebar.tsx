@@ -52,7 +52,7 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
               className={cn(
                 'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
                 view === 'terminal'
-                  ? 'bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_rgba(67,136,255,0.18)]'
+                  ? 'bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_rgba(67,136,255,0.18)]'
                   : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
               )}
             >
@@ -86,7 +86,7 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
             )
             const className = cn(
               'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
-              active ? 'bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_rgba(67,136,255,0.18)]' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+              active ? 'bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_rgba(67,136,255,0.18)]' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
             )
             if ('href' in item && item.href) {
               return (
@@ -97,11 +97,13 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
                 </li>
               )
             }
+            const fallback = item as { id: DashboardView }
+            const fallbackId = fallback.id
             return (
-              <li key={item.id}>
+              <li key={fallbackId}>
                 <button
                   type="button"
-                  onClick={() => onNavigate(item.id)}
+                  onClick={() => onNavigate(fallbackId)}
                   aria-current={active ? 'page' : undefined}
                   className={className}
                 >

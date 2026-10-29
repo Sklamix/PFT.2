@@ -7,7 +7,7 @@ export const DASHBOARD_VIEWS = [
   { id: 'journal', label: 'Trading Journal', icon: BookOpen, href: '/dashboard/journal' },
   { id: 'calendar', label: 'Economic Calendar', icon: CalendarRange, href: '/dashboard/calendar' },
   { id: 'billing', label: 'Billing & Orders', icon: Receipt, href: '/dashboard/billing' },
-  { id: 'settings', label: 'Settings & KYC', icon: ShieldCheck },
+  { id: 'settings', label: 'Settings & KYC', icon: ShieldCheck, href: '/dashboard/settings' },
 ] as const
 
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number]['id']
