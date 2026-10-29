@@ -1,22 +1,18 @@
 import { appUrl } from './account-credentials'
 import { sendEmail, type EmailResult } from './resend'
+import { escapeHtml, pftEmailShell } from './pft-email'
 import { NO_ACQUIRED_RIGHT } from '@/lib/rules/version'
 
 function rulesUrl() {
   return `${appUrl()}/rules`
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
-
 function list(items: string[]) {
   return items.map((item) => `• ${item}`).join('\n')
+}
+
+function listHtml(items: string[]) {
+  return `<ul style="margin:10px 0 0;padding-left:20px;">${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
 }
 
 type BreachNotice = {
@@ -60,17 +56,15 @@ export async function sendBreachNotice(input: BreachNotice): Promise<EmailResult
       '',
       'PFT Risk',
     ].join('\n'),
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
-        <p>Hi ${escapeHtml(input.name)},</p>
-        <p>Account <strong>${escapeHtml(input.displayId)}</strong> has been closed for <strong>${escapeHtml(input.label)}</strong>.</p>
-        <p><strong>Reason:</strong> ${escapeHtml(input.reason)}</p>
-        <p><strong>What happens now:</strong></p>
-        <ul>${consequences.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul>
-        <p>${escapeHtml(appeal)}</p>
-        <p>PFT Risk</p>
-      </div>
-    `,
+    html: pftEmailShell({
+      tone: 'error',
+      title: `Account closed · ${escapeHtml(input.displayId)}`,
+      body: `<p style="margin:0;">Hi ${escapeHtml(input.name)}, account <strong style="color:#f1f5f9;">${escapeHtml(input.displayId)}</strong> has been closed for <strong style="color:#f1f5f9;">${escapeHtml(input.label)}</strong>.</p>
+        <p style="margin:14px 0 0;"><strong>Reason:</strong> ${escapeHtml(input.reason)}</p>
+        <p style="margin:14px 0 0;"><strong>What happens now:</strong></p>${listHtml(consequences)}
+        <p style="margin:14px 0 0;">${escapeHtml(appeal)}</p>`,
+      footer: `${NO_ACQUIRED_RIGHT}\n\nFull rules: ${rulesUrl()}`,
+    }),
   })
 }
 
@@ -109,18 +103,14 @@ export async function sendSoftBreachNotice(input: SoftBreachNotice): Promise<Ema
       '',
       'PFT Risk',
     ].join('\n'),
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
-        <p>Hi ${escapeHtml(input.name)},</p>
-        <p>Account <strong>${escapeHtml(input.displayId)}</strong> recorded a <strong>${escapeHtml(input.label)}</strong>.</p>
-        <p><strong>Details:</strong> ${escapeHtml(input.reason)}</p>
-        <p><strong>Applied now:</strong></p>
-        <ul>${(input.consequences.length > 0 ? input.consequences : ['A formal warning was added to your account record.'])
-          .map((item) => `<li>${escapeHtml(item)}</li>`)
-          .join('')}</ul>
-        <p>${escapeHtml(input.nextViolation)}</p>
-        <p>PFT Risk</p>
-      </div>
-    `,
+    html: pftEmailShell({
+      tone: 'pending',
+      title: `Rule violation warning · ${escapeHtml(input.displayId)}`,
+      body: `<p style="margin:0;">Hi ${escapeHtml(input.name)}, account <strong style="color:#f1f5f9;">${escapeHtml(input.displayId)}</strong> recorded a <strong style="color:#f1f5f9;">${escapeHtml(input.label)}</strong>.</p>
+        <p style="margin:14px 0 0;"><strong>Details:</strong> ${escapeHtml(input.reason)}</p>
+        <p style="margin:14px 0 0;"><strong>Applied now:</strong></p>${listHtml(input.consequences.length > 0 ? input.consequences : ['A formal warning was added to your account record.'])}
+        <p style="margin:14px 0 0;">${escapeHtml(input.nextViolation)}</p>`,
+      footer: `${NO_ACQUIRED_RIGHT}\n\nFull rules: ${rulesUrl()}`,
+    }),
   })
 }

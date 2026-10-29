@@ -1,4 +1,5 @@
 import { sendEmail, type EmailResult } from './resend'
+import { escapeHtml, pftEmailShell } from './pft-email'
 
 type NewsRiskWarning = {
   to: string
@@ -6,15 +7,6 @@ type NewsRiskWarning = {
   displayId: string
   eventTitle: string
   eventTime: Date
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
 }
 
 export async function sendNewsRiskWarning(input: NewsRiskWarning): Promise<EmailResult> {
@@ -39,15 +31,14 @@ export async function sendNewsRiskWarning(input: NewsRiskWarning): Promise<Email
       '',
       'PFT Risk',
     ].join('\n'),
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
-        <p>Hi ${escapeHtml(input.name)},</p>
-        <p>You have open positions on <strong>${escapeHtml(input.displayId)}</strong> while a high-impact event is approaching:</p>
-        <p><strong>${escapeHtml(input.eventTitle)}</strong><br/>${escapeHtml(time)} UTC</p>
-        <p>Positions opened less than 60 minutes before the event and held through it are treated as news-window exposure. If you opened the position well before the event, this is a risk warning only.</p>
-        <p>You can close or reduce positions at any time. New or increased positions are blocked during the ±5 minute window.</p>
-        <p>PFT Risk</p>
-      </div>
-    `,
+    html: pftEmailShell({
+      tone: 'pending',
+      title: 'News risk warning',
+      body: `<p style="margin:0;">Hi ${escapeHtml(input.name)}, you have open positions on <strong style="color:#f1f5f9;">${escapeHtml(input.displayId)}</strong> while a high-impact event is approaching:</p>
+        <p style="margin:14px 0 0;padding:12px 14px;border-left:3px solid #f5b942;background:rgba(245,185,66,0.08);"><strong style="color:#f1f5f9;">${escapeHtml(input.eventTitle)}</strong><br/>${escapeHtml(time)} UTC</p>
+        <p style="margin:14px 0 0;">Positions opened less than 60 minutes before the event and held through it are treated as news-window exposure. If you opened the position well before the event, this is a risk warning only.</p>
+        <p style="margin:14px 0 0;">You can close or reduce positions at any time. New or increased positions are blocked during the ±5 minute window.</p>`,
+      footer: 'PFT Risk',
+    }),
   })
 }

@@ -1,13 +1,5 @@
 import { sendEmail, type EmailResult } from './resend'
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
+import { escapeHtml, pftEmailShell } from './pft-email'
 
 type InactivityInput = {
   to: string
@@ -33,14 +25,13 @@ export async function sendInactivityWarning(input: InactivityInput): Promise<Ema
     subject,
     idempotencyKey: `inactivity-warning-${input.displayId}-${input.days}`,
     text,
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
-        <p>Hi ${escapeHtml(input.name)},</p>
-        <p>Your account <strong>${escapeHtml(input.displayId)}</strong> has had no closed trades for <strong>${input.days} days</strong>.</p>
-        <p>Please place and close at least one trade to keep the account active. Accounts with no closed trades for 90 days may be closed without a refund.</p>
-        <p>PFT Risk</p>
-      </div>
-    `,
+    html: pftEmailShell({
+      tone: 'pending',
+      title: 'Inactivity warning',
+      body: `<p style="margin:0;">Hi ${escapeHtml(input.name)}, your account <strong style="color:#f1f5f9;">${escapeHtml(input.displayId)}</strong> has had no closed trades for <strong style="color:#f1f5f9;">${input.days} days</strong>.</p>
+        <p style="margin:14px 0 0;">Please place and close at least one trade to keep the account active. Accounts with no closed trades for 90 days may be closed without a refund.</p>`,
+      footer: 'PFT Risk',
+    }),
   })
 }
 
@@ -61,13 +52,12 @@ export async function sendInactivityClosed(input: InactivityInput): Promise<Emai
     subject,
     idempotencyKey: `inactivity-closed-${input.displayId}`,
     text,
-    html: `
-      <div style="font-family:Arial,sans-serif;line-height:1.55;color:#111">
-        <p>Hi ${escapeHtml(input.name)},</p>
-        <p>Your account <strong>${escapeHtml(input.displayId)}</strong> has been closed after <strong>${input.days} days</strong> without a closed trade.</p>
-        <p>The evaluation fee is non-refundable. You can purchase a new evaluation if you want to continue.</p>
-        <p>PFT Risk</p>
-      </div>
-    `,
+    html: pftEmailShell({
+      tone: 'error',
+      title: 'Account closed for inactivity',
+      body: `<p style="margin:0;">Hi ${escapeHtml(input.name)}, your account <strong style="color:#f1f5f9;">${escapeHtml(input.displayId)}</strong> has been closed after <strong style="color:#f1f5f9;">${input.days} days</strong> without a closed trade.</p>
+        <p style="margin:14px 0 0;">The evaluation fee is non-refundable. You can purchase a new evaluation if you want to continue.</p>`,
+      footer: 'PFT Risk',
+    }),
   })
 }

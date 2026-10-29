@@ -1,10 +1,11 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Loader2, LogOut, Plus, RefreshCw, X } from 'lucide-react'
+import { ArrowLeft, Loader2, LogOut, Plus, RefreshCw, Rocket, X, XCircle } from 'lucide-react'
 import { ChallengeCalculator } from '@/components/challenge-calculator'
 import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
+import { PFTMessageCard } from '@/components/messages/PFTMessageCard'
 import { formatPrice } from '@/lib/challenges'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { loadStoredFavorites } from '@/lib/stores/useFavoritesStore'
@@ -215,22 +216,23 @@ export function TerminalWorkspace() {
 function NoAccountsState({ onNewChallenge }: { onNewChallenge: () => void }) {
   return (
     <main className="flex flex-1 items-center justify-center p-6">
-      <section className="w-full max-w-lg rounded-2xl border border-border bg-card p-8 text-center shadow-xl">
-        <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-primary">Trader workspace</p>
-        <h1 className="mt-3 text-2xl font-semibold text-foreground">No challenge accounts yet</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          No trading accounts are linked to this login yet. Choose a challenge to create your own account.
-          The accounts shown in the old dashboard were examples only and cannot be used to trade.
-        </p>
-        <button
-          type="button"
-          onClick={onNewChallenge}
-          className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          New Challenge
-        </button>
-      </section>
+      <PFTMessageCard
+        tone="info"
+        icon={<Rocket className="size-6" />}
+        eyebrow="Trader workspace"
+        title="No challenge accounts yet"
+        description="No trading accounts are linked to this login yet. Choose a challenge to create your own account. The accounts shown in the old dashboard were examples only and cannot be used to trade."
+        actions={
+          <button
+            type="button"
+            onClick={onNewChallenge}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            New Challenge
+          </button>
+        }
+      />
     </main>
   )
 }
@@ -241,51 +243,27 @@ function PaymentProcessingState({ orders, onRefresh }: { orders: CheckoutOrder[]
 
   return (
     <main className="flex flex-1 items-center justify-center p-6">
-      <section className="animate-step-in w-full max-w-lg rounded-2xl border border-border bg-card p-8 text-center shadow-xl">
-        <div className="flex justify-center" aria-hidden="true">
-          <span className="relative flex size-12 items-center justify-center">
-            <span className="absolute inset-0 rounded-full border border-primary/30" />
-            <span className="absolute inset-0 motion-safe:animate-ping rounded-full bg-primary/10" />
-            <Loader2 className="size-6 motion-safe:animate-spin text-primary" />
-          </span>
-        </div>
-        <p className="mt-4 font-mono text-xs font-semibold uppercase tracking-[0.2em] text-primary">Payment processing</p>
-        <h1 className="mt-3 text-2xl font-semibold text-foreground">Your challenge is being set up</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          We are confirming your payment and provisioning the account. Your PFT terminal credentials are emailed the moment it
-          completes — the account will appear in this workspace automatically.
-        </p>
-        <dl className="mt-5 space-y-2 rounded-xl border border-border bg-background/60 px-4 py-3 text-left text-sm">
-          <div className="flex items-center justify-between gap-3">
-            <dt className="text-muted-foreground">Plan</dt>
-            <dd className="font-mono text-foreground">
-              {latest?.planSize ? `${Math.round(latest.planSize / 1000)}k` : '—'}
-              {latest?.evaluationLabel ? ` · ${latest.evaluationLabel}` : ''}
-            </dd>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <dt className="text-muted-foreground">Total</dt>
-            <dd className="font-mono text-foreground">{latest ? `${formatPrice(latest.amount)} USD` : '—'}</dd>
-          </div>
-          {latest && (
-            <div className="flex items-center justify-between gap-3">
-              <dt className="text-muted-foreground">Order</dt>
-              <dd className="font-mono text-foreground">{latestOrderDate}</dd>
-            </div>
-          )}
-        </dl>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-5 gap-1.5"
-          onClick={onRefresh}
-          aria-label="Check payment status now"
-        >
-          <RefreshCw className="size-3.5" aria-hidden="true" />
-          Check status now
-        </Button>
-        <p className="mt-3 text-xs text-muted-foreground">Status refreshes automatically every 10 seconds.</p>
-      </section>
+      <PFTMessageCard
+        tone="pending"
+        icon={<Loader2 className="size-6 motion-safe:animate-spin" />}
+        eyebrow="Payment processing"
+        title="Your challenge is being set up"
+        description="We are confirming your payment and provisioning the account. Your PFT terminal credentials are emailed the moment it completes — the account will appear in this workspace automatically."
+        details={[
+          ['Plan', latest?.planSize ? `${Math.round(latest.planSize / 1000)}k${latest.evaluationLabel ? ` · ${latest.evaluationLabel}` : ''}` : '—'],
+          ['Total', latest ? `${formatPrice(latest.amount)} USD` : '—'],
+          ...(latest ? [['Order', latestOrderDate] as [string, string]] : []),
+        ]}
+        actions={
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={onRefresh} aria-label="Check payment status now">
+              <RefreshCw className="size-3.5" aria-hidden="true" />
+              Check status now
+            </Button>
+            <p className="text-xs text-slate-500">Status refreshes automatically every 10 seconds.</p>
+          </>
+        }
+      />
     </main>
   )
 }
@@ -294,23 +272,23 @@ function PaymentFailedState({ orders, onNewChallenge }: { orders: CheckoutOrder[
   const latest = orders[0]
   return (
     <main className="flex flex-1 items-center justify-center p-6">
-      <section className="animate-step-in w-full max-w-lg rounded-2xl border border-danger/40 bg-card p-8 text-center shadow-xl">
-        <p className="font-mono text-xs font-semibold uppercase tracking-[0.2em] text-danger">Checkout incomplete</p>
-        <h1 className="mt-3 text-2xl font-semibold text-foreground">Your payment was not completed</h1>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          Your last order{latest?.planSize ? `, ${Math.round(latest.planSize / 1000)}k ${latest?.evaluationLabel ?? ''},` : ''}{' '}
-          expired or failed before the transfer confirmed — you were not charged for a challenge account. Start a new
-          checkout to try again.
-        </p>
-        <button
-          type="button"
-          onClick={onNewChallenge}
-          className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-        >
-          <Plus className="size-4" aria-hidden="true" />
-          New Challenge
-        </button>
-      </section>
+      <PFTMessageCard
+        tone="error"
+        icon={<XCircle className="size-6" />}
+        eyebrow="Checkout incomplete"
+        title="Your payment was not completed"
+        description={`Your last order${latest?.planSize ? `, ${Math.round(latest.planSize / 1000)}k ${latest?.evaluationLabel ?? ''},` : ''} expired or failed before the transfer confirmed — you were not charged for a challenge account. Start a new checkout to try again.`}
+        actions={
+          <button
+            type="button"
+            onClick={onNewChallenge}
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-5 text-sm font-semibold text-primary-foreground shadow-[0_0_28px_-12px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_36px_-10px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            New Challenge
+          </button>
+        }
+      />
     </main>
   )
 }
