@@ -9,6 +9,7 @@
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
   --color-highlight: var(--highlight);
   --color-highlight-foreground: var(--highlight-foreground);
+  --color-nebula-violet: var(--nebula-violet);
   --color-surface: var(--surface);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
@@ -54,43 +55,45 @@
 
 :root {
   color-scheme: dark;
-  --background: #02040a;
-  --foreground: #e0f2fe;
-  --surface: #0a0e27;
-  --card: #0f172a;
-  --card-foreground: #f8fafc;
-  --popover: #0f172a;
-  --popover-foreground: #f8fafc;
-  --primary: #3b82f6;
+  /* PFT cosmic palette — Deep Space × Premium Trading Terminal */
+  --background: #070b16;
+  --foreground: #e7edff;
+  --surface: #0b1122;
+  --card: #111a2d;
+  --card-foreground: #f4f7ff;
+  --popover: #111a2d;
+  --popover-foreground: #f4f7ff;
+  --primary: #4388ff;
   --primary-foreground: #02040a;
-  --highlight: #06b6d4;
+  --highlight: #55d6e8;
   --highlight-foreground: #02040a;
-  --secondary: #1e293b;
-  --secondary-foreground: #e0f2fe;
-  --muted: #1e293b;
-  --muted-foreground: #94a3b8;
-  --accent: #1e1b4b;
-  --accent-foreground: #e0f2fe;
+  --nebula-violet: #9466ff;
+  --secondary: #172239;
+  --secondary-foreground: #e7edff;
+  --muted: #172239;
+  --muted-foreground: #8fa3c4;
+  --accent: #172239;
+  --accent-foreground: #e7edff;
   --destructive: #f43f5e;
   --danger: #f43f5e;
   --warning: #f59e0b;
-  --border: #2c3e50;
-  --input: #2c3e50;
-  --ring: #3b82f6;
-  --chart-1: #3b82f6;
-  --chart-2: #06b6d4;
+  --border: #223052;
+  --input: #223052;
+  --ring: #4388ff;
+  --chart-1: #4388ff;
+  --chart-2: #55d6e8;
   --chart-3: #f43f5e;
-  --chart-4: #94a3b8;
-  --chart-5: #334155;
+  --chart-4: #8fa3c4;
+  --chart-5: #2a3a5e;
   --radius: 0.625rem;
-  --sidebar: #0f172a;
-  --sidebar-foreground: #f8fafc;
-  --sidebar-primary: #3b82f6;
+  --sidebar: #0b1122;
+  --sidebar-foreground: #f4f7ff;
+  --sidebar-primary: #4388ff;
   --sidebar-primary-foreground: #02040a;
-  --sidebar-accent: #1e1b4b;
-  --sidebar-accent-foreground: #e0f2fe;
-  --sidebar-border: #2c3e50;
-  --sidebar-ring: #3b82f6;
+  --sidebar-accent: #172239;
+  --sidebar-accent-foreground: #e7edff;
+  --sidebar-border: #223052;
+  --sidebar-ring: #4388ff;
 }
 
 @layer base {
@@ -116,6 +119,13 @@
 
   .text-gradient {
     @apply bg-linear-to-r from-primary to-highlight bg-clip-text text-transparent;
+  }
+
+  /* Very subtle blue-violet nebula wash for branding areas — decorative only. */
+  .nebula-atmosphere {
+    background-image:
+      radial-gradient(ellipse 70% 55% at 12% 0%, rgb(67 136 255 / 0.10), transparent 60%),
+      radial-gradient(ellipse 55% 45% at 88% 100%, rgb(148 102 255 / 0.08), transparent 65%);
   }
 
   .cosmic-stars {

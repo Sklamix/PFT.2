@@ -191,7 +191,7 @@ export function ChartDrawingToolbar() {
     <div
       ref={toolbarRef}
       className={cn(
-        'absolute z-20 flex items-center gap-0.5 rounded-md border border-border bg-[#0b111d]/95 p-0.5 shadow-[0_6px_24px_rgba(0,0,0,0.45)] backdrop-blur-sm',
+        'absolute z-20 flex items-center gap-0.5 rounded-md border border-border bg-[#0b1122]/95 p-0.5 shadow-[0_6px_24px_rgba(0,0,0,0.45)] backdrop-blur-sm',
         orientation === 'vertical' ? 'flex-col' : 'flex-row',
         dragging && 'shadow-[0_10px_34px_rgba(0,0,0,0.6)]',
       )}

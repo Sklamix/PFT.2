@@ -282,11 +282,12 @@ export function OrderPanel() {
           <button
             type="button"
             onClick={() => chooseSide('BUY')}
+            aria-pressed={side === 'BUY'}
             className={cn(
-              'rounded-lg border px-3 py-2.5 text-left transition-colors',
+              'rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
               side === 'BUY'
-                ? 'border-primary/50 bg-primary/15 text-primary'
-                : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground',
+                ? 'border-primary/60 bg-primary/15 text-primary shadow-[0_0_14px_-6px_rgba(67,136,255,0.8)]'
+                : 'border-border bg-secondary/40 text-muted-foreground hover:border-primary/30 hover:text-foreground',
             )}
           >
             <span className="block font-mono text-[10px] uppercase tracking-widest">Buy / Ask</span>
@@ -295,11 +296,12 @@ export function OrderPanel() {
           <button
             type="button"
             onClick={() => chooseSide('SELL')}
+            aria-pressed={side === 'SELL'}
             className={cn(
-              'rounded-lg border px-3 py-2.5 text-left transition-colors',
+              'rounded-lg border px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
               side === 'SELL'
-                ? 'border-danger/50 bg-danger/15 text-danger'
-                : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground',
+                ? 'border-danger/60 bg-danger/15 text-danger shadow-[0_0_14px_-6px_rgba(244,63,94,0.8)]'
+                : 'border-border bg-secondary/40 text-muted-foreground hover:border-danger/30 hover:text-foreground',
             )}
           >
             <span className="block font-mono text-[10px] uppercase tracking-widest">Sell / Bid</span>
@@ -444,7 +446,11 @@ export function OrderPanel() {
           </Field>
         </div>
 
-        <Button className="mt-auto h-10 w-full" disabled={!canSubmit} onClick={() => void execute()}>
+        <Button
+          className="mt-auto h-10 w-full shadow-[0_0_20px_-8px_rgba(67,136,255,0.9)] transition-shadow hover:shadow-[0_0_26px_-8px_rgba(67,136,255,1)] focus-visible:ring-2 focus-visible:ring-ring/60"
+          disabled={!canSubmit}
+          onClick={() => void execute()}
+        >
           {busy ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
           {busy
             ? 'Working…'

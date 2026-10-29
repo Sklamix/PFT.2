@@ -45,11 +45,11 @@ export function TerminalHeader() {
   const ddRatio = snapshot.dailyUsedRatio
 
   return (
-    <header className="flex flex-col gap-3 border-b border-border bg-card/80 px-3 py-2.5 backdrop-blur-md lg:flex-row lg:items-center lg:gap-4 lg:px-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
+    <header className="flex flex-col gap-3 border-b border-border bg-card/80 px-3 py-2.5 backdrop-blur-md xl:px-4">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
         <SymbolPicker selectedSymbol={selectedSymbol} onSelect={setSelectedSymbol} />
 
-        <div className="flex min-w-0 items-center gap-3 font-mono">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 font-mono">
           <QuoteStack label="Bid" value={formatPrice(selectedSymbol, bid)} tone="danger" />
           <QuoteStack label="Ask" value={formatPrice(selectedSymbol, ask)} tone="primary" />
           <div className="hidden sm:block">
@@ -62,7 +62,7 @@ export function TerminalHeader() {
           </div>
           <span
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
+              'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
               live
                 ? 'border-primary/30 bg-primary/10 text-primary'
                 : 'border-danger/30 bg-danger/10 text-danger',
@@ -77,17 +77,22 @@ export function TerminalHeader() {
         </div>
       </div>
 
-      <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 lg:flex lg:items-center lg:justify-end lg:gap-5">
+      <dl className="grid min-w-0 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5">
         <Metric
-          label="Account"
+          label="Status"
           value={account ? account.status : '—'}
+          dot={account ? (account.status === 'ACTIVE' ? 'ok' : 'risk') : undefined}
           accent={account?.status === 'ACTIVE' ? 'text-primary' : account ? 'text-danger' : undefined}
         />
         <Metric label="Balance" value={formatUsd(snapshot.balance)} />
-        <Metric label="Equity" value={formatUsd(snapshot.equity)} accent={snapshot.floatingPnl >= 0 ? 'text-primary' : 'text-danger'} />
-        <Metric label="Margin used" value={formatUsd(snapshot.marginUsed)} />
+        <Metric
+          label="Equity"
+          value={formatUsd(snapshot.equity)}
+          accent={snapshot.floatingPnl >= 0 ? 'text-primary' : 'text-danger'}
+        />
+        <Metric label="Margin" value={formatUsd(snapshot.marginUsed)} />
         <Metric label="Free margin" value={formatUsd(snapshot.freeMargin)} />
-        <div className="col-span-2 min-w-40 sm:col-span-4 lg:w-52">
+        <div className="col-span-2 sm:col-span-2">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-muted-foreground">
             <span>Daily DD buffer</span>
             <span className="font-mono tabular-nums text-foreground">{formatUsd(snapshot.dailyBufferUsd)}</span>
@@ -348,11 +353,21 @@ function QuoteStack({ label, value, tone }: { label: string; value: string; tone
   )
 }
 
-function Metric({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function Metric({ label, value, accent, dot }: { label: string; value: string; accent?: string; dot?: 'ok' | 'risk' }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</dt>
-      <dd className={cn('truncate font-mono text-sm tabular-nums text-foreground', accent)}>{value}</dd>
+      <dt className="flex items-center gap-1.5 whitespace-nowrap text-[10px] uppercase tracking-widest text-muted-foreground">
+        {dot ? (
+          <span className="relative flex size-1.5" aria-hidden="true">
+            {dot === 'ok' ? (
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:animate-none" />
+            ) : null}
+            <span className={cn('relative inline-flex size-1.5 rounded-full', dot === 'ok' ? 'bg-primary' : 'bg-danger')} />
+          </span>
+        ) : null}
+        {label}
+      </dt>
+      <dd className={cn('truncate font-mono text-[13px] tabular-nums text-foreground', accent)}>{value}</dd>
     </div>
   )
 }

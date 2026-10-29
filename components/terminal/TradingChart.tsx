@@ -22,8 +22,8 @@ import { useOrderTicketStore, type TicketPriceField } from '@/lib/stores/useOrde
 import type { OrderSide, PendingTradeOrder, Position } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
 
-const CHART_BG = '#0b111d'
-const GRID = 'rgba(30, 41, 59, 0.55)'
+const CHART_BG = '#0b1122'
+const GRID = 'rgba(94, 130, 205, 0.14)'
 const TEXT = '#8a97ad'
 const UP = '#10b981'
 const DOWN = '#f43f5e'
@@ -1004,7 +1004,7 @@ export function TradingChart() {
   }
 
   return (
-    <section className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-xl border border-border bg-[#0b111d]">
+    <section className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-xl border border-border bg-[#0b1122]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         <p className="shrink-0 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
           Price action
@@ -1053,7 +1053,7 @@ export function TradingChart() {
         {quickNotice ? (
           <div
             role="status"
-            className="absolute left-2 top-2 z-20 max-w-[calc(100%-1rem)] rounded-md border border-border bg-[#0b111d]/95 px-2.5 py-1.5 font-mono text-[10px] text-foreground shadow-lg"
+            className="absolute left-2 top-2 z-20 max-w-[calc(100%-1rem)] rounded-md border border-border bg-[#0b1122]/95 px-2.5 py-1.5 font-mono text-[10px] text-foreground shadow-lg"
           >
             {quickNotice}
           </div>
@@ -1062,7 +1062,7 @@ export function TradingChart() {
           <div
             role={levelNotice.tone === 'error' ? 'alert' : 'status'}
             className={cn(
-              'absolute right-2 top-2 z-30 max-w-[calc(100%-1rem)] rounded-md border bg-[#0b111d]/95 px-2.5 py-1.5 font-mono text-[10px] shadow-lg',
+              'absolute right-2 top-2 z-30 max-w-[calc(100%-1rem)] rounded-md border bg-[#0b1122]/95 px-2.5 py-1.5 font-mono text-[10px] shadow-lg',
               levelNotice.tone === 'error' ? 'border-danger/50 text-danger' : 'border-primary/40 text-primary',
             )}
           >
@@ -1103,7 +1103,7 @@ export function TradingChart() {
             >
               <span
                 className={cn(
-                  'pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border bg-[#0b111d]/95 px-2 py-1 font-mono text-[10px] leading-none shadow-[0_4px_18px_rgba(0,0,0,0.45)]',
+                  'pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border bg-[#0b1122]/95 px-2 py-1 font-mono text-[10px] leading-none shadow-[0_4px_18px_rgba(0,0,0,0.45)]',
                   level.order ? 'left-2' : 'right-2',
                 )}
                 style={{ borderColor: level.color, color: level.color }}
@@ -1119,7 +1119,7 @@ export function TradingChart() {
         </div>
         <ChartDrawingToolbar />
         {collecting && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b111d]/90 p-6 text-center">
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b1122]/90 p-6 text-center">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-widest text-primary">Collecting live {selectedSymbol} ticks</p>
               <p className="mt-2 max-w-sm text-sm text-muted-foreground">

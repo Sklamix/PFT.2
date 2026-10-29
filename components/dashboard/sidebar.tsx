@@ -13,9 +13,25 @@ type SidebarContentProps = {
 export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-col gap-3 border-b border-border px-5 py-5">
-        <Link href="/" className="font-mono text-sm font-bold tracking-[0.2em] text-foreground">
-          PFT <span className="text-muted-foreground">{'//'}</span> <span className="text-gradient">TERMINAL</span>
+      <div className="nebula-atmosphere relative flex flex-col gap-3 border-b border-border px-5 py-5">
+        <Link href="/" className="group flex w-fit items-center gap-2.5" aria-label="PFT terminal home">
+          {/* Orbital mark: planet with a thin orbit arc and a satellite dot. */}
+          <span className="relative grid size-8 place-items-center" aria-hidden="true">
+            <svg viewBox="0 0 32 32" className="size-8">
+              <circle cx="16" cy="16" r="6" fill="none" stroke="url(#pft-orbit)" strokeWidth="1.5" />
+              <ellipse cx="16" cy="16" rx="12" ry="4.5" fill="none" stroke="var(--primary)" strokeOpacity="0.5" strokeWidth="1" transform="rotate(-18 16 16)" />
+              <circle cx="26.5" cy="11.5" r="1.6" fill="var(--highlight)" />
+              <defs>
+                <linearGradient id="pft-orbit" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="var(--primary)" />
+                  <stop offset="100%" stopColor="var(--nebula-violet)" />
+                </linearGradient>
+              </defs>
+            </svg>
+          </span>
+          <span className="font-mono text-sm font-bold tracking-[0.2em] text-foreground">
+            PFT <span className="text-muted-foreground">{'//'}</span> <span className="text-gradient">TERMINAL</span>
+          </span>
         </Link>
         <div className="flex w-fit items-center gap-2 rounded-md border border-primary/25 bg-primary/10 px-2 py-1 font-mono text-[10px] font-medium tracking-wider text-primary">
           <span className="relative flex size-1.5" aria-hidden="true">
@@ -34,13 +50,18 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
               href={TERMINAL_NAV.href}
               aria-current={view === 'terminal' ? 'page' : undefined}
               className={cn(
-                'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
+                'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
                 view === 'terminal'
-                  ? 'bg-accent text-foreground'
+                  ? 'bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_rgba(67,136,255,0.18)]'
                   : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
               )}
             >
-              {view === 'terminal' && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" aria-hidden="true" />}
+              {view === 'terminal' && (
+                <span
+                  className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-linear-to-b from-primary to-nebula-violet shadow-[0_0_8px_rgba(67,136,255,0.8)]"
+                  aria-hidden="true"
+                />
+              )}
               <TERMINAL_NAV.icon
                 className={cn('size-4 shrink-0', view === 'terminal' ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')}
                 aria-hidden="true"
@@ -53,14 +74,19 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
             const Icon = item.icon
             const content = (
               <>
-                {active && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" aria-hidden="true" />}
+                {active && (
+                  <span
+                    className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-linear-to-b from-primary to-nebula-violet shadow-[0_0_8px_rgba(67,136,255,0.8)]"
+                    aria-hidden="true"
+                  />
+                )}
                 <Icon className={cn('size-4 shrink-0', active ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')} aria-hidden="true" />
                 {item.label}
               </>
             )
             const className = cn(
-              'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors',
-              active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+              'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+              active ? 'bg-primary/12 text-foreground shadow-[inset_0_0_0_1px_rgba(67,136,255,0.18)]' : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
             )
             if ('href' in item && item.href) {
               return (
