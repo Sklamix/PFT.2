@@ -109,6 +109,35 @@ The trader UI displays staff messages as **PFT Support** (the API does not expos
 - **Logging**: unexpected failures log only an error kind/Prisma code/target — never message bodies or payloads.
 - **Pagination**: `page` is clamped to 1 000 and `pageSize` to 50.
 
+## AI assistant (Google Gemini)
+
+`POST /api/support/ai/chat` — trader session only, same-origin required, `Cache-Control: no-store`.
+
+Request:
+
+```json
+{ "message": "string (2–1000 chars)", "history": [{ "role": "user|assistant", "content": "≤1000" }], "forceHandoff": false }
+```
+
+Response (answered):
+
+```json
+{ "answer": "text grounded in PFT rules", "handoff": null, "handoffReason": null }
+```
+
+Response (escalated):
+
+```json
+{ "answer": null, "handoff": { "publicId": "SUP-…", "subject": "…" }, "handoffReason": "missing_key|quota|timeout|unavailable|not_covered_by_rules|user_requested_human" }
+```
+
+- The Gemini key (`GEMINI_API_KEY`) is read on the server only; model can be overridden with `GEMINI_MODEL` (default `gemini-2.5-flash`).
+- The prompt is grounded in rulebook v1.6 plus **live** `ChallengePricing` rows loaded per request; prices are never hardcoded.
+- `forceHandoff: true` skips the model and opens a real ticket.
+- When the model is unavailable, over quota, times out or is not confident, a **real support ticket is created first**; if creation fails the endpoint returns `503` and explicitly does not claim a transfer.
+- The assistant has no tools and cannot change accounts, balances, payouts, KYC, breaches or risk flags.
+- Rate limit: 20 messages per trader per hour (Postgres-backed).
+
 ## Audit
 
 Staff actions are written to `AuditLog` via `recordActivity`:

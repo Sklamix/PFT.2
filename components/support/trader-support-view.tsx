@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowLeft, Inbox, Loader2, MessageSquarePlus, RefreshCw, Send, X } from 'lucide-react'
 import { SpaceBackground } from '@/components/dashboard/space-background'
+import { SupportAssistant } from '@/components/support/support-assistant'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -251,6 +252,13 @@ export function TraderSupportView() {
             <MessageSquarePlus className="size-4" /> New request
           </Button>
         </header>
+
+        <SupportAssistant
+          onHandoff={(publicId) => {
+            void loadTickets(1, statusFilter)
+            openTicket(publicId)
+          }}
+        />
 
         <div className="mt-5 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
           {/* Ticket list */}
