@@ -125,7 +125,7 @@ The trader UI displays staff messages as **PFT Support** (the API does not expos
 Request:
 
 ```json
-{ "message": "string (2–1000 chars)", "history": [{ "role": "user|assistant", "content": "≤1000" }], "forceHandoff": false }
+{ "message": "string (2–1000 chars)", "history": [{ "role": "user|assistant", "content": "≤4000; max 6 turns; 12000 chars total" }], "forceHandoff": false }
 ```
 
 Response (answered):

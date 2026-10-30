@@ -4,7 +4,7 @@ import { assertSameOrigin } from '@/lib/security/csrf'
 import { handleSupportError, readSupportJson } from '@/lib/support/http'
 import { enforceRateLimit } from '@/lib/support/http'
 import { HandoffFailedError, handleSupportChat } from '@/lib/ai/support-chat'
-import type { ChatTurn } from '@/lib/ai/gemini'
+import { parseHistory } from '@/lib/ai/history'
 import { parseIdempotencyKey } from '@/lib/support/types'
 
 export const dynamic = 'force-dynamic'
@@ -16,29 +16,10 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
 const MAX_MESSAGE = 1_000
-const MAX_HISTORY_TURNS = 6
 const RATE_LIMIT = 20
 const RATE_WINDOW_MS = 60 * 60_000
 
 const NO_STORE = { 'Cache-Control': 'no-store' } as const
-
-function parseHistory(value: unknown): ChatTurn[] | { error: string } {
-  if (value === undefined || value === null) return []
-  if (!Array.isArray(value)) return { error: 'history must be an array.' }
-  if (value.length > MAX_HISTORY_TURNS) return { error: `history is limited to ${MAX_HISTORY_TURNS} turns.` }
-  const turns: ChatTurn[] = []
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') return { error: 'history entries must be objects.' }
-    const record = entry as Record<string, unknown>
-    const role = record.role
-    const content = typeof record.content === 'string' ? record.content.trim() : ''
-    if (role !== 'user' && role !== 'assistant') return { error: 'history role must be user or assistant.' }
-    if (!content) return { error: 'history content is required.' }
-    if (content.length > MAX_MESSAGE) return { error: `history content is limited to ${MAX_MESSAGE} characters.` }
-    turns.push({ role, content })
-  }
-  return turns
-}
 
 /**
  * AI support chat. The Gemini key stays on the server. When the model is

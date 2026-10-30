@@ -10,6 +10,7 @@ import {
 } from '../lib/ai/assistant-client'
 import { AiUnavailableError, classifyGeminiFailure } from '../lib/ai/errors'
 import { parseAssistantResponse } from '../lib/ai/gemini'
+import { MAX_HISTORY_CONTENT, MAX_HISTORY_TOTAL, parseHistory } from '../lib/ai/history'
 import { buildPftKnowledge, SUPPORT_SYSTEM_INSTRUCTIONS } from '../lib/ai/pft-knowledge'
 import { generateWithNvidia, NVIDIA_DEFAULT_MODEL } from '../lib/ai/nvidia'
 import { resolveProvider } from '../lib/ai/provider'
@@ -144,6 +145,102 @@ test('parser labels invalid JSON safely', () => {
     () => parseAssistantResponse('not json at all'),
     (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json',
   )
+})
+
+// ---------------------------------------------------------------------------
+// History budget: a valid AI answer must never block the next message
+// ---------------------------------------------------------------------------
+
+test('history accepts a 1500-character assistant answer', () => {
+  const answer = 'a'.repeat(1_500)
+  const parsed = parseHistory([
+    { role: 'user', content: 'What are the news rules?' },
+    { role: 'assistant', content: answer },
+  ])
+  if (!Array.isArray(parsed)) throw new Error(`unexpected rejection: ${JSON.stringify(parsed)}`)
+  assert.equal(parsed.length, 2)
+  assert.equal(parsed[1]!.content.length, 1_500)
+  assert.equal(parsed[1]!.role, 'assistant')
+})
+
+test('history accepts a full 4000-character assistant answer', () => {
+  const answer = 'b'.repeat(MAX_HISTORY_CONTENT)
+  const parsed = parseHistory([{ role: 'assistant', content: answer }])
+  if (!Array.isArray(parsed)) throw new Error(`unexpected rejection: ${JSON.stringify(parsed)}`)
+  assert.equal(parsed.length, 1)
+  assert.equal(parsed[0]!.content.length, 4_000)
+})
+
+test('history caps a single oversized turn at the answer limit', () => {
+  const parsed = parseHistory([{ role: 'assistant', content: 'c'.repeat(6_000) }])
+  if (!Array.isArray(parsed)) throw new Error('expected an accepted, truncated turn')
+  assert.equal(parsed[0]!.content.length, MAX_HISTORY_CONTENT)
+})
+
+test('history over the total budget keeps the newest turns', () => {
+  const turns = Array.from({ length: 4 }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'assistant',
+    content: String(index).repeat(MAX_HISTORY_CONTENT),
+  }))
+  const parsed = parseHistory(turns)
+  if (!Array.isArray(parsed)) throw new Error(`unexpected rejection: ${JSON.stringify(parsed)}`)
+
+  const total = parsed.reduce((sum, turn) => sum + turn.content.length, 0)
+  assert.ok(total <= MAX_HISTORY_TOTAL, `total ${total} must stay within ${MAX_HISTORY_TOTAL}`)
+  assert.equal(total, MAX_HISTORY_TOTAL)
+  assert.equal(parsed.length, 3, 'the oldest turn is dropped, not the whole history')
+  assert.equal(parsed.at(-1)?.content, turns.at(-1)?.content, 'the newest turn is kept intact')
+})
+
+test('history still rejects more than six turns', () => {
+  const parsed = parseHistory(Array.from({ length: 7 }, () => ({ role: 'user', content: 'hi' })))
+  assert.ok(!Array.isArray(parsed))
+  assert.match((parsed as { error: string }).error, /limited to 6 turns/)
+})
+
+test('a conversation continues after a long assistant answer', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  const prisma = new PrismaClient()
+  const suffix = Date.now().toString(36)
+  const user = await prisma.user.create({
+    data: { email: `ai-longhistory-${suffix}@test.local`, passwordHash: 'x', name: 'AI Long History', role: 'TRADER' },
+  })
+
+  try {
+    const history = parseHistory([
+      { role: 'user', content: 'What are the news rules for funded accounts?' },
+      { role: 'assistant', content: 'x'.repeat(1_500) },
+    ])
+    if (!Array.isArray(history)) throw new Error(`history was rejected: ${JSON.stringify(history)}`)
+
+    const result = await handleSupportChat({
+      userId: user.id,
+      message: 'And what happens on a second confirmed violation?',
+      history,
+      forceHandoff: false,
+      idempotencyKey: `long-history-${suffix}`,
+      request: new Request('http://localhost:3100/api/support/ai/chat', {
+        method: 'POST',
+        headers: { 'x-vercel-id': `ai-longhistory-${suffix}` },
+      }),
+      generate: async () => ({
+        answer: 'A second confirmed violation closes that funded account only.',
+        resolved: true,
+        category: 'RULES',
+        handoffReason: null,
+      }),
+    })
+
+    assert.equal(result.answer, 'A second confirmed violation closes that funded account only.')
+    assert.equal(result.handoff, null)
+    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 0)
+  } finally {
+    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+    await prisma.user.delete({ where: { id: user.id } })
+    await prisma.$disconnect()
+  }
 })
 
 test('server logs safe metadata and creates a real handoff ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {  const prisma = new PrismaClient()
