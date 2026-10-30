@@ -2,7 +2,8 @@ import type { SupportCategory } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { addTraderMessage, createTicket } from '@/lib/support/service'
 import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION } from './pft-knowledge'
-import { AiUnavailableError, generateWithGemini, type AssistantGenerator, type ChatTurn } from './gemini'
+import { AiUnavailableError, type AssistantGenerator, type ChatTurn } from './gemini'
+import { generateAssistant } from './provider'
 import { loadSupportPricing } from './support-pricing'
 
 export type Handoff = { publicId: string; subject: string; reused: boolean }
@@ -44,6 +45,7 @@ function logAiFailure(error: unknown, request: Request) {
         status: error.status,
         code: error.code,
         model: error.model,
+        provider: error.provider,
         requestId: correlationId,
       }),
     )
@@ -162,7 +164,7 @@ export async function handleSupportChat(input: {
 }): Promise<SupportChatResult> {
   const pricing = await loadSupportPricing()
   const knowledge = buildPftKnowledge(pricing)
-  const generate = input.generate ?? generateWithGemini
+  const generate = input.generate ?? generateAssistant
 
   let category: SupportCategory = 'GENERAL'
   let reason: string | null = input.forceHandoff ? 'user_requested_human' : null

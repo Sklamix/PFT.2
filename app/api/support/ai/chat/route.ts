@@ -9,9 +9,9 @@ import { parseIdempotencyKey } from '@/lib/support/types'
 
 export const dynamic = 'force-dynamic'
 /**
- * Gemini is bounded to 7s and the operator handoff is written afterwards.
- * 30s gives the function enough headroom above the 20s client timeout without
- * leaving a hung request open indefinitely.
+ * The AI provider call is bounded to 7s and the operator handoff is written
+ * afterwards. 30s gives the function enough headroom above the 20s client
+ * timeout without leaving a hung request open indefinitely.
  */
 export const maxDuration = 30
 

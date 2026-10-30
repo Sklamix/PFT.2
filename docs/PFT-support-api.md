@@ -109,7 +109,7 @@ The trader UI displays staff messages as **PFT Support** (the API does not expos
 - **Logging**: unexpected failures log only an error kind/Prisma code/target — never message bodies or payloads.
 - **Pagination**: `page` is clamped to 1 000 and `pageSize` to 50.
 
-## AI assistant (Google Gemini)
+## AI assistant (NVIDIA Build, Gemini fallback)
 
 `POST /api/support/ai/chat` — trader session only, same-origin required, `Cache-Control: no-store`.
 
@@ -131,18 +131,20 @@ Response (escalated):
 { "answer": null, "handoff": { "publicId": "SUP-…", "subject": "…", "reused": true }, "handoffReason": "missing_key|quota_exhausted|rate_limited|timeout|unavailable|not_covered_by_rules|user_requested_human" }
 ```
 
-- The Gemini key (`GEMINI_API_KEY`) is read on the server only; model can be overridden with `GEMINI_MODEL` (default `gemini-2.5-flash`). Requests are bounded to 7 seconds so a slow model still leaves time to create the handoff ticket.
+- **Provider selection**: `AI_PROVIDER=nvidia|gemini` wins when set. Otherwise NVIDIA is used when `NVIDIA_API_KEY` is configured, and Gemini is the fallback. Production currently has only `GEMINI_API_KEY`, so it keeps using Gemini until the NVIDIA variables are added there on purpose. Rollback is an environment change, never a code change.
+- **NVIDIA Build (NIM)**: OpenAI-compatible `POST {NVIDIA_BASE_URL}/chat/completions` (default `https://integrate.api.nvidia.com/v1`), default model `nvidia/nemotron-3.5-lightning-30b-a3b`. The key (`NVIDIA_API_KEY`) is read on the server only and never reaches the browser, logs or error payloads. `stream` is forced to `false` because NIM defaults to streaming.
+- **Gemini (fallback)**: the key (`GEMINI_API_KEY`) is read on the server only; model can be overridden with `GEMINI_MODEL` (default `gemini-2.5-flash`). Requests are bounded to 7 seconds so a slow model still leaves time to create the handoff ticket.
 - The prompt is grounded in rulebook v1.6 plus **live** `ChallengePricing` rows loaded per request; prices are never hardcoded. The prompt labels rows as **base fees** and explains that the checkout total adds the optional static (+15%) and frozen backup (+50%) add-ons.
-- Structured output is enforced with a JSON response schema (`answer`, `resolved`, `category`, `handoffReason`); malformed or empty output is treated as unavailable and escalated.
-- Failure reasons are distinct: `quota_exhausted` (billing/quota wording), `rate_limited` (429 with retry wording), `timeout`, `unavailable` (5xx/unknown) and `missing_key`.
+- Output is a single JSON object (`answer`, `resolved`, `category`, `handoffReason`). Gemini enforces it with a response schema; NVIDIA's published ChatRequest schema does not expose `response_format`, so the JSON contract is stated in the prompt and validated server-side. Malformed, empty or truncated output is treated as unavailable and escalated — the assistant never answers from invented rules.
+- Failure reasons are distinct: `quota_exhausted` (billing/quota/credit wording, or `402`), `rate_limited` (429 with retry wording), `timeout`, `unavailable` (5xx/unknown/truncated) and `missing_key` (absent, invalid or revoked key — `401`/`403`).
 - Escalation reuses the trader's most recent **AI handoff** ticket (`Support chat:` subject, not CLOSED, updated within 24h) instead of opening a new one; the message is appended. Optional `idempotencyKey` makes retries safe.
 - The operator receives the question, the handoff reason, the last conversation turns and server-side account context (KYC status and up to three account display IDs, statuses, sizes, phases). No secrets, prompts or credentials are included.
 - `forceHandoff: true` skips the model and opens (or updates) the ticket.
 - If ticket creation fails the endpoint returns `503` and explicitly does not claim a transfer.
 - The assistant has no tools and cannot change accounts, balances, payouts, KYC, breaches or risk flags.
 - Rate limit: 20 messages per trader per hour (Postgres-backed).
-- Reliability: the browser call is bounded to **20 s** with `AbortController`; the route allows up to **30 s** on Vercel and the Gemini call itself is bounded to **7 s**, so the operator handoff still fits before the platform limit.
-- Failures are logged as structured JSON (`event`, `reason`, provider `status`/`code`, `model`, request correlation id) — never the API key, provider body, user message or PII. The client shows a friendly message and always clears its loading state; the UI only reports "sent to support" after the server returns a real ticket id.
+- Reliability: the browser call is bounded to **20 s** with `AbortController`; the route allows up to **30 s** on Vercel and the provider call itself is bounded to **7 s**, so the operator handoff still fits before the platform limit.
+- Failures are logged as structured JSON (`event`, `reason`, provider, `status`/`code`, `model`, request correlation id) — never the API key, provider body, user message or PII. The client shows a friendly message and always clears its loading state; the UI only reports "sent to support" after the server returns a real ticket id.
 
 ## Audit
 

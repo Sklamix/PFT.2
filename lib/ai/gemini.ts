@@ -5,6 +5,11 @@ import { AiUnavailableError, classifyGeminiFailure, type AiFailure } from './err
 export type { AiFailure }
 export { AiUnavailableError }
 
+/**
+ * Provider-agnostic contract shared by every AI backend (Gemini, NVIDIA NIM):
+ * `ChatTurn`, `AssistantResult`, `AssistantGenerator` and
+ * `parseAssistantResponse` are imported by `lib/ai/nvidia.ts` as well.
+ */
 export type ChatTurn = { role: 'user' | 'assistant'; content: string }
 
 export type AssistantResult = {
@@ -44,11 +49,14 @@ export function parseAssistantResponse(text: string): AssistantResult {
   const answer = typeof record.answer === 'string' ? record.answer.trim() : ''
   if (!answer) throw new AiUnavailableError('unavailable')
 
+  // Providers without a machine-enforced schema may send "" for "no reason".
+  const rawReason = typeof record.handoffReason === 'string' ? record.handoffReason.trim() : ''
+
   return {
     answer: answer.slice(0, 4_000),
     resolved: record.resolved === true,
     category: categoryFromModel(record.category),
-    handoffReason: typeof record.handoffReason === 'string' ? record.handoffReason.slice(0, 300) : null,
+    handoffReason: rawReason ? rawReason.slice(0, 300) : null,
   }
 }
 

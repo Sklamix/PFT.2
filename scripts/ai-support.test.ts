@@ -9,6 +9,8 @@ import {
   requestAssistant,
 } from '../lib/ai/assistant-client'
 import { AiUnavailableError, classifyGeminiFailure } from '../lib/ai/errors'
+import { generateWithNvidia, NVIDIA_DEFAULT_MODEL } from '../lib/ai/nvidia'
+import { resolveProvider } from '../lib/ai/provider'
 import { handleSupportChat, HandoffFailedError } from '../lib/ai/support-chat'
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -107,8 +109,7 @@ test('classification stays unchanged', () => {
   assert.equal(classified(408, 'Request timed out'), 'timeout')
 })
 
-test('server logs safe metadata and creates a real handoff ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
-  const prisma = new PrismaClient()
+test('server logs safe metadata and creates a real handoff ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {  const prisma = new PrismaClient()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
     data: { email: `ai-test-${suffix}@test.local`, passwordHash: hashPassword('test-pass'), name: 'AI Test', role: 'TRADER' },
@@ -180,4 +181,196 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
     await prisma.user.delete({ where: { id: user.id } })
     await prisma.$disconnect()
   }
+})
+
+// ---------------------------------------------------------------------------
+// NVIDIA Build (NIM) provider
+// ---------------------------------------------------------------------------
+
+const TEST_NVIDIA_KEY = 'pft-test-key-not-real'
+
+function nvidiaCompletion(content: string, finish = 'stop') {
+  return {
+    id: 'chatcmpl-test',
+    object: 'chat.completion',
+    model: NVIDIA_DEFAULT_MODEL,
+    choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: finish }],
+    usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+  }
+}
+
+type CapturedCall = { url: string; init: RequestInit }
+
+function nvidiaStub(body: unknown, status = 200, captured?: CapturedCall[]): typeof fetch {
+  return (async (url: string, init: RequestInit) => {
+    captured?.push({ url: String(url), init })
+    return new Response(typeof body === 'string' ? body : JSON.stringify(body), {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }) as unknown as typeof fetch
+}
+
+const nvidiaInput = {
+  systemInstruction: 'SYSTEM INSTRUCTIONS',
+  knowledge: 'PFT FACTS BLOCK',
+  history: [],
+  message: 'What is the profit split?',
+}
+
+function withNvidiaEnv<T>(run: () => Promise<T>): Promise<T> {
+  const previous = {
+    key: process.env.NVIDIA_API_KEY,
+    model: process.env.NVIDIA_MODEL,
+    base: process.env.NVIDIA_BASE_URL,
+  }
+  process.env.NVIDIA_API_KEY = TEST_NVIDIA_KEY
+  process.env.NVIDIA_MODEL = NVIDIA_DEFAULT_MODEL
+  process.env.NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1'
+  return run().finally(() => {
+    for (const [name, value] of [
+      ['NVIDIA_API_KEY', previous.key],
+      ['NVIDIA_MODEL', previous.model],
+      ['NVIDIA_BASE_URL', previous.base],
+    ] as const) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
+}
+
+test('nvidia returns a grounded answer with a safe request', async () => {
+  await withNvidiaEnv(async () => {
+    const calls: CapturedCall[] = []
+    const content = JSON.stringify({
+      answer: 'The split is 80% to the trader and 20% to PFT.',
+      resolved: true,
+      category: 'PAYOUT',
+      handoffReason: '',
+    })
+
+    const result = await generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(nvidiaCompletion(content), 200, calls) })
+
+    assert.equal(result.resolved, true)
+    assert.equal(result.category, 'PAYOUT')
+    assert.equal(result.handoffReason, null, 'empty handoffReason must normalise to null')
+
+    assert.equal(calls.length, 1)
+    assert.match(calls[0].url, /\/chat\/completions$/)
+    const sent = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>
+    assert.equal(sent.model, NVIDIA_DEFAULT_MODEL)
+    assert.equal(sent.stream, false, 'NIM defaults to streaming; it must be disabled')
+    assert.equal(sent.response_format, undefined)
+    assert.ok(!JSON.stringify(sent).includes(TEST_NVIDIA_KEY), 'the key must never be in the body')
+    const messages = sent.messages as { role: string; content: string }[]
+    assert.equal(messages[0].role, 'system')
+    assert.match(messages[0].content, /PFT FACTS BLOCK/)
+    assert.equal(messages.at(-1)?.role, 'user')
+  })
+})
+
+test('nvidia treats malformed model output as unavailable', async () => {
+  await withNvidiaEnv(async () => {
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(nvidiaCompletion('not json at all')) }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'unavailable' && error.provider === 'nvidia',
+    )
+
+    const emptyAnswer = JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '' })
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(nvidiaCompletion(emptyAnswer)) }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'unavailable',
+    )
+  })
+})
+
+test('nvidia times out even when the endpoint never answers', async () => {
+  await withNvidiaEnv(async () => {
+    const hanging = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })) as unknown as typeof fetch
+
+    const started = Date.now()
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, { fetchImpl: hanging, timeoutMs: 30 }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'timeout',
+    )
+    assert.ok(Date.now() - started < 2_000, 'timeout must settle quickly')
+  })
+})
+
+test('nvidia distinguishes rate limits from exhausted credits', async () => {
+  await withNvidiaEnv(async () => {
+    const throttled = {
+      type: 'urn:nvcf:too-many-requests',
+      title: 'Too Many Requests',
+      status: 429,
+      detail: 'Rate limit exceeded, retry later',
+    }
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(throttled, 429) }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'rate_limited' && error.status === 429,
+    )
+
+    const noCredits = {
+      type: 'urn:nvcf:quota',
+      title: 'Quota Exceeded',
+      status: 429,
+      detail: 'Trial credits exhausted for this organization',
+    }
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(noCredits, 429) }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'quota_exhausted',
+    )
+  })
+})
+
+test('nvidia maps 5xx and auth failures', async () => {
+  await withNvidiaEnv(async () => {
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub({ detail: 'internal error' }, 500) }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'unavailable' && error.status === 500,
+    )
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub({ detail: 'invalid api key' }, 401) }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'missing_key' && error.status === 401,
+    )
+  })
+})
+
+test('nvidia never leaks the key through errors and reports a missing key without a request', async () => {
+  await withNvidiaEnv(async () => {
+    let called = false
+    const failing = (async () => {
+      called = true
+      throw new TypeError('fetch failed')
+    }) as unknown as typeof fetch
+
+    await assert.rejects(generateWithNvidia(nvidiaInput, { fetchImpl: failing }), (error: unknown) => {
+      assert.ok(error instanceof AiUnavailableError)
+      assert.ok(!error.message.includes(TEST_NVIDIA_KEY))
+      assert.ok(!String(error.code).includes(TEST_NVIDIA_KEY))
+      return error.reason === 'unavailable'
+    })
+    assert.equal(called, true)
+
+    delete process.env.NVIDIA_API_KEY
+    await assert.rejects(
+      generateWithNvidia(nvidiaInput, {
+        fetchImpl: (async () => {
+          throw new Error('must not be called')
+        }) as unknown as typeof fetch,
+      }),
+      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'missing_key',
+    )
+  })
+})
+
+test('provider selection is deterministic and reversible by environment only', () => {
+  assert.equal(resolveProvider({}), 'gemini')
+  assert.equal(resolveProvider({ NVIDIA_API_KEY: 'x' }), 'nvidia')
+  assert.equal(resolveProvider({ NVIDIA_API_KEY: 'x', AI_PROVIDER: 'gemini' }), 'gemini')
+  assert.equal(resolveProvider({ AI_PROVIDER: 'nvidia' }), 'nvidia')
+  assert.equal(resolveProvider({ AI_PROVIDER: 'something-else' }), 'gemini')
 })
