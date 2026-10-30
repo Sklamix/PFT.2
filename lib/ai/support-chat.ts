@@ -23,6 +23,42 @@ export class HandoffFailedError extends Error {
 const HANDOFF_SUBJECT_PREFIX = 'Support chat:'
 const DEDUPE_WINDOW_MS = 24 * 60 * 60_000
 
+/** Correlation id from the edge/platform, safe to log. */
+function requestCorrelationId(request: Request) {
+  const raw = request.headers.get('x-vercel-id') ?? request.headers.get('x-request-id') ?? null
+  return raw ? raw.slice(0, 120) : null
+}
+
+/**
+ * Structured, privacy-safe failure log: reason/status/code/model/request id only.
+ * Never includes the API key, provider response bodies, user text or PII.
+ */
+function logAiFailure(error: unknown, request: Request) {
+  const correlationId = requestCorrelationId(request)
+  if (error instanceof AiUnavailableError) {
+    console.warn(
+      '[pft ai]',
+      JSON.stringify({
+        event: 'ai_unavailable',
+        reason: error.reason,
+        status: error.status,
+        code: error.code,
+        model: error.model,
+        requestId: correlationId,
+      }),
+    )
+    return
+  }
+  console.warn(
+    '[pft ai]',
+    JSON.stringify({
+      event: 'ai_error',
+      name: error instanceof Error ? error.name : 'unknown',
+      requestId: correlationId,
+    }),
+  )
+}
+
 export function handoffSubject(message: string) {
   const cleaned = message.replace(/\s+/g, ' ').trim()
   const subject = `${HANDOFF_SUBJECT_PREFIX} ${cleaned.slice(0, 140)}`.slice(0, 160)
@@ -145,6 +181,7 @@ export async function handleSupportChat(input: {
       category = result.category
       reason = result.handoffReason ?? 'not_covered_by_rules'
     } catch (error) {
+      logAiFailure(error, input.request)
       reason = error instanceof AiUnavailableError ? error.reason : 'ai_unavailable'
     }
   }
@@ -184,6 +221,7 @@ export async function handleSupportChat(input: {
     })
   } catch {
     // Never claim a transfer that was not stored.
+    console.warn('[pft ai]', JSON.stringify({ event: 'ai_handoff_failed', requestId: requestCorrelationId(input.request) }))
     throw new HandoffFailedError()
   }
 

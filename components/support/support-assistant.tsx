@@ -3,26 +3,35 @@
 import { useRef, useState, type FormEvent } from 'react'
 import { Bot, ChevronDown, ChevronUp, Loader2, Send, UserRound, LifeBuoy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AssistantRequestError,
+  nextIdempotencyKey,
+  requestAssistant,
+  type AssistantHistoryTurn,
+  type PendingKey,
+} from '@/lib/ai/assistant-client'
 import { cn } from '@/lib/utils'
 
-type Turn = { role: 'user' | 'assistant'; content: string }
-
-type ChatResponse = {
-  answer: string | null
-  handoff: { publicId: string; subject: string; reused?: boolean } | null
-  handoffReason?: string | null
-  error?: string
-}
+type Turn = AssistantHistoryTurn
 
 const MAX_MESSAGE = 1_000
 const MAX_HISTORY = 6
 
-function errorText(status: number, payload: { error?: string }) {
-  if (status === 401) return 'Your session expired. Please sign in again.'
-  if (status === 403) return payload.error ?? 'This request was blocked. Refresh the page and try again.'
-  if (status === 429) return payload.error ?? 'Too many messages. Please wait a moment.'
-  if (status === 503) return payload.error ?? 'The assistant is unavailable. Please open a support ticket.'
-  return payload.error ?? 'The assistant could not answer. Please try again or open a ticket.'
+function assistantErrorMessage(error: unknown) {
+  if (error instanceof AssistantRequestError) {
+    if (error.kind === 'timeout') {
+      return 'No response from the assistant within 20 seconds. If your message was saved, the ticket will appear in the list below; otherwise please try again.'
+    }
+    if (error.kind === 'network') {
+      return 'Network error — the message was not confirmed. Please check your connection and try again.'
+    }
+    if (error.kind === 'invalid_response') {
+      return 'The assistant returned an unexpected response. Please try again or open a support ticket.'
+    }
+    if (error.status === 401) return 'Your session expired. Please sign in again.'
+    return error.message || 'The assistant could not answer. Please try again or open a support ticket.'
+  }
+  return 'The assistant could not answer. Please try again or open a support ticket.'
 }
 
 export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) => void }) {
@@ -32,7 +41,7 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [handoff, setHandoff] = useState<{ publicId: string; reused: boolean } | null>(null)
-  const pendingKey = useRef<string | null>(null)
+  const pendingKey = useRef<PendingKey | null>(null)
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -43,27 +52,19 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
     setHandoff(null)
 
     const history = turns.slice(-MAX_HISTORY)
-    if (!pendingKey.current) pendingKey.current = crypto.randomUUID()
+    const pending = nextIdempotencyKey(pendingKey.current, message)
+    pendingKey.current = pending
     try {
-      const response = await fetch('/api/support/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, history, idempotencyKey: pendingKey.current }),
-      })
-      const data = (await response.json().catch(() => ({}))) as ChatResponse
-      if (!response.ok) {
-        setError(errorText(response.status, data))
-        return
-      }
+      const data = await requestAssistant({ message, history, idempotencyKey: pending.key })
       const next: Turn[] = [...history, { role: 'user', content: message }]
       if (data.answer) next.push({ role: 'assistant', content: data.answer })
       setTurns(next)
       setDraft('')
       pendingKey.current = null
       if (data.handoff) setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
-    } catch {
-      // Keep the idempotency key so a retry cannot create a duplicate handoff message.
-      setError('Network error. Please try again or open a support ticket.')
+    } catch (reason) {
+      // Keep the idempotency key so retrying the same message cannot duplicate a handoff.
+      setError(assistantErrorMessage(reason))
     } finally {
       setSending(false)
     }
@@ -75,24 +76,20 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
     setSending(true)
     setError(null)
     setHandoff(null)
-    if (!pendingKey.current) pendingKey.current = crypto.randomUUID()
+    const pending = nextIdempotencyKey(pendingKey.current, message)
+    pendingKey.current = pending
     try {
-      const response = await fetch('/api/support/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, forceHandoff: true, idempotencyKey: pendingKey.current }),
-      })
-      const data = (await response.json().catch(() => ({}))) as ChatResponse
-      if (!response.ok || !data.handoff) {
-        setError(errorText(response.status, data))
+      const data = await requestAssistant({ message, forceHandoff: true, history: [], idempotencyKey: pending.key })
+      if (!data.handoff) {
+        setError('The assistant did not confirm a support ticket. Please try again.')
         return
       }
       setTurns((current) => [...current, { role: 'user', content: message }])
       setDraft('')
       pendingKey.current = null
       setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
-    } catch {
-      setError('Network error. The request was not sent. Please try again.')
+    } catch (reason) {
+      setError(assistantErrorMessage(reason))
     } finally {
       setSending(false)
     }
@@ -154,15 +151,22 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
           </div>
 
           {handoff ? (
-            <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
-              <p className="font-semibold">
-                {handoff.reused ? 'Your support ticket was updated' : 'A support ticket was created'}: {handoff.publicId}
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-200"
+            >
+              <p className="font-semibold">Sent to support</p>
+              <p className="mt-0.5 text-emerald-300/90">
+                {handoff.reused
+                  ? 'Your open support ticket was updated with this message.'
+                  : 'A support ticket was created for this conversation.'}
               </p>
-              <p className="mt-0.5 text-emerald-300/80">A human operator will reply in the ticket below.</p>
+              <p className="mt-1 font-mono text-[11px] text-emerald-200">{handoff.publicId}</p>
               <Button
                 variant="outline"
                 size="xs"
-                className="mt-2 h-7 gap-1"
+                className="mt-2 h-8 gap-1 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/15"
                 onClick={() => {
                   onHandoff(handoff.publicId)
                   setHandoff(null)

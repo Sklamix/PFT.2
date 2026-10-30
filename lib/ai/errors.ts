@@ -12,10 +12,23 @@ export type AiFailure =
 
 export class AiUnavailableError extends Error {
   reason: AiFailure
-  constructor(reason: AiFailure) {
+  /** Provider HTTP status when the SDK exposed one. Never contains response bodies. */
+  status: number | null
+  /** Provider error code (e.g. NOT_FOUND, RESOURCE_EXHAUSTED) when available. */
+  code: string | null
+  /** Model requested at the time of failure. */
+  model: string | null
+
+  constructor(
+    reason: AiFailure,
+    meta: { status?: number | null; code?: string | number | null; model?: string | null } = {},
+  ) {
     super(`AI unavailable: ${reason}`)
     this.name = 'AiUnavailableError'
     this.reason = reason
+    this.status = typeof meta.status === 'number' ? meta.status : null
+    this.code = meta.code === undefined || meta.code === null ? null : String(meta.code).slice(0, 80)
+    this.model = meta.model ? String(meta.model).slice(0, 80) : null
   }
 }
 

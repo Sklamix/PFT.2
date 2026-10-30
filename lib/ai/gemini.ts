@@ -57,12 +57,12 @@ export function parseAssistantResponse(text: string): AssistantResult {
  * never sees it. Errors are normalised so callers can escalate to a human.
  */
 export const generateWithGemini: AssistantGenerator = async ({ systemInstruction, knowledge, history, message }) => {
+  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL
   const apiKey = process.env.GEMINI_API_KEY?.trim()
-  if (!apiKey) throw new AiUnavailableError('missing_key')
+  if (!apiKey) throw new AiUnavailableError('missing_key', { model })
 
   const { GoogleGenAI, Type } = await import('@google/genai')
   const ai = new GoogleGenAI({ apiKey })
-  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL
 
   try {
     const response = await ai.models.generateContent({
@@ -95,7 +95,18 @@ export const generateWithGemini: AssistantGenerator = async ({ systemInstruction
     const text = typeof response.text === 'string' ? response.text : ''
     return parseAssistantResponse(text)
   } catch (error) {
-    if (error instanceof AiUnavailableError) throw error
-    throw new AiUnavailableError(classifyGeminiFailure(error))
+    if (error instanceof AiUnavailableError) {
+      // Keep the parsed failure reason, annotate it with safe provider metadata.
+      if (!error.model) error.model = model
+      throw error
+    }
+    const status =
+      typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : null
+    const codeValue = (error as { code?: unknown })?.code
+    throw new AiUnavailableError(classifyGeminiFailure(error), {
+      status,
+      code: typeof codeValue === 'string' || typeof codeValue === 'number' ? codeValue : null,
+      model,
+    })
   }
 }

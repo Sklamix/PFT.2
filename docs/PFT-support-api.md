@@ -141,6 +141,8 @@ Response (escalated):
 - If ticket creation fails the endpoint returns `503` and explicitly does not claim a transfer.
 - The assistant has no tools and cannot change accounts, balances, payouts, KYC, breaches or risk flags.
 - Rate limit: 20 messages per trader per hour (Postgres-backed).
+- Reliability: the browser call is bounded to **20 s** with `AbortController`; the route allows up to **30 s** on Vercel and the Gemini call itself is bounded to **7 s**, so the operator handoff still fits before the platform limit.
+- Failures are logged as structured JSON (`event`, `reason`, provider `status`/`code`, `model`, request correlation id) — never the API key, provider body, user message or PII. The client shows a friendly message and always clears its loading state; the UI only reports "sent to support" after the server returns a real ticket id.
 
 ## Audit
 
