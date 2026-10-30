@@ -9,6 +9,7 @@ import {
   requestAssistant,
 } from '../lib/ai/assistant-client'
 import { AiUnavailableError, classifyGeminiFailure } from '../lib/ai/errors'
+import { buildPftKnowledge, SUPPORT_SYSTEM_INSTRUCTIONS } from '../lib/ai/pft-knowledge'
 import { generateWithNvidia, NVIDIA_DEFAULT_MODEL } from '../lib/ai/nvidia'
 import { resolveProvider } from '../lib/ai/provider'
 import { handleSupportChat, HandoffFailedError } from '../lib/ai/support-chat'
@@ -374,3 +375,184 @@ test('provider selection is deterministic and reversible by environment only', (
   assert.equal(resolveProvider({ AI_PROVIDER: 'nvidia' }), 'nvidia')
   assert.equal(resolveProvider({ AI_PROVIDER: 'something-else' }), 'gemini')
 })
+
+// ---------------------------------------------------------------------------
+// Rulebook precision: news windows, language, pricing variants
+// ---------------------------------------------------------------------------
+
+test('news facts separate holding from opening and forbid guessing', () => {
+  const knowledge = buildPftKnowledge([])
+
+  const requiredFacts = [
+    'forbidden to OPEN a new position or to INCREASE an existing position',
+    'A pending order that fills inside the window counts as opening a position',
+    'Closing or reducing a position inside the window is allowed and is not a violation',
+    'A position opened at least 60 minutes before the event and still open during the news is NOT a breach',
+    'A position opened less than 60 minutes before the event (but outside the 5-minute window) and still open during the news is news-window exposure',
+    'Holding is therefore not automatically a violation',
+    'If the timing is unknown or the scenario is ambiguous, hand off instead of guessing',
+  ]
+  for (const fact of requiredFacts) assert.ok(knowledge.includes(fact), `missing fact: ${fact}`)
+
+  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('Never extend a rule by analogy'))
+  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('Always answer in the language'))
+  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('must be answered in Ukrainian'))
+  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('list every available variant'))
+})
+
+test('pricing block lists every plan variant for the same account size', () => {
+  const knowledge = buildPftKnowledge([
+    { accountSize: 25_000, challengeType: '1-STEP', dailyLossType: 4, price: 159 },
+    { accountSize: 25_000, challengeType: '2-STEP', dailyLossType: 3, price: 109 },
+    { accountSize: 25_000, challengeType: '2-STEP', dailyLossType: 5, price: 148 },
+  ])
+
+  assert.ok(knowledge.includes('1-STEP · daily loss 4% — base fee $159.00'))
+  assert.ok(knowledge.includes('2-STEP · daily loss 3% — base fee $109.00'))
+  assert.ok(knowledge.includes('2-STEP · daily loss 5% — base fee $148.00'))
+  assert.ok(knowledge.includes('One account size can have several plans'))
+  assert.ok(knowledge.includes('These figures are BASE FEES'))
+})
+
+// ---------------------------------------------------------------------------
+// Handoff idempotency
+// ---------------------------------------------------------------------------
+
+test('concurrent retries with the same key create exactly one ticket and one message', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  const prisma = new PrismaClient()
+  const suffix = Date.now().toString(36)
+  const user = await prisma.user.create({
+    data: { email: `ai-race-${suffix}@test.local`, passwordHash: 'x', name: 'AI Race', role: 'TRADER' },
+  })
+
+  try {
+    const key = `retry-${suffix}`
+    const results = await Promise.all(
+      Array.from({ length: 4 }, (_, index) =>
+        handleSupportChat({
+          userId: user.id,
+          message: 'Мій акаунт заблоковано, хочу оскаржити рішення.',
+          history: [],
+          forceHandoff: true,
+          idempotencyKey: key,
+          request: new Request('http://localhost:3100/api/support/ai/chat', {
+            method: 'POST',
+            headers: { 'x-vercel-id': `ai-race-${suffix}-${index}` },
+          }),
+        }),
+      ),
+    )
+
+    const ids = new Set(results.map((result) => result.handoff?.publicId))
+    assert.equal(ids.size, 1, 'all concurrent retries must return one ticket')
+    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 1)
+    assert.equal(await prisma.supportMessage.count({ where: { ticket: { userId: user.id } } }), 1)
+    assert.equal(results.filter((result) => result.handoff?.reused === false).length, 1, 'exactly one call creates the ticket')
+  } finally {
+    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+    await prisma.user.delete({ where: { id: user.id } })
+    await prisma.$disconnect()
+  }
+})
+
+test('a sequential retry with the same key returns the same ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  const prisma = new PrismaClient()
+  const suffix = Date.now().toString(36)
+  const user = await prisma.user.create({
+    data: { email: `ai-seq-${suffix}@test.local`, passwordHash: 'x', name: 'AI Sequential', role: 'TRADER' },
+  })
+
+  try {
+    const key = `seq-${suffix}`
+    const message = 'Потрібна допомога оператора з виплатою.'
+    const makeRequest = () =>
+      new Request('http://localhost:3100/api/support/ai/chat', {
+        method: 'POST',
+        headers: { 'x-vercel-id': `ai-seq-${suffix}` },
+      })
+
+    const first = await handleSupportChat({
+      userId: user.id,
+      message,
+      history: [],
+      forceHandoff: true,
+      idempotencyKey: key,
+      request: makeRequest(),
+    })
+    assert.equal(first.handoff?.reused, false, 'the first call creates the ticket')
+
+    // The client timed out and retries the same message with the same key later.
+    await new Promise((resolve) => setTimeout(resolve, 60))
+
+    const retry = await handleSupportChat({
+      userId: user.id,
+      message,
+      history: [],
+      forceHandoff: true,
+      idempotencyKey: key,
+      request: makeRequest(),
+    })
+
+    assert.equal(retry.handoff?.publicId, first.handoff?.publicId, 'the retry returns the original ticket')
+    assert.equal(retry.handoff?.reused, true)
+    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 1)
+    assert.equal(await prisma.supportMessage.count({ where: { ticket: { userId: user.id } } }), 1)
+  } finally {
+    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+    await prisma.user.delete({ where: { id: user.id } })
+    await prisma.$disconnect()
+  }
+})
+
+test('a retry for a closed ticket opens a new ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  const prisma = new PrismaClient()
+  const suffix = Date.now().toString(36)
+  const user = await prisma.user.create({
+    data: { email: `ai-closed-${suffix}@test.local`, passwordHash: 'x', name: 'AI Closed', role: 'TRADER' },
+  })
+
+  try {
+    const key = `closed-${suffix}`
+    const request = new Request('http://localhost:3100/api/support/ai/chat', {
+      method: 'POST',
+      headers: { 'x-vercel-id': `ai-closed-${suffix}` },
+    })
+    const first = await handleSupportChat({
+      userId: user.id,
+      message: 'Потрібен оператор.',
+      history: [],
+      forceHandoff: true,
+      idempotencyKey: key,
+      request,
+    })
+    assert.equal(first.handoff?.reused, false)
+
+    await prisma.supportTicket.update({ where: { publicId: first.handoff!.publicId }, data: { status: 'CLOSED' } })
+
+    const second = await handleSupportChat({
+      userId: user.id,
+      message: 'Потрібен оператор.',
+      history: [],
+      forceHandoff: true,
+      idempotencyKey: key,
+      request,
+    })
+    assert.notEqual(second.handoff?.publicId, first.handoff?.publicId)
+    assert.equal(second.handoff?.reused, false)
+    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 2)
+  } finally {
+    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+    await prisma.user.delete({ where: { id: user.id } })
+    await prisma.$disconnect()
+  }
+})
+

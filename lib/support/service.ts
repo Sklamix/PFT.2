@@ -1,5 +1,5 @@
 import { Prisma, type SupportCategory, type SupportPriority, type SupportStatus } from '@prisma/client'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { recordActivity } from '@/lib/admin/activity'
 import {
@@ -28,6 +28,20 @@ function newPublicId() {
   const bytes = randomBytes(10)
   let suffix = ''
   for (let index = 0; index < 10; index += 1) suffix += PUBLIC_ID_ALPHABET[bytes[index]! % PUBLIC_ID_ALPHABET.length]
+  return `SUP-${suffix}`
+}
+
+/**
+ * Deterministic ticket reference for a keyed creation request. Two concurrent
+ * requests that carry the same idempotency key derive the same `publicId`, so
+ * the unique index lets exactly one insert win and the other is resolved by
+ * reading the winner back. The key is a random client UUID, so the reference
+ * stays unguessable.
+ */
+function publicIdForKey(userId: string, key: string) {
+  const digest = createHash('sha256').update(`support-handoff:${userId}:${key}`).digest()
+  let suffix = ''
+  for (let index = 0; index < 10; index += 1) suffix += PUBLIC_ID_ALPHABET[digest[index]! % PUBLIC_ID_ALPHABET.length]
   return `SUP-${suffix}`
 }
 
@@ -96,6 +110,8 @@ export async function createTicket(input: {
   category: SupportCategory
   body: string
   request: Request
+  /** Optional client key; stored on the first message so a retried request cannot duplicate it. */
+  idempotencyKey?: string | null
 }) {
   const subject = cleanText(input.subject, {
     min: SUPPORT_LIMITS.subjectMin,
@@ -109,18 +125,26 @@ export async function createTicket(input: {
   })
 
   // Status, priority and assignee are decided by the server only.
+  const keyedId = input.idempotencyKey ? publicIdForKey(input.userId, input.idempotencyKey) : null
+  let deterministicId = keyedId
+
   for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
       const ticket = await prisma.supportTicket.create({
         data: {
-          publicId: newPublicId(),
+          publicId: deterministicId ?? newPublicId(),
           userId: input.userId,
           subject,
           category: input.category,
           status: 'OPEN',
           priority: 'NORMAL',
           messages: {
-            create: { senderType: 'TRADER', senderUserId: input.userId, body },
+            create: {
+              senderType: 'TRADER',
+              senderUserId: input.userId,
+              body,
+              idempotencyKey: scopedIdempotencyKey('TRADER', input.userId, input.idempotencyKey ?? null),
+            },
           },
         },
         select: SUMMARY_SELECT,
@@ -133,10 +157,23 @@ export async function createTicket(input: {
         metadata: { publicId: ticket.publicId, category: ticket.category },
       })
 
-      return toSummary(ticket)
+      return { ...toSummary(ticket), reused: false as const }
     } catch (error) {
-      // Public-id collision only; the unique userId constraint does not apply here.
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002' && attempt < 3) continue
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        if (deterministicId) {
+          // A retry (or a concurrent duplicate) already created this ticket.
+          const existing = await prisma.supportTicket.findFirst({
+            where: { publicId: deterministicId, userId: input.userId, status: { not: 'CLOSED' } },
+            select: SUMMARY_SELECT,
+          })
+          if (existing) return { ...toSummary(existing), reused: true as const }
+          // Reference taken by another user or the ticket was closed: use a random id.
+          deterministicId = null
+          continue
+        }
+        // Random reference collision only.
+        if (attempt < 3) continue
+      }
       throw error
     }
   }

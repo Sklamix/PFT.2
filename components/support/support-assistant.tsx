@@ -42,11 +42,16 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
   const [error, setError] = useState<string | null>(null)
   const [handoff, setHandoff] = useState<{ publicId: string; reused: boolean } | null>(null)
   const pendingKey = useRef<PendingKey | null>(null)
+  // Synchronous guard: `sending` is React state, so two clicks in the same tick
+  // could both observe `false`. The ref is flipped before the first await.
+  const inFlight = useRef(false)
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (inFlight.current) return
     const message = draft.trim()
-    if (!message || sending) return
+    if (!message) return
+    inFlight.current = true
     setSending(true)
     setError(null)
     setHandoff(null)
@@ -66,13 +71,15 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
       // Keep the idempotency key so retrying the same message cannot duplicate a handoff.
       setError(assistantErrorMessage(reason))
     } finally {
+      inFlight.current = false
       setSending(false)
     }
   }
 
   async function talkToHuman() {
-    if (sending) return
+    if (inFlight.current) return
     const message = draft.trim() || 'I would like to speak to a human operator.'
+    inFlight.current = true
     setSending(true)
     setError(null)
     setHandoff(null)
@@ -91,6 +98,7 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
     } catch (reason) {
       setError(assistantErrorMessage(reason))
     } finally {
+      inFlight.current = false
       setSending(false)
     }
   }

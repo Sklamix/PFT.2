@@ -43,6 +43,15 @@ Messages are returned oldest-first; ticket lists are newest-activity-first (`upd
 **Idempotency:** send `idempotencyKey` (8–100 chars `[A-Za-z0-9:_-]`). A retry with the same key returns the
 original message with `duplicate: true` and HTTP 200 instead of creating a second row.
 
+`POST /api/support/tickets` responds with `201` and `{ "ticket": { … } }`. The ticket object includes `reused`:
+
+- `reused: false` — a new ticket was created.
+- `reused: true` — an existing ticket for the same `idempotencyKey` was returned instead of creating a duplicate.
+
+The manual "New ticket" form does not send an `idempotencyKey`, so this endpoint currently always returns
+`reused: false`. AI handoff (`POST /api/support/ai/chat`) applies the same rule and can return `true` when it
+reuses the trader's open handoff ticket; see the AI assistant section for that flow.
+
 Trader messages are rejected with `409` on `CLOSED` tickets. A message on a `RESOLVED` or `WAITING_FOR_USER`
 ticket moves it back to `WAITING_FOR_STAFF`.
 
@@ -138,6 +147,9 @@ Response (escalated):
 - Output is a single JSON object (`answer`, `resolved`, `category`, `handoffReason`). Gemini enforces it with a response schema; NVIDIA's published ChatRequest schema does not expose `response_format`, so the JSON contract is stated in the prompt and validated server-side. Malformed, empty or truncated output is treated as unavailable and escalated — the assistant never answers from invented rules.
 - Failure reasons are distinct: `quota_exhausted` (billing/quota/credit wording, or `402`), `rate_limited` (429 with retry wording), `timeout`, `unavailable` (5xx/unknown/truncated) and `missing_key` (absent, invalid or revoked key — `401`/`403`).
 - Escalation reuses the trader's most recent **AI handoff** ticket (`Support chat:` subject, not CLOSED, updated within 24h) instead of opening a new one; the message is appended. Optional `idempotencyKey` makes retries safe.
+- **Server-side idempotency**: a keyed handoff derives a deterministic ticket reference from `userId + idempotencyKey` (`sha256`, 10 chars of the public alphabet). Concurrent or timed-out retries therefore hit the `publicId` unique index: exactly one insert wins, the others read that ticket back and return `handoff.reused = true`. A retry for a CLOSED ticket falls back to a fresh reference, so a new ticket is created intentionally. The key is also stored on the ticket's first message, so the same retry cannot duplicate the message.
+- Handoff context is exact: news-window questions are answered from the rulebook (opening/increasing is a violation; closing/reducing is allowed; a position opened ≥60 min before the event is not a breach, while <60 min is `news-window exposure`), and ambiguous timing must escalate instead of being guessed.
+- Answers follow the trader's language (Ukrainian is required for Ukrainian questions), and a price question for an account size with several plans must list every variant or ask which plan is meant — never a single arbitrary variant.
 - The operator receives the question, the handoff reason, the last conversation turns and server-side account context (KYC status and up to three account display IDs, statuses, sizes, phases). No secrets, prompts or credentials are included.
 - `forceHandoff: true` skips the model and opens (or updates) the ticket.
 - If ticket creation fails the endpoint returns `503` and explicitly does not claim a transfer.

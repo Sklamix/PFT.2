@@ -212,24 +212,26 @@ export async function handleSupportChat(input: {
     // Closed or otherwise unavailable: fall through and create a fresh ticket.
   }
 
-  let ticket
   try {
-    ticket = await createTicket({
+    // A retry that races this call uses the same idempotency key, which maps to
+    // a deterministic publicId: the unique index makes the second insert lose
+    // and return the ticket created by the first request.
+    const ticket = await createTicket({
       userId: input.userId,
       subject: handoffSubject(input.message),
       category,
       body,
       request: input.request,
+      idempotencyKey: input.idempotencyKey,
     })
+    return {
+      answer: null,
+      handoff: { publicId: ticket.publicId, subject: ticket.subject, reused: ticket.reused },
+      handoffReason: finalReason,
+    }
   } catch {
     // Never claim a transfer that was not stored.
     console.warn('[pft ai]', JSON.stringify({ event: 'ai_handoff_failed', requestId: requestCorrelationId(input.request) }))
     throw new HandoffFailedError()
-  }
-
-  return {
-    answer: null,
-    handoff: { publicId: ticket.publicId, subject: ticket.subject, reused: false },
-    handoffReason: finalReason,
   }
 }
