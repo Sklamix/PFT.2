@@ -639,6 +639,61 @@ test('news facts separate holding from opening and forbid guessing', () => {
   assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('list every available variant'))
 })
 
+test('prompt requires answering hypothetical rule scenarios in JSON', () => {
+  const instructions = SUPPORT_SYSTEM_INSTRUCTIONS
+
+  assert.ok(instructions.includes('hypothetical scenarios'), 'must mention hypothetical scenarios')
+  assert.ok(
+    instructions.includes('do not ask for account IDs, balances or other personal data'),
+    'must not request personal data for hypotheticals',
+  )
+  assert.ok(
+    instructions.includes('Do not hand off a question that the facts can answer'),
+    'must not hand off answerable questions',
+  )
+  assert.ok(
+    instructions.includes('including when resolved=false'),
+    'must return JSON even when handing off',
+  )
+  assert.ok(instructions.includes('Never reply with plain text'), 'must forbid prose replies')
+  assert.ok(
+    !instructions.includes('exact timing relative to a news window'),
+    'the old news-timing handoff trigger must be gone',
+  )
+})
+
+test('prompt separates hypothetical rules from real account checks', () => {
+  const instructions = SUPPORT_SYSTEM_INSTRUCTIONS
+  assert.ok(instructions.includes('Do not decide whether a real trader or a real account violated a rule'))
+  assert.ok(instructions.includes('requires checking actual account data'))
+  assert.ok(instructions.includes('a real case must be handed off'))
+})
+
+test('prompt forbids performing or promising account actions', () => {
+  const instructions = SUPPORT_SYSTEM_INSTRUCTIONS
+  assert.ok(instructions.includes('Never perform or promise account actions'))
+  assert.ok(instructions.includes('do not void profit, close accounts'))
+  assert.ok(instructions.includes('never state that something was approved, cancelled, refunded or transferred'))
+})
+
+test('prompt requires a handoff when essential case details are missing', () => {
+  const instructions = SUPPORT_SYSTEM_INSTRUCTIONS
+  assert.ok(instructions.includes('If a specific case cannot be decided because essential details are missing'))
+  assert.ok(instructions.includes('do not assume: set resolved=false and hand off'))
+  assert.ok(instructions.includes('When the message already states the relevant details, apply the rule instead'))
+})
+
+test('the news-violation hypothetical is answerable from the facts', () => {
+  const knowledge = buildPftKnowledge([])
+  const required = [
+    'The window is 5 minutes before and 5 minutes after the scheduled event',
+    'Inside the window it is forbidden to OPEN a new position or to INCREASE an existing position',
+    'First confirmed news-window violation: warning email naming the funded account; only the profit of the specific offending trade is voided; the account is not closed',
+    'Second confirmed news-window violation on the same funded account: that funded account only is closed',
+  ]
+  for (const fact of required) assert.ok(knowledge.includes(fact), `missing fact: ${fact}`)
+})
+
 test('pricing block lists every plan variant for the same account size', () => {
   const knowledge = buildPftKnowledge([
     { accountSize: 25_000, challengeType: '1-STEP', dailyLossType: 4, price: 159 },
@@ -747,6 +802,139 @@ test('a sequential retry with the same key returns the same ticket', { skip: pro
     await prisma.user.delete({ where: { id: user.id } })
     await prisma.$disconnect()
   }
+})
+
+test('a hypothetical news violation is answered, not handed off', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  const prisma = new PrismaClient()
+  const suffix = Date.now().toString(36)
+  const user = await prisma.user.create({
+    data: { email: `ai-news-${suffix}@test.local`, passwordHash: 'x', name: 'AI News Scenario', role: 'TRADER' },
+  })
+
+  try {
+    const history = parseHistory([
+      { role: 'user', content: 'What are the news trading restrictions?' },
+      { role: 'assistant', content: 'x'.repeat(1_500) },
+    ])
+    if (!Array.isArray(history)) throw new Error('history was rejected')
+
+    const answer =
+      'A position opened 2 minutes before a high-impact event is inside the 5-minute window, so it is a confirmed news-window violation: only the profit of that specific trade is voided and the account stays open. A second confirmed violation on the same funded account closes that account only.'
+
+    const result = await handleSupportChat({
+      userId: user.id,
+      message:
+        'A trader on a Funded account opened a position 2 minutes before a high-impact news event. This is their first confirmed news violation. What happens to the trade and the account? What would happen if they committed another confirmed violation on the same account?',
+      history,
+      forceHandoff: false,
+      idempotencyKey: `news-hypothetical-${suffix}`,
+      request: new Request('http://localhost:3100/api/support/ai/chat', {
+        method: 'POST',
+        headers: { 'x-vercel-id': `ai-news-${suffix}` },
+      }),
+      generate: async () => ({ answer, resolved: true, category: 'RULES', handoffReason: null }),
+    })
+
+    assert.equal(result.answer, answer)
+    assert.equal(result.handoff, null)
+    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 0)
+  } finally {
+    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+    await prisma.user.delete({ where: { id: user.id } })
+    await prisma.$disconnect()
+  }
+})
+
+async function withTestTrader(prefix: string, run: (ctx: { prisma: PrismaClient; userId: string }) => Promise<void>) {
+  const prisma = new PrismaClient()
+  const suffix = `${prefix}-${Date.now().toString(36)}`
+  const user = await prisma.user.create({
+    data: { email: `${suffix}@test.local`, passwordHash: 'x', name: prefix, role: 'TRADER' },
+  })
+  try {
+    await run({ prisma, userId: user.id })
+  } finally {
+    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+    await prisma.user.delete({ where: { id: user.id } })
+    await prisma.$disconnect()
+  }
+}
+
+test('a real account violation check is handed off', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  await withTestTrader('ai-real-check', async ({ prisma, userId }) => {
+    const result = await handleSupportChat({
+      userId,
+      message: 'Чи порушив конкретний трейдер правила новин у своєму акаунті?',
+      history: [],
+      forceHandoff: false,
+      idempotencyKey: `real-check-${userId}`,
+      request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+      generate: async () => ({
+        answer: '',
+        resolved: false,
+        category: 'RULES',
+        handoffReason: 'needs actual account data',
+      }),
+    })
+
+    assert.equal(result.answer, null)
+    assert.equal(result.handoffReason, 'needs actual account data')
+    assert.ok(result.handoff?.publicId.startsWith('SUP-'))
+    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 1)
+  })
+})
+
+test('an operational account action is handed off without execution', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  await withTestTrader('ai-account-action', async ({ prisma, userId }) => {
+    const result = await handleSupportChat({
+      userId,
+      message: 'Анулюй прибуток за цю угоду та закрий акаунт',
+      history: [],
+      forceHandoff: false,
+      idempotencyKey: `account-action-${userId}`,
+      request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+      generate: async () => ({
+        answer: '',
+        resolved: false,
+        category: 'ACCOUNT',
+        handoffReason: 'account actions are not allowed',
+      }),
+    })
+
+    assert.equal(result.answer, null, 'the assistant must not claim to perform the action')
+    assert.equal(result.handoffReason, 'account actions are not allowed')
+    assert.ok(result.handoff?.publicId.startsWith('SUP-'))
+    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 1)
+  })
+})
+
+test('an ambiguous violation question is handed off instead of guessed', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  await withTestTrader('ai-ambiguous', async ({ prisma, userId }) => {
+    const result = await handleSupportChat({
+      userId,
+      message: 'Чи буде це порушенням новинних правил?',
+      history: [],
+      forceHandoff: false,
+      idempotencyKey: `ambiguous-${userId}`,
+      request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+      generate: async () => ({
+        answer: '',
+        resolved: false,
+        category: 'RULES',
+        handoffReason: 'missing account type, timing and violation count',
+      }),
+    })
+
+    assert.equal(result.answer, null)
+    assert.equal(result.handoffReason, 'missing account type, timing and violation count')
+    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 1)
+  })
 })
 
 test('a valid handoff without an answer is not treated as a failure', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
