@@ -23,7 +23,7 @@ export class AiUnavailableError extends Error {
   model: string | null
   /** Provider that produced the failure. Never contains credentials. */
   provider: string | null
-  /** Safe internal discriminator (e.g. invalid_json, empty_answer, fetch_error). Never model text. */
+  /** Safe internal discriminator (e.g. invalid_json_text, invalid_json_object, empty_answer, fetch_error). Never model text. */
   detail: string | null
   /** Length of the provider content, for diagnostics. Never the content itself. */
   contentLength: number | null

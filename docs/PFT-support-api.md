@@ -156,7 +156,7 @@ Response (escalated):
 - The assistant has no tools and cannot change accounts, balances, payouts, KYC, breaches or risk flags.
 - Rate limit: 20 messages per trader per hour (Postgres-backed).
 - Reliability: the browser call is bounded to **20 s** with `AbortController`; the route allows up to **30 s** on Vercel and the provider call itself is bounded to **7 s**, so the operator handoff still fits before the platform limit.
-- Failures are logged as structured JSON (`event`, `reason`, provider, `status`/`code`, `model`, safe parse `detail` such as `invalid_json`/`empty_answer`/`fetch_error`, `contentLength`, `finishReason`, request correlation id) — never the API key, provider body, model text, user message or PII. The client shows a friendly message and always clears its loading state; the UI only reports "sent to support" after the server returns a real ticket id.
+- Failures are logged as structured JSON (`event`, `reason`, provider, `status`/`code`, `model`, safe parse `detail` such as `invalid_json_text`/`invalid_json_object`/`empty_answer`/`fetch_error`, `contentLength`, `finishReason`, request correlation id) — never the API key, provider body, model text, user message or PII. The client shows a friendly message and always clears its loading state; the UI only reports "sent to support" after the server returns a real ticket id.
 
 ## Audit
 

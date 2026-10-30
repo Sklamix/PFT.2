@@ -140,10 +140,24 @@ test('parser rejects a negative result with a missing or unusable reason', () =>
   }
 })
 
-test('parser labels invalid JSON safely', () => {
+test('parser labels a prose reply as invalid_json_text', () => {
   assert.throws(
     () => parseAssistantResponse('not json at all'),
-    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json',
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json_text',
+  )
+})
+
+test('parser labels a broken JSON object as invalid_json_object', () => {
+  // Unquoted keys and single quotes: extraction finds the object, JSON.parse fails.
+  assert.throws(
+    () => parseAssistantResponse("Answer: {'answer': 'no quotes', 'resolved': true}"),
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json_object',
+  )
+
+  // Valid span with a trailing comma is still not JSON.
+  assert.throws(
+    () => parseAssistantResponse('{"answer":"trailing comma",}'),
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json_object',
   )
 })
 
@@ -210,14 +224,14 @@ test('parser handles escaped quotes inside string values', () => {
 test('parser rejects an empty response', () => {
   assert.throws(
     () => parseAssistantResponse(''),
-    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json',
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json_text',
   )
 })
 
 test('parser rejects text without any JSON object', () => {
   assert.throws(
     () => parseAssistantResponse('The assistant cannot answer right now.'),
-    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json',
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json_text',
   )
 })
 
@@ -495,7 +509,7 @@ test('nvidia treats malformed model output as unavailable', async () => {
         error instanceof AiUnavailableError &&
         error.reason === 'unavailable' &&
         error.provider === 'nvidia' &&
-        error.detail === 'invalid_json' &&
+        error.detail === 'invalid_json_text' &&
         error.contentLength === 'not json at all'.length &&
         error.finishReason === 'stop',
     )

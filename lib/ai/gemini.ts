@@ -94,12 +94,16 @@ function parseModelJson(text: string): unknown {
   if (direct !== undefined) return direct
 
   const extracted = extractJsonObject(text)
-  if (extracted) {
-    const recovered = tryParseJson(extracted)
-    if (recovered !== undefined) return recovered
+  if (!extracted) {
+    // No JSON object at all: the model replied with prose or a refusal.
+    throw new AiUnavailableError('unavailable', { detail: 'invalid_json_text' })
   }
 
-  throw new AiUnavailableError('unavailable', { detail: 'invalid_json' })
+  const recovered = tryParseJson(extracted)
+  if (recovered !== undefined) return recovered
+
+  // An object-like span exists but is not valid JSON (quotes, commas, escapes).
+  throw new AiUnavailableError('unavailable', { detail: 'invalid_json_object' })
 }
 
 /** Parses the structured model reply. Malformed or empty answers escalate. */
