@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Bot, ChevronDown, ChevronUp, Loader2, Send, UserRound, LifeBuoy } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -9,7 +9,7 @@ type Turn = { role: 'user' | 'assistant'; content: string }
 
 type ChatResponse = {
   answer: string | null
-  handoff: { publicId: string; subject: string } | null
+  handoff: { publicId: string; subject: string; reused?: boolean } | null
   handoffReason?: string | null
   error?: string
 }
@@ -31,7 +31,8 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [handoff, setHandoff] = useState<{ publicId: string } | null>(null)
+  const [handoff, setHandoff] = useState<{ publicId: string; reused: boolean } | null>(null)
+  const pendingKey = useRef<string | null>(null)
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -42,11 +43,12 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
     setHandoff(null)
 
     const history = turns.slice(-MAX_HISTORY)
+    if (!pendingKey.current) pendingKey.current = crypto.randomUUID()
     try {
       const response = await fetch('/api/support/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, history }),
+        body: JSON.stringify({ message, history, idempotencyKey: pendingKey.current }),
       })
       const data = (await response.json().catch(() => ({}))) as ChatResponse
       if (!response.ok) {
@@ -57,8 +59,10 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
       if (data.answer) next.push({ role: 'assistant', content: data.answer })
       setTurns(next)
       setDraft('')
-      if (data.handoff) setHandoff({ publicId: data.handoff.publicId })
+      pendingKey.current = null
+      if (data.handoff) setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
     } catch {
+      // Keep the idempotency key so a retry cannot create a duplicate handoff message.
       setError('Network error. Please try again or open a support ticket.')
     } finally {
       setSending(false)
@@ -71,11 +75,12 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
     setSending(true)
     setError(null)
     setHandoff(null)
+    if (!pendingKey.current) pendingKey.current = crypto.randomUUID()
     try {
       const response = await fetch('/api/support/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, forceHandoff: true }),
+        body: JSON.stringify({ message, forceHandoff: true, idempotencyKey: pendingKey.current }),
       })
       const data = (await response.json().catch(() => ({}))) as ChatResponse
       if (!response.ok || !data.handoff) {
@@ -84,7 +89,8 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
       }
       setTurns((current) => [...current, { role: 'user', content: message }])
       setDraft('')
-      setHandoff({ publicId: data.handoff.publicId })
+      pendingKey.current = null
+      setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
     } catch {
       setError('Network error. The request was not sent. Please try again.')
     } finally {
@@ -149,7 +155,9 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
 
           {handoff ? (
             <div className="mt-3 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
-              <p className="font-semibold">A support ticket was created: {handoff.publicId}</p>
+              <p className="font-semibold">
+                {handoff.reused ? 'Your support ticket was updated' : 'A support ticket was created'}: {handoff.publicId}
+              </p>
               <p className="mt-0.5 text-emerald-300/80">A human operator will reply in the ticket below.</p>
               <Button
                 variant="outline"
@@ -200,3 +208,4 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
     </section>
   )
 }
+

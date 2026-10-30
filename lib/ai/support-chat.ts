@@ -1,13 +1,11 @@
-import { createTicket } from '@/lib/support/service'
 import type { SupportCategory } from '@prisma/client'
-import {
-  SUPPORT_SYSTEM_INSTRUCTIONS,
-  buildPftKnowledge,
-} from './pft-knowledge'
+import { prisma } from '@/lib/prisma'
+import { addTraderMessage, createTicket } from '@/lib/support/service'
+import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION } from './pft-knowledge'
 import { AiUnavailableError, generateWithGemini, type AssistantGenerator, type ChatTurn } from './gemini'
 import { loadSupportPricing } from './support-pricing'
 
-export type Handoff = { publicId: string; subject: string }
+export type Handoff = { publicId: string; subject: string; reused: boolean }
 
 export type SupportChatResult = {
   answer: string | null
@@ -22,32 +20,107 @@ export class HandoffFailedError extends Error {
   }
 }
 
+const HANDOFF_SUBJECT_PREFIX = 'Support chat:'
+const DEDUPE_WINDOW_MS = 24 * 60 * 60_000
+
 export function handoffSubject(message: string) {
   const cleaned = message.replace(/\s+/g, ' ').trim()
-  const subject = `Support chat: ${cleaned.slice(0, 140)}`.slice(0, 160)
+  const subject = `${HANDOFF_SUBJECT_PREFIX} ${cleaned.slice(0, 140)}`.slice(0, 160)
   return subject.length >= 4 ? subject : 'Support chat request'
 }
 
-function handoffBody(message: string, reason: string) {
+function conversationExcerpt(history: ChatTurn[]) {
+  if (history.length === 0) return 'No earlier assistant messages in this session.'
+  return history
+    .slice(-4)
+    .map((turn) => `${turn.role === 'assistant' ? 'Assistant' : 'Trader'}: ${turn.content.replace(/\s+/g, ' ').slice(0, 400)}`)
+    .join('\n')
+}
+
+type TraderContext = {
+  kycStatus: string
+  accounts: { displayId: string; status: string; planSize: number; phase: string }[]
+}
+
+async function loadTraderContext(userId: string): Promise<TraderContext | null> {
+  try {
+    return await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        kycStatus: true,
+        accounts: {
+          select: { displayId: true, status: true, planSize: true, phase: true },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+        },
+      },
+    })
+  } catch {
+    return null
+  }
+}
+
+function handoffBody(input: {
+  message: string
+  reason: string
+  history: ChatTurn[]
+  context: TraderContext | null
+}) {
+  const accounts = input.context?.accounts.length
+    ? input.context.accounts
+        .map((account) => `- ${account.displayId} · ${account.status} · $${account.planSize.toLocaleString('en-US')} · ${account.phase}`)
+        .join('\n')
+    : '- No trading accounts on this login.'
+
   return [
     'Message from the PFT assistant chat:',
     '',
-    message,
+    input.message,
     '',
-    `AI handoff reason: ${reason}`,
-  ].join('\n').slice(0, 5_000)
+    `AI handoff reason: ${input.reason}`,
+    '',
+    'Conversation context (most recent turns):',
+    conversationExcerpt(input.history),
+    '',
+    'Trader context (server-side):',
+    `KYC: ${input.context?.kycStatus ?? 'unknown'}`,
+    'Accounts (newest first, max 3):',
+    accounts,
+    `Rules version: ${RULES_SOURCE_VERSION}`,
+  ]
+    .join('\n')
+    .slice(0, 5_000)
+}
+
+async function findRecentHandoffTicket(userId: string) {
+  try {
+    return await prisma.supportTicket.findFirst({
+      where: {
+        userId,
+        subject: { startsWith: HANDOFF_SUBJECT_PREFIX },
+        status: { not: 'CLOSED' },
+        updatedAt: { gte: new Date(Date.now() - DEDUPE_WINDOW_MS) },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { publicId: true, subject: true },
+    })
+  } catch {
+    return null
+  }
 }
 
 /**
  * Answers a trader question and — when the assistant cannot answer confidently —
- * creates a real support ticket before telling the user a human will follow up.
- * `generate` is injectable so tests can exercise both paths without the network.
+ * makes sure a human sees it: the message is appended to the trader's recent
+ * assistant handoff ticket, or a new ticket is created. The response never
+ * claims a transfer that was not stored.
  */
 export async function handleSupportChat(input: {
   userId: string
   message: string
   history: ChatTurn[]
   forceHandoff: boolean
+  idempotencyKey: string | null
   request: Request
   generate?: AssistantGenerator
 }): Promise<SupportChatResult> {
@@ -55,7 +128,6 @@ export async function handleSupportChat(input: {
   const knowledge = buildPftKnowledge(pricing)
   const generate = input.generate ?? generateWithGemini
 
-  let answer: string | null = null
   let category: SupportCategory = 'GENERAL'
   let reason: string | null = input.forceHandoff ? 'user_requested_human' : null
 
@@ -70,12 +142,35 @@ export async function handleSupportChat(input: {
       if (result.resolved) {
         return { answer: result.answer, handoff: null, handoffReason: null }
       }
-      // Not confident: keep the topic for the operator, but do not show a partial answer.
       category = result.category
       reason = result.handoffReason ?? 'not_covered_by_rules'
     } catch (error) {
       reason = error instanceof AiUnavailableError ? error.reason : 'ai_unavailable'
     }
+  }
+
+  const finalReason = reason ?? 'not_covered_by_rules'
+  const context = await loadTraderContext(input.userId)
+  const body = handoffBody({ message: input.message, reason: finalReason, history: input.history, context })
+
+  // Reuse a recent assistant handoff ticket instead of spamming a new one.
+  const existing = await findRecentHandoffTicket(input.userId)
+  if (existing) {
+    const appended = await addTraderMessage({
+      userId: input.userId,
+      ref: existing.publicId,
+      body,
+      idempotencyKey: input.idempotencyKey,
+      request: input.request,
+    }).catch(() => null)
+    if (appended && !('error' in appended)) {
+      return {
+        answer: null,
+        handoff: { publicId: existing.publicId, subject: existing.subject, reused: true },
+        handoffReason: finalReason,
+      }
+    }
+    // Closed or otherwise unavailable: fall through and create a fresh ticket.
   }
 
   let ticket
@@ -84,7 +179,7 @@ export async function handleSupportChat(input: {
       userId: input.userId,
       subject: handoffSubject(input.message),
       category,
-      body: handoffBody(input.message, reason ?? 'not_covered_by_rules'),
+      body,
       request: input.request,
     })
   } catch {
@@ -93,8 +188,8 @@ export async function handleSupportChat(input: {
   }
 
   return {
-    answer,
-    handoff: { publicId: ticket.publicId, subject: ticket.subject },
-    handoffReason: reason,
+    answer: null,
+    handoff: { publicId: ticket.publicId, subject: ticket.subject, reused: false },
+    handoffReason: finalReason,
   }
 }

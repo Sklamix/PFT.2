@@ -128,13 +128,17 @@ Response (answered):
 Response (escalated):
 
 ```json
-{ "answer": null, "handoff": { "publicId": "SUP-…", "subject": "…" }, "handoffReason": "missing_key|quota|timeout|unavailable|not_covered_by_rules|user_requested_human" }
+{ "answer": null, "handoff": { "publicId": "SUP-…", "subject": "…", "reused": true }, "handoffReason": "missing_key|quota_exhausted|rate_limited|timeout|unavailable|not_covered_by_rules|user_requested_human" }
 ```
 
-- The Gemini key (`GEMINI_API_KEY`) is read on the server only; model can be overridden with `GEMINI_MODEL` (default `gemini-2.5-flash`).
-- The prompt is grounded in rulebook v1.6 plus **live** `ChallengePricing` rows loaded per request; prices are never hardcoded.
-- `forceHandoff: true` skips the model and opens a real ticket.
-- When the model is unavailable, over quota, times out or is not confident, a **real support ticket is created first**; if creation fails the endpoint returns `503` and explicitly does not claim a transfer.
+- The Gemini key (`GEMINI_API_KEY`) is read on the server only; model can be overridden with `GEMINI_MODEL` (default `gemini-2.5-flash`). Requests are bounded to 7 seconds so a slow model still leaves time to create the handoff ticket.
+- The prompt is grounded in rulebook v1.6 plus **live** `ChallengePricing` rows loaded per request; prices are never hardcoded. The prompt labels rows as **base fees** and explains that the checkout total adds the optional static (+15%) and frozen backup (+50%) add-ons.
+- Structured output is enforced with a JSON response schema (`answer`, `resolved`, `category`, `handoffReason`); malformed or empty output is treated as unavailable and escalated.
+- Failure reasons are distinct: `quota_exhausted` (billing/quota wording), `rate_limited` (429 with retry wording), `timeout`, `unavailable` (5xx/unknown) and `missing_key`.
+- Escalation reuses the trader's most recent **AI handoff** ticket (`Support chat:` subject, not CLOSED, updated within 24h) instead of opening a new one; the message is appended. Optional `idempotencyKey` makes retries safe.
+- The operator receives the question, the handoff reason, the last conversation turns and server-side account context (KYC status and up to three account display IDs, statuses, sizes, phases). No secrets, prompts or credentials are included.
+- `forceHandoff: true` skips the model and opens (or updates) the ticket.
+- If ticket creation fails the endpoint returns `503` and explicitly does not claim a transfer.
 - The assistant has no tools and cannot change accounts, balances, payouts, KYC, breaches or risk flags.
 - Rate limit: 20 messages per trader per hour (Postgres-backed).
 

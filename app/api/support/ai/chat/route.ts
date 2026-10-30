@@ -5,6 +5,7 @@ import { handleSupportError, readSupportJson } from '@/lib/support/http'
 import { enforceRateLimit } from '@/lib/support/http'
 import { HandoffFailedError, handleSupportChat } from '@/lib/ai/support-chat'
 import type { ChatTurn } from '@/lib/ai/gemini'
+import { parseIdempotencyKey } from '@/lib/support/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -67,12 +68,14 @@ export async function POST(request: Request) {
     if (!Array.isArray(history)) {
       return NextResponse.json({ error: history.error }, { status: 400, headers: NO_STORE })
     }
+    const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
 
     const result = await handleSupportChat({
       userId: session.sub,
       message,
       history,
       forceHandoff: body.forceHandoff === true,
+      idempotencyKey,
       request,
     })
     return NextResponse.json(result, { headers: NO_STORE })

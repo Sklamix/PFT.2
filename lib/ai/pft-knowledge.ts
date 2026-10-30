@@ -40,7 +40,7 @@ function pricingSection(rows: PricingRow[]) {
   for (const [key, entries] of grouped) {
     lines.push(`${key}:`)
     for (const entry of [...entries].sort((a, b) => a.accountSize - b.accountSize)) {
-      lines.push(`  - ${usd(entry.accountSize)} account — base fee ${usd(entry.price)} (checkout total ${usd(entry.price)})`)
+      lines.push(`  - ${usd(entry.accountSize)} account — base fee ${usd(entry.price)}`)
     }
   }
 
@@ -48,11 +48,12 @@ function pricingSection(rows: PricingRow[]) {
     'Current challenge pricing (loaded from the pricing database at request time):',
     ...lines,
     '',
+    'These figures are BASE FEES, not the final checkout total.',
     'Checkout total rules (do not invent discounts):',
     '- Base fee comes from the pricing table above.',
     '- Static drawdown add-on: +15% of the base fee.',
     '- Frozen backup add-on: +50% of the fee.',
-    '- The final checkout total = base fee (with the optional static +15%) + optional frozen backup (+50% of that fee).',
+    '- Final checkout total = base fee (with the optional static +15%) + optional frozen backup (+50% of that fee).',
     '- Any promotion or partner price is fixed at purchase and may differ; the checkout page is the source of truth.',
     '- Accounts above $25,000 may be temporarily unavailable at checkout; never promise availability.',
   ].join('\n')
