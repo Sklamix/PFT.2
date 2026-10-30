@@ -683,6 +683,16 @@ test('prompt requires a handoff when essential case details are missing', () => 
   assert.ok(instructions.includes('When the message already states the relevant details, apply the rule instead'))
 })
 
+test('prompt handles harmless provocations without escalation', () => {
+  const instructions = SUPPORT_SYSTEM_INSTRUCTIONS
+  assert.ok(instructions.includes('contains only insults, profanity, provocation'))
+  assert.ok(instructions.includes('set resolved=true'))
+  assert.ok(instructions.includes('Never hand off or open a ticket for such a message'))
+  assert.ok(instructions.includes('Abuse must not hide the request'))
+  assert.ok(instructions.includes('never override the handoff rules'))
+  assert.ok(instructions.includes('not a case of insufficient facts'))
+})
+
 test('the news-violation hypothetical is answerable from the facts', () => {
   const knowledge = buildPftKnowledge([])
   const required = [

@@ -14,7 +14,7 @@
     "db:seed": "prisma db seed",
     "db:seed-pricing": "tsx prisma/seed-challenge-pricing.ts",
     "qa:smoke": "node scripts/qa-smoke.cjs",
-    "test:ai-support": "node --experimental-test-module-mocks --import tsx --test scripts/ai-support.test.ts scripts/ai-support-route.test.ts scripts/ai-support-kyc-handoff.test.ts",
+    "test:ai-support": "node --experimental-test-module-mocks --import tsx --test scripts/ai-support.test.ts scripts/ai-support-route.test.ts scripts/ai-support-kyc-handoff.test.ts scripts/ai-support-escalation.test.ts",
     "doctor": "tsx scripts/readiness.ts",
     "db:backup": "node scripts/db-backup.cjs",
     "worker:trading-orders": "tsx workers/trading-orders.ts",
