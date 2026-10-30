@@ -9,6 +9,7 @@ import {
   requestAssistant,
 } from '../lib/ai/assistant-client'
 import { AiUnavailableError, classifyGeminiFailure } from '../lib/ai/errors'
+import { parseAssistantResponse } from '../lib/ai/gemini'
 import { buildPftKnowledge, SUPPORT_SYSTEM_INSTRUCTIONS } from '../lib/ai/pft-knowledge'
 import { generateWithNvidia, NVIDIA_DEFAULT_MODEL } from '../lib/ai/nvidia'
 import { resolveProvider } from '../lib/ai/provider'
@@ -110,6 +111,41 @@ test('classification stays unchanged', () => {
   assert.equal(classified(408, 'Request timed out'), 'timeout')
 })
 
+test('parser accepts resolved=false without an answer when a reason is present', () => {
+  const parsed = parseAssistantResponse(
+    JSON.stringify({ answer: '', resolved: false, category: 'RULES', handoffReason: 'news timing is not covered by the facts' }),
+  )
+  assert.equal(parsed.resolved, false)
+  assert.equal(parsed.answer, '')
+  assert.equal(parsed.handoffReason, 'news timing is not covered by the facts')
+  assert.equal(parsed.category, 'RULES')
+})
+
+test('parser rejects resolved=true without an answer', () => {
+  assert.throws(
+    () => parseAssistantResponse(JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '' })),
+    (error: unknown) =>
+      error instanceof AiUnavailableError && error.reason === 'unavailable' && error.detail === 'empty_answer',
+  )
+})
+
+test('parser rejects a negative result with a missing or unusable reason', () => {
+  for (const handoffReason of [undefined, '', '   ', 'no']) {
+    assert.throws(
+      () => parseAssistantResponse(JSON.stringify({ answer: '', resolved: false, category: 'GENERAL', handoffReason })),
+      (error: unknown) => error instanceof AiUnavailableError && error.detail === 'empty_answer',
+      `reason=${JSON.stringify(handoffReason)} must not bypass validation`,
+    )
+  }
+})
+
+test('parser labels invalid JSON safely', () => {
+  assert.throws(
+    () => parseAssistantResponse('not json at all'),
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json',
+  )
+})
+
 test('server logs safe metadata and creates a real handoff ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {  const prisma = new PrismaClient()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
@@ -135,7 +171,12 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
       idempotencyKey: null,
       request,
       generate: async () => {
-        throw new AiUnavailableError('unavailable', { status: 404, code: 'NOT_FOUND', model: 'gemini-test-model' })
+        throw new AiUnavailableError('unavailable', {
+          status: 404,
+          code: 'NOT_FOUND',
+          model: 'gemini-test-model',
+          detail: 'fetch_error',
+        })
       },
     })
 
@@ -146,6 +187,7 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
     assert.match(combined, /"status":404/)
     assert.match(combined, /"code":"NOT_FOUND"/)
     assert.match(combined, /"model":"gemini-test-model"/)
+    assert.match(combined, /"detail":"fetch_error"/)
     assert.match(combined, /"requestId":"req-test-123"/)
     assert.ok(!combined.includes(secretMessage), 'must not log user text')
     assert.ok(!/AIza|GEMINI_API_KEY|apiKey/i.test(combined), 'must not log secrets')
@@ -274,13 +316,18 @@ test('nvidia treats malformed model output as unavailable', async () => {
   await withNvidiaEnv(async () => {
     await assert.rejects(
       generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(nvidiaCompletion('not json at all')) }),
-      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'unavailable' && error.provider === 'nvidia',
+      (error: unknown) =>
+        error instanceof AiUnavailableError &&
+        error.reason === 'unavailable' &&
+        error.provider === 'nvidia' &&
+        error.detail === 'invalid_json',
     )
 
     const emptyAnswer = JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '' })
     await assert.rejects(
       generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(nvidiaCompletion(emptyAnswer)) }),
-      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'unavailable',
+      (error: unknown) =>
+        error instanceof AiUnavailableError && error.reason === 'unavailable' && error.detail === 'empty_answer',
     )
   })
 })
@@ -352,7 +399,8 @@ test('nvidia never leaks the key through errors and reports a missing key withou
       assert.ok(error instanceof AiUnavailableError)
       assert.ok(!error.message.includes(TEST_NVIDIA_KEY))
       assert.ok(!String(error.code).includes(TEST_NVIDIA_KEY))
-      return error.reason === 'unavailable'
+      assert.ok(!String(error.detail).includes(TEST_NVIDIA_KEY))
+      return error.reason === 'unavailable' && error.detail === 'fetch_error'
     })
     assert.equal(called, true)
 
@@ -501,6 +549,54 @@ test('a sequential retry with the same key returns the same ticket', { skip: pro
     assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 1)
     assert.equal(await prisma.supportMessage.count({ where: { ticket: { userId: user.id } } }), 1)
   } finally {
+    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+    await prisma.user.delete({ where: { id: user.id } })
+    await prisma.$disconnect()
+  }
+})
+
+test('a valid handoff without an answer is not treated as a failure', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+  const prisma = new PrismaClient()
+  const suffix = Date.now().toString(36)
+  const user = await prisma.user.create({
+    data: { email: `ai-noanswer-${suffix}@test.local`, passwordHash: 'x', name: 'AI No Answer', role: 'TRADER' },
+  })
+  const logs: string[] = []
+  const originalWarn = console.warn
+  console.warn = (...args: unknown[]) => {
+    logs.push(args.map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '))
+  }
+
+  try {
+    const result = await handleSupportChat({
+      userId: user.id,
+      message: 'What are the news trading restrictions for evaluation and funded accounts?',
+      history: [],
+      forceHandoff: false,
+      idempotencyKey: `no-answer-${suffix}`,
+      request: new Request('http://localhost:3100/api/support/ai/chat', {
+        method: 'POST',
+        headers: { 'x-vercel-id': `ai-noanswer-${suffix}` },
+      }),
+      generate: async () => ({
+        answer: '',
+        resolved: false,
+        category: 'RULES',
+        handoffReason: 'news timing is not covered by the facts',
+      }),
+    })
+
+    assert.equal(result.answer, null)
+    assert.equal(result.handoffReason, 'news timing is not covered by the facts')
+    assert.ok(result.handoff?.publicId.startsWith('SUP-'))
+    assert.equal(result.handoff?.reused, false)
+    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 1)
+    assert.ok(!logs.join('\n').includes('ai_unavailable'), 'a valid handoff must not be logged as an AI failure')
+  } finally {
+    console.warn = originalWarn
     await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
     await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
     await prisma.auditLog.deleteMany({ where: { actorId: user.id } })

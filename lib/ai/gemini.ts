@@ -30,6 +30,15 @@ export const DEFAULT_MODEL = 'gemini-2.5-flash'
 /** Kept below the platform function timeout so the operator handoff can still run. */
 export const TIMEOUT_MS = 7_000
 
+/** Shortest handoff reason we accept when the model omits the answer text. */
+const MIN_HANDOFF_REASON_LENGTH = 3
+
+function handoffReasonFromModel(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length >= MIN_HANDOFF_REASON_LENGTH ? trimmed.slice(0, 300) : null
+}
+
 /** Parses the structured model reply. Malformed or empty answers escalate. */
 export function parseAssistantResponse(text: string): AssistantResult {
   const cleaned = text
@@ -42,21 +51,33 @@ export function parseAssistantResponse(text: string): AssistantResult {
   try {
     parsed = JSON.parse(cleaned)
   } catch {
-    throw new AiUnavailableError('unavailable')
+    throw new AiUnavailableError('unavailable', { detail: 'invalid_json' })
   }
 
   const record = (parsed ?? {}) as Record<string, unknown>
   const answer = typeof record.answer === 'string' ? record.answer.trim() : ''
-  if (!answer) throw new AiUnavailableError('unavailable')
+  const resolved = record.resolved === true
+  const handoffReason = handoffReasonFromModel(record.handoffReason)
 
-  // Providers without a machine-enforced schema may send "" for "no reason".
-  const rawReason = typeof record.handoffReason === 'string' ? record.handoffReason.trim() : ''
+  if (!answer) {
+    // A negative result may omit the answer, but only when it names a usable
+    // reason. Anything else (including resolved=true) is a malformed reply.
+    if (!resolved && handoffReason) {
+      return {
+        answer: '',
+        resolved: false,
+        category: categoryFromModel(record.category),
+        handoffReason,
+      }
+    }
+    throw new AiUnavailableError('unavailable', { detail: 'empty_answer' })
+  }
 
   return {
     answer: answer.slice(0, 4_000),
-    resolved: record.resolved === true,
+    resolved,
     category: categoryFromModel(record.category),
-    handoffReason: rawReason ? rawReason.slice(0, 300) : null,
+    handoffReason,
   }
 }
 

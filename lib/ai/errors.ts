@@ -23,10 +23,18 @@ export class AiUnavailableError extends Error {
   model: string | null
   /** Provider that produced the failure. Never contains credentials. */
   provider: string | null
+  /** Safe internal discriminator (e.g. invalid_json, empty_answer, fetch_error). Never model text. */
+  detail: string | null
 
   constructor(
     reason: AiFailure,
-    meta: { status?: number | null; code?: string | number | null; model?: string | null; provider?: AiProvider | null } = {},
+    meta: {
+      status?: number | null
+      code?: string | number | null
+      model?: string | null
+      provider?: AiProvider | null
+      detail?: string | null
+    } = {},
   ) {
     super(`AI unavailable: ${reason}`)
     this.name = 'AiUnavailableError'
@@ -35,6 +43,7 @@ export class AiUnavailableError extends Error {
     this.code = meta.code === undefined || meta.code === null ? null : String(meta.code).slice(0, 80)
     this.model = meta.model ? String(meta.model).slice(0, 80) : null
     this.provider = meta.provider ? String(meta.provider).slice(0, 40) : null
+    this.detail = meta.detail ? String(meta.detail).slice(0, 40) : null
   }
 }
 

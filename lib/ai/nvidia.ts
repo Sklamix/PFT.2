@@ -164,6 +164,7 @@ export async function generateWithNvidia(
     if (isAbort(error)) {
       throw new AiUnavailableError('timeout', { model, provider: 'nvidia' })
     }
-    throw new AiUnavailableError('unavailable', { model, provider: 'nvidia' })
+    // Transport/runtime failure before a usable response (network, TLS, body read).
+    throw new AiUnavailableError('unavailable', { model, provider: 'nvidia', detail: 'fetch_error' })
   }
 }
