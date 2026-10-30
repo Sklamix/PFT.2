@@ -25,6 +25,10 @@ export class AiUnavailableError extends Error {
   provider: string | null
   /** Safe internal discriminator (e.g. invalid_json, empty_answer, fetch_error). Never model text. */
   detail: string | null
+  /** Length of the provider content, for diagnostics. Never the content itself. */
+  contentLength: number | null
+  /** Provider finish reason (e.g. stop, length) when reported. */
+  finishReason: string | null
 
   constructor(
     reason: AiFailure,
@@ -34,6 +38,8 @@ export class AiUnavailableError extends Error {
       model?: string | null
       provider?: AiProvider | null
       detail?: string | null
+      contentLength?: number | null
+      finishReason?: string | null
     } = {},
   ) {
     super(`AI unavailable: ${reason}`)
@@ -44,6 +50,8 @@ export class AiUnavailableError extends Error {
     this.model = meta.model ? String(meta.model).slice(0, 80) : null
     this.provider = meta.provider ? String(meta.provider).slice(0, 40) : null
     this.detail = meta.detail ? String(meta.detail).slice(0, 40) : null
+    this.contentLength = typeof meta.contentLength === 'number' ? meta.contentLength : null
+    this.finishReason = meta.finishReason ? String(meta.finishReason).slice(0, 40) : null
   }
 }
 

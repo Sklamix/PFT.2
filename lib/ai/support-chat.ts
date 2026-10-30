@@ -47,6 +47,8 @@ function logAiFailure(error: unknown, request: Request) {
         model: error.model,
         provider: error.provider,
         detail: error.detail,
+        contentLength: error.contentLength,
+        finishReason: error.finishReason,
         requestId: correlationId,
       }),
     )

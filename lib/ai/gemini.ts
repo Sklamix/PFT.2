@@ -39,6 +39,69 @@ function handoffReasonFromModel(value: unknown): string | null {
   return trimmed.length >= MIN_HANDOFF_REASON_LENGTH ? trimmed.slice(0, 300) : null
 }
 
+/** Attempts JSON.parse; returns undefined when the text is not valid JSON. */
+function tryParseJson(text: string): unknown | undefined {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Returns the first complete JSON object embedded in arbitrary model text.
+ * The scan tracks string state and escapes, so braces inside string values and
+ * nested objects are balanced correctly.
+ */
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index]!
+
+    if (inString) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === '"') inString = false
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+    } else if (char === '{') {
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(start, index + 1)
+    }
+  }
+
+  return null
+}
+
+/**
+ * Strict parse first, then a balanced-brace extraction. Extraction only
+ * recovers the object; the assistant-response validation below still decides
+ * whether the content is acceptable.
+ */
+function parseModelJson(text: string): unknown {
+  const direct = tryParseJson(text)
+  if (direct !== undefined) return direct
+
+  const extracted = extractJsonObject(text)
+  if (extracted) {
+    const recovered = tryParseJson(extracted)
+    if (recovered !== undefined) return recovered
+  }
+
+  throw new AiUnavailableError('unavailable', { detail: 'invalid_json' })
+}
+
 /** Parses the structured model reply. Malformed or empty answers escalate. */
 export function parseAssistantResponse(text: string): AssistantResult {
   const cleaned = text
@@ -47,12 +110,7 @@ export function parseAssistantResponse(text: string): AssistantResult {
     .replace(/```$/, '')
     .trim()
 
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(cleaned)
-  } catch {
-    throw new AiUnavailableError('unavailable', { detail: 'invalid_json' })
-  }
+  const parsed = parseModelJson(cleaned)
 
   const record = (parsed ?? {}) as Record<string, unknown>
   const answer = typeof record.answer === 'string' ? record.answer.trim() : ''

@@ -147,6 +147,80 @@ test('parser labels invalid JSON safely', () => {
   )
 })
 
+test('parser accepts a clean JSON reply', () => {
+  const parsed = parseAssistantResponse(
+    '{"answer":"The split is 80/20.","resolved":true,"category":"PAYOUT","handoffReason":""}',
+  )
+  assert.equal(parsed.answer, 'The split is 80/20.')
+  assert.equal(parsed.resolved, true)
+  assert.equal(parsed.category, 'PAYOUT')
+  assert.equal(parsed.handoffReason, null)
+})
+
+test('parser recovers JSON after leading prose', () => {
+  const parsed = parseAssistantResponse(
+    'Here is the answer you asked for:\n{"answer":"Grounded in the facts.","resolved":true,"category":"RULES","handoffReason":""}',
+  )
+  assert.equal(parsed.answer, 'Grounded in the facts.')
+  assert.equal(parsed.resolved, true)
+})
+
+test('parser recovers JSON before trailing prose', () => {
+  const parsed = parseAssistantResponse(
+    '{"answer":"Grounded in the facts.","resolved":true,"category":"RULES","handoffReason":""}\nLet me know if you need anything else.',
+  )
+  assert.equal(parsed.answer, 'Grounded in the facts.')
+  assert.equal(parsed.resolved, true)
+})
+
+test('parser handles nested objects and arrays', () => {
+  const payload = {
+    answer: 'Nested payload accepted.',
+    resolved: true,
+    category: 'GENERAL',
+    handoffReason: '',
+    extra: { nested: { deep: [1, 2, 3], flag: true } },
+  }
+  const parsed = parseAssistantResponse(`prefix ${JSON.stringify(payload)} suffix`)
+  assert.equal(parsed.answer, 'Nested payload accepted.')
+})
+
+test('parser keeps braces inside string values', () => {
+  const payload = {
+    answer: 'Use {curly} braces and { nested } text literally.',
+    resolved: true,
+    category: 'GENERAL',
+    handoffReason: '',
+  }
+  const parsed = parseAssistantResponse(`Note: ${JSON.stringify(payload)} (end)`)
+  assert.equal(parsed.answer, 'Use {curly} braces and { nested } text literally.')
+})
+
+test('parser handles escaped quotes inside string values', () => {
+  const payload = {
+    answer: 'The rule says "do not {increase}" exactly.',
+    resolved: true,
+    category: 'RULES',
+    handoffReason: '',
+  }
+  const parsed = parseAssistantResponse(`Answer follows: ${JSON.stringify(payload)}`)
+  assert.equal(parsed.answer, 'The rule says "do not {increase}" exactly.')
+})
+
+test('parser rejects an empty response', () => {
+  assert.throws(
+    () => parseAssistantResponse(''),
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json',
+  )
+})
+
+test('parser rejects text without any JSON object', () => {
+  assert.throws(
+    () => parseAssistantResponse('The assistant cannot answer right now.'),
+    (error: unknown) => error instanceof AiUnavailableError && error.detail === 'invalid_json',
+  )
+})
+
 // ---------------------------------------------------------------------------
 // History budget: a valid AI answer must never block the next message
 // ---------------------------------------------------------------------------
@@ -273,6 +347,8 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
           code: 'NOT_FOUND',
           model: 'gemini-test-model',
           detail: 'fetch_error',
+          contentLength: 1234,
+          finishReason: 'stop',
         })
       },
     })
@@ -285,6 +361,8 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
     assert.match(combined, /"code":"NOT_FOUND"/)
     assert.match(combined, /"model":"gemini-test-model"/)
     assert.match(combined, /"detail":"fetch_error"/)
+    assert.match(combined, /"contentLength":1234/)
+    assert.match(combined, /"finishReason":"stop"/)
     assert.match(combined, /"requestId":"req-test-123"/)
     assert.ok(!combined.includes(secretMessage), 'must not log user text')
     assert.ok(!/AIza|GEMINI_API_KEY|apiKey/i.test(combined), 'must not log secrets')
@@ -417,7 +495,9 @@ test('nvidia treats malformed model output as unavailable', async () => {
         error instanceof AiUnavailableError &&
         error.reason === 'unavailable' &&
         error.provider === 'nvidia' &&
-        error.detail === 'invalid_json',
+        error.detail === 'invalid_json' &&
+        error.contentLength === 'not json at all'.length &&
+        error.finishReason === 'stop',
     )
 
     const emptyAnswer = JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '' })

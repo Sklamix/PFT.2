@@ -148,12 +148,29 @@ export async function generateWithNvidia(
 
     const choice = (payload as { choices?: { message?: { content?: unknown }; finish_reason?: unknown }[] })?.choices?.[0]
     const content = typeof choice?.message?.content === 'string' ? choice.message.content : ''
-    if (choice?.finish_reason === 'length') {
+    const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason.slice(0, 40) : null
+    if (finishReason === 'length') {
       // Truncated output cannot be trusted; the trader gets a human instead.
-      throw new AiUnavailableError('unavailable', { status: response.status, code: 'TRUNCATED', model, provider: 'nvidia' })
+      throw new AiUnavailableError('unavailable', {
+        status: response.status,
+        code: 'TRUNCATED',
+        model,
+        provider: 'nvidia',
+        contentLength: content.length,
+        finishReason,
+      })
     }
 
-    return parseAssistantResponse(content)
+    try {
+      return parseAssistantResponse(content)
+    } catch (error) {
+      if (error instanceof AiUnavailableError) {
+        // Safe diagnostics: size and finish reason only, never the content.
+        error.contentLength = content.length
+        error.finishReason = finishReason
+      }
+      throw error
+    }
   } catch (error) {
     if (error instanceof AiUnavailableError) {
       // Keep the parsed failure reason, annotate it with safe provider metadata.
