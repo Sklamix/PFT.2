@@ -2,6 +2,7 @@ import { randomInt } from 'crypto'
 import type { Prisma } from '@prisma/client'
 import { accountLimitError, checkAccountLimits } from '@/lib/accounts/limits'
 import { CHALLENGES, type ChallengeType as PlanChallengeType, type DrawdownMode } from '@/lib/challenges'
+import { tryEnsureRiskEquityBaseline } from '@/lib/risk-equity/baseline'
 
 export const DEFAULT_TRADING_SERVER = 'PFT-Demo-Server'
 const DEFAULT_LEVERAGE = '1:100'
@@ -29,6 +30,17 @@ export interface ProvisionResult {
 }
 
 export class InvalidOrderPayloadError extends Error {}
+
+/** Raised when a paid/provisioned account would belong to an archived trader. */
+export class AccountProvisioningUserError extends Error {
+  constructor(
+    message: string,
+    readonly code: 'user_not_found' | 'user_archived',
+  ) {
+    super(message)
+    this.name = 'AccountProvisioningUserError'
+  }
+}
 
 /** Reads the plan the trader paid for from the payload stored by /api/checkout. */
 export function planFromOrderPayload(payload: Prisma.JsonValue | null): ChallengePlan {
@@ -87,6 +99,7 @@ function accountData(userId: string, plan: ChallengePlan, standby: boolean, prim
     equity: size,
     startingBalance: size,
     peakEquity: size,
+    peakEquityDecimal: size,
     maxDailyLoss: (plan.challengeType === 'two-step' ? plan.dailyLossType : rules.dailyDrawdown) / 100,
     maxTrailingDrawdown: rules.overallDrawdown / 100,
     profitTarget: rules.phase1Target / 100,
@@ -105,6 +118,18 @@ export async function provisionChallengeAccounts(
   /** Admin grants skip the retail per-trader allocation caps (the grant itself is audited). */
   options?: { skipAllocationLimit?: boolean },
 ): Promise<ProvisionResult> {
+  // Same lock order as user archival (User → TradingAccount). Holding the user row
+  // makes account creation and archive serializable: a concurrent archive either
+  // sees this account or this transaction sees `archivedAt` and refuses.
+  const userRows = await tx.$queryRaw<{ id: string; archivedAt: Date | null }[]>`
+    SELECT "id", "archivedAt" FROM "User" WHERE "id" = ${input.userId} FOR UPDATE
+  `
+  const user = userRows[0]
+  if (!user) throw new AccountProvisioningUserError('Trader not found.', 'user_not_found')
+  if (user.archivedAt != null) {
+    throw new AccountProvisioningUserError('Trader is archived; new accounts cannot be provisioned.', 'user_archived')
+  }
+
   if (!options?.skipAllocationLimit) {
     const usage = await checkAccountLimits(tx, input.userId, input.plan.planSize)
     if (!usage.ok) throw accountLimitError(usage)
@@ -131,6 +156,15 @@ export async function provisionChallengeAccounts(
         metadata: { orderId: input.orderId, providerOrderId: input.providerOrderId, status: account.status },
       })),
   })
+
+  // Phase 1 Risk Equity: best-effort clean baseline initialization inside the
+  // same provisioning transaction. A failed/invalid baseline never fails
+  // account creation — the account simply stays UNCLASSIFIED (fails closed).
+  const baselineSource = options?.skipAllocationLimit ? 'ADMIN_GRANT' : 'PROVISIONING'
+  for (const account of [primary, standby]) {
+    if (!account) continue
+    await tryEnsureRiskEquityBaseline(tx, { accountId: account.id, source: baselineSource })
+  }
 
   return { plan: input.plan, primary, standby }
 }
