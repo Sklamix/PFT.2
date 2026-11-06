@@ -51,6 +51,8 @@ enum AccountStatus {
   BREACHED_MAX
   /** Frozen backup that expired because its primary account passed. */
   EXPIRED
+  /** Archived instead of hard-deleted so financial history stays immutable. */
+  ARCHIVED
 }
 
 enum OrderStatus {
@@ -113,11 +115,21 @@ enum PayoutStatus {
   APPROVED
   DISBURSED
   REJECTED
+  MANUALLY_PAID
 }
 
 enum WalletNetwork {
   USDT_TRC20
   USDT_ERC20
+}
+
+/// Phase 1 Risk Equity rollout state. ENFORCE is reserved for a future,
+/// separately authorized phase and must not be assigned by current code.
+enum RiskEquityState {
+  UNCLASSIFIED
+  EXCLUDED
+  SHADOW
+  ENFORCE
 }
 
 enum AppealStatus {
@@ -182,6 +194,9 @@ model User {
   challengeStatus ChallengeStatus @default(IN_PROGRESS)
   favoriteSymbols String[] @default([])
   tokenVersion  Int       @default(0)
+  /// Owner-only capability: true only for the trusted platform owner account. No API
+  /// may grant or modify this; it is assigned via a one-time reviewed SQL statement.
+  canConfirmPayouts Boolean @default(false)
   lastLoginIp   String?
   lastDeviceHash String?
   activeSessionId String?
@@ -211,6 +226,10 @@ model User {
   /** IANA timezone used for displaying timestamps. Stored timestamps stay in UTC. */
   timeZone          String @default("UTC")
   lastPasswordChangedAt DateTime?
+  /// Users with financial history are archived, never hard-deleted.
+  archivedAt      DateTime?
+  archivedReason  String?
+  archivedById    String?
 
   accounts        TradingAccount[]
   orders          Order[]
@@ -218,6 +237,8 @@ model User {
   certificates    Certificate[]
   auditLogs       AuditLog[] @relation("AuditActor")
   reviewedPayouts Payout[]   @relation("PayoutReviewer")
+  paidPayouts     Payout[]   @relation("PayoutPayer")
+  approvedPayouts Payout[]   @relation("PayoutApprover")
   appeals         AccountAppeal[] @relation("AppealTrader")
   reviewedAppeals AccountAppeal[] @relation("AppealReviewer")
   accessEvents    AccessEvent[]
@@ -285,6 +306,16 @@ model TradingAccount {
   equity               Float          @default(0)
   startingBalance      Float          @default(0)
   peakEquity           Float          @default(0)
+  peakEquityDecimal    Decimal?       @db.Decimal(18, 2)
+  /// Archived accounts keep every financial record; deletion is disabled by the ledger FK.
+  archivedAt           DateTime?
+  archivedReason       String?
+  archivedById         String?
+  /// Set by the risk engine when valuation is unresolved/unverified/stale; blocks risk-increasing actions.
+  riskReviewAt         DateTime?
+  riskReviewReason     String?
+  /// Set while a payout provider execution is in flight; blocks new/increased exposure (risk reduction stays allowed).
+  payoutExecutionAt    DateTime?
   maxDailyLoss         Float          @default(0.05)
   maxTrailingDrawdown  Float          @default(0.10)
   profitTarget         Float          @default(0.10)
@@ -302,13 +333,118 @@ model TradingAccount {
   positions     Position[]
   tradeHistory  TradeHistory[]
   pendingTradeOrders PendingTradeOrder[]
+  ledgerEntries AccountLedgerEntry[]
+  ledgerBaselines AccountLedgerBaseline[]
   appeals       AccountAppeal[]
   certificates  Certificate[]
+  breachEvents  AccountBreachEvent[]
+
+  /// Phase 1 Risk Equity rollout state. Existing accounts default to UNCLASSIFIED
+  /// and are never promoted automatically.
+  riskEquityState          RiskEquityState @default(UNCLASSIFIED)
+  riskEquityStateReason    String?
+  riskEquityStateChangedAt DateTime         @default(now())
+  riskEquityBaseline       RiskEquityBaseline?
+  riskEquityShadowEvaluations RiskEquityShadowEvaluation[]
 
   @@index([status])
+  @@index([riskEquityState])
   @@index([mt5Login])
   @@index([userId])
   @@index([backupForAccountId])
+  @@index([archivedAt])
+  @@index([riskReviewAt])
+}
+
+/// Immutable starting point for the Phase 1 Risk Equity shadow model. One row per
+/// account; it is written once during account provisioning and never overwritten.
+model RiskEquityBaseline {
+  id                 String   @id @default(cuid())
+  accountId          String   @unique
+  account            TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  modelVersion       String
+  source             String
+  accountStatus      String
+  initialBalance     Decimal  @db.Decimal(14, 2)
+  startingBalance    Decimal  @db.Decimal(14, 2)
+  balance            Decimal  @db.Decimal(18, 2)
+  equity             Decimal  @db.Decimal(18, 2)
+  peakEquity         Decimal  @db.Decimal(18, 2)
+  dailyStartingEquity Decimal @db.Decimal(18, 2)
+  dailyStartedAt     DateTime?
+  capturedAt         DateTime @default(now())
+  createdAt          DateTime @default(now())
+
+  evaluations RiskEquityShadowEvaluation[]
+
+  @@index([capturedAt])
+}
+
+/// Read-only shadow result for one account snapshot. This table is evidence only:
+/// it never changes balances, equity, payouts, ledger entries or account status.
+model RiskEquityShadowEvaluation {
+  id                      String   @id @default(cuid())
+  accountId               String
+  account                 TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  baselineId              String?
+  baseline                RiskEquityBaseline? @relation(fields: [baselineId], references: [id], onDelete: SetNull)
+  modelVersion            String
+  evaluatedAt             DateTime @default(now())
+  balance                 Decimal  @db.Decimal(18, 2)
+  equity                  Decimal  @db.Decimal(18, 2)
+  riskEquity              Decimal  @db.Decimal(18, 2)
+  reservedAddBack         Decimal  @db.Decimal(18, 2) @default(0)
+  paidAddBack             Decimal  @db.Decimal(18, 2) @default(0)
+  dailyStartingRiskEquity Decimal? @db.Decimal(18, 2)
+  dailyLoss               Decimal? @db.Decimal(18, 2)
+  dailyLimit              Decimal? @db.Decimal(18, 2)
+  trailingPeak            Decimal? @db.Decimal(18, 2)
+  trailingFloor           Decimal? @db.Decimal(18, 2)
+  trailingDrawdown        Decimal? @db.Decimal(18, 2)
+  hypotheticalBreach      String?
+  hypotheticalReason      String?
+  existingStatus          String?
+  existingBreachReason    String?
+  comparison              String?
+  dataQuality             Json?
+  skippedReason           String?
+  inputHash               String
+  createdAt               DateTime @default(now())
+
+  @@unique([accountId, inputHash])
+  @@index([accountId, evaluatedAt])
+  @@index([hypotheticalBreach])
+  @@index([skippedReason])
+}
+
+/// Canonical record of when a rule breach actually occurred, separately from when the
+/// system detected it. Payout protection compares `occurredAt` with `Payout.requestedAt`.
+/// `requiresManualReview` means no trustworthy `occurredAt` source exists; such a row must
+/// never be used for automatic payout cancellation.
+model AccountBreachEvent {
+  id                   String        @id @default(cuid())
+  accountId            String
+  account              TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  kind                 String
+  /// Actual event time. Null when no reliable source exists.
+  occurredAt           DateTime?
+  /// When this system first observed / recorded the breach.
+  detectedAt           DateTime
+  /// Producer that created the event (ENGINE, ENFORCEMENT, ADMIN, OVERNIGHT, INACTIVITY, ...).
+  source               String
+  /// Which timestamp supplied occurredAt (VALUATION_QUOTE, NEWS_EVENT, SESSION_CUTOFF, ...).
+  timeSource           String?
+  requiresManualReview Boolean       @default(false)
+  /// Deterministic key so repeated enforcement of the same breach does not duplicate the event.
+  dedupeKey            String        @unique
+  auditLogId           String?       @unique
+  auditLog             AuditLog?     @relation(fields: [auditLogId], references: [id], onDelete: SetNull)
+  payload              Json?
+  createdAt            DateTime      @default(now())
+
+  @@index([accountId, occurredAt])
+  @@index([accountId, detectedAt])
+  @@index([kind])
 }
 
 model Order {
@@ -380,7 +516,32 @@ model Position {
   openedAt         DateTime       @default(now())
   closedAt         DateTime?
 
+  /// Financial snapshot captured at entry. Null only for legacy positions opened before Phase 2.
+  originalLots            Float     @default(0)
+  remainingLots           Float?
+  closedLots              Float     @default(0)
+  contractSizeSnapshot    Decimal?  @db.Decimal(18, 4)
+  quoteCurrencySnapshot   String?
+  instrumentLeverage      Int?
+  commissionPlanId        String?
+  commissionModel         CommissionModel?
+  entryRateSnapshot       Decimal?  @db.Decimal(18, 8)
+  exitRateSnapshot        Decimal?  @db.Decimal(18, 8)
+  minFeeSnapshot          Decimal?  @db.Decimal(12, 2)
+  maxFeeSnapshot          Decimal?  @db.Decimal(12, 2)
+  entryCommission         Decimal?  @db.Decimal(18, 2)
+  entryCommissionCurrency String?
+  /// Cumulative entry commission already allocated to partial closes. Keeps rounding residual exact.
+  allocatedEntryCommission Decimal? @db.Decimal(18, 2)
+  entryFxRate             Decimal?  @db.Decimal(18, 10)
+  entryFxTimestamp        DateTime?
+  commissionSource        String?
+  /// Last valuation state computed by the risk engine (RESOLVED_CURRENT, RESOLVED_ENTRY_RATE, STALE, UNRESOLVED, UNVERIFIED_SPEC).
+  valuationStatus         String?
+  idempotencyKey          String?
+
   @@index([tradingAccountId, status])
+  @@unique([tradingAccountId, idempotencyKey])
 }
 
 model PendingTradeOrder {
@@ -402,9 +563,14 @@ model PendingTradeOrder {
   updatedAt        DateTime                @updatedAt
   filledAt         DateTime?
   cancelledAt      DateTime?
+  idempotencyKey   String?
+  instrumentLeverage Int?
+  contractSizeSnapshot Decimal? @db.Decimal(18, 4)
+  quoteCurrencySnapshot String?
 
   @@index([tradingAccountId, status, createdAt])
   @@index([status, createdAt])
+  @@unique([tradingAccountId, idempotencyKey])
 }
 
 model TradeHistory {
@@ -416,6 +582,8 @@ model TradeHistory {
   sizeLots         Float
   entryPrice       Float
   exitPrice        Float
+  /// Net realised PnL for the executed quantity (entry commission allocated + exit commission deducted).
+  /// Historical rows predate commissions and remain gross.
   pnl              Float
   originalPnl      Float?
   voidedAt         DateTime?
@@ -425,7 +593,45 @@ model TradeHistory {
   closedAt         DateTime       @default(now())
   journal          JournalEntry?
 
+  /// Phase 2 financial breakdown. Null on legacy rows = unknown, never "zero".
+  positionId       String?
+  grossPnl         Float?
+  entryCommission  Decimal?  @db.Decimal(18, 2)
+  exitCommission   Decimal?  @db.Decimal(18, 2)
+  totalCommission  Decimal?  @db.Decimal(18, 2)
+  netPnl           Decimal?  @db.Decimal(18, 2)
+  closedLots       Float?
+  remainingLots    Float?
+  fxRate           Decimal?  @db.Decimal(18, 10)
+  fxTimestamp      DateTime?
+  fxSource         String?
+  fxStale          Boolean?  @default(false)
+  fxUnresolved     Boolean?  @default(false)
+  /// GROSS_LEGACY | NET | UNRESOLVED | STALE | VOID. Null only for historical rows.
+  pnlBasis         String?
+  /// Last valuation state at close (RESOLVED_CURRENT, RESOLVED_ENTRY_RATE, STALE, UNRESOLVED, UNVERIFIED_SPEC).
+  valuationStatus  String?
+  idempotencyKey   String?
+
+  /// Void audit trail. Voiding never destroys the original financial evidence.
+  originalGrossPnl     Float?
+  originalNetPnl       Decimal? @db.Decimal(18, 2)
+  originalFxRate       Decimal? @db.Decimal(18, 10)
+  originalFxSource     String?
+  originalFxStale      Boolean?
+  originalFxUnresolved Boolean?
+  voidedById           String?
+  voidedByKind         String?
+  voidSynthetic        Boolean  @default(false)
+
+  /// Execution price provenance for controlled stale-quote closes.
+  priceSource    String?
+  priceTimestamp DateTime?
+  priceStale     Boolean?
+
   @@index([tradingAccountId, closedAt])
+  @@index([positionId])
+  @@unique([tradingAccountId, idempotencyKey])
 }
 
 /// Reflective journal records attached to closed trades: notes, strategy tags and
@@ -456,20 +662,72 @@ model Payout {
   network          WalletNetwork
   status           PayoutStatus   @default(PENDING)
   balanceReserved  Boolean        @default(false)
+  /// Scoped Idempotency-Key for the payout request; unique per user.
+  requestKey       String?
   providerBatchId  String?
   providerPayoutId String?        @unique
   providerStatus   String?
+  /// Explicit provenance marker: MANUAL_V1 (new payouts, owner-confirmed off-platform)
+  /// or EXECUTION_V1 (legacy provider workflow) or LEGACY_MANUAL_APPROVAL (disabled).
+  executionPolicy  String?
+  /// Durable execution state machine. Null until a worker atomically claims execution.
+  executionState   String?
+  /// Stable execution idempotency key (`exec:<payoutId>`); also the provider unique_external_id base.
+  executionKey     String?        @unique
+  executionClaimedAt DateTime?
+  /// Unique owner token for the current execution attempt.
+  executionClaimedBy String?
+  /// Lease expiry for the current owner. Expiry never authorizes a blind create retry.
+  executionLeaseUntil DateTime?
+  /// SHA-256 fingerprint of amount/network/address/account captured at claim time.
+  executionSnapshotHash String?
   txHash           String?
   rejectReason     String?
+  /// Set when a manual rejection forfeits the reserve on a terminal account
+  /// (ARCHIVED/EXPIRED or archivedAt != null). Null for a normal reserve release.
+  forfeitedAt      DateTime?
+  /// Application-level source of the cancellation/reserve outcome, e.g.
+  /// `ACCOUNT_CLOSED_FORFEITURE`. Null for a plain reserve release.
+  cancelSource     String?
   requestedAt      DateTime       @default(now())
   reviewedAt       DateTime?
   reviewedById     String?
   reviewedBy       User?          @relation("PayoutReviewer", fields: [reviewedById], references: [id])
   certificates    Certificate[]
+  legacyCutoverEvidence PayoutLegacyCutoverEvidence?
+  /// Manual payout (MANUAL_V1) fields. transactionRef is the unique external payment
+  /// reference supplied by the owner when confirming an actual transfer.
+  paidAmount       Decimal?       @db.Decimal(12, 2)
+  paidCurrency     String?
+  paidAt           DateTime?
+  paymentMethod    String?
+  transactionRef   String?        @unique
+  paidById         String?
+  paidBy           User?          @relation("PayoutPayer", fields: [paidById], references: [id])
+  approvedById     String?
+  approvedBy       User?          @relation("PayoutApprover", fields: [approvedById], references: [id])
+  approvedAt       DateTime?
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
   @@index([status])
+  @@unique([userId, requestKey])
+}
+
+/// Reserved schema for a future trusted two-administrator legacy cutover workflow.
+/// Legacy marking and legacy approval are currently DISABLED: `executionPolicy` is
+/// immutable once written, and no application/API or DB function creates rows in this
+/// table. A future workflow must introduce a real privileged role and authenticated
+/// requester/verifier identity before this table can be populated.
+model PayoutLegacyCutoverEvidence {
+  payoutId          String   @id
+  payout            Payout   @relation(fields: [payoutId], references: [id], onDelete: Restrict)
+  evidenceReference String
+  evidenceHash      String   @unique
+  requestedBy       String
+  verifiedBy        String
+  requestedAt       DateTime
+  verifiedAt        DateTime
 }
 
 /// Appeal against a breach decision. Traders file it inside the appeal window and an
@@ -505,6 +763,8 @@ model AuditLog {
   reason    String?
   metadata  Json?
   createdAt DateTime @default(now())
+
+  breachEvent AccountBreachEvent?
 
   @@index([createdAt])
 }
@@ -623,15 +883,161 @@ model PayoutProof {
 model TradingInstrument {
   id               String   @id @default(cuid())
   symbol           String   @unique
+  /// Canonical terminal symbol (EURUSD, US100). Nullable until the registry seed runs.
+  terminalSymbol   String?  @unique
   avgSpread        Decimal  @db.Decimal(10, 3)
+  /// Legacy per-lot rate kept for compatibility; versioned tariffs will live in CommissionPlan.
   commissionPerLot Decimal  @db.Decimal(10, 2)
+  /// False means no tariff has been configured yet, so the instrument must not open positions.
+  commissionConfigured Boolean @default(false)
+  /// Explicit operator approval for an intentionally free instrument. Without it a zero rate fails closed.
+  zeroFeeApproved  Boolean  @default(false)
   category         String
+  contractSize     Decimal? @db.Decimal(18, 4)
+  minLots          Decimal? @db.Decimal(10, 4)
+  lotStep          Decimal? @db.Decimal(10, 4)
+  maxLots          Decimal? @db.Decimal(10, 4)
+  tickSize         Decimal? @db.Decimal(18, 8)
+  quoteCurrency    String?
+  profitCurrency   String?
+  leverage         Int?
+  conversionMode   String?
+  specSource       String?
+  /// Legacy aggregate flag; superseded by specVerification. Kept for compatibility.
+  specVerified     Boolean? @default(false)
+  /// Per-field verification metadata (status/source/confirmedAt/confirmedBy). Additive; nullable.
+  specVerification Json?
   isActive         Boolean  @default(true)
   updatedAt        DateTime @updatedAt
 
   spreadSamples TradingSpreadSample[]
+  commissionPlans CommissionPlan[]
 
   @@index([isActive, category])
+}
+
+enum CommissionModel {
+  PER_LOT
+  PER_DEAL
+  PERCENT_NOTIONAL
+}
+
+/// Immutable, versioned tariff for one instrument. A new version is created on change;
+/// old rows stay untouched so open positions keep their snapshot.
+model CommissionPlan {
+  id            String           @id @default(cuid())
+  instrumentId  String
+  instrument    TradingInstrument @relation(fields: [instrumentId], references: [id], onDelete: Cascade)
+  model         CommissionModel
+  entryRate     Decimal          @db.Decimal(18, 8)
+  exitRate      Decimal          @db.Decimal(18, 8)
+  currency      String           @default("USD")
+  minFee        Decimal?         @db.Decimal(12, 2)
+  maxFee        Decimal?         @db.Decimal(12, 2)
+  effectiveFrom DateTime         @default(now())
+  isActive      Boolean          @default(true)
+  /// Explicit approval for a deliberately free tariff (entry and exit rates of zero).
+  zeroFeeApproved Boolean        @default(false)
+  source        String?
+  createdBy     String?
+  createdAt     DateTime         @default(now())
+
+  @@index([instrumentId, isActive, effectiveFrom])
+}
+
+/// Immutable opening-balance marker for accounts whose history predates the ledger.
+/// Creating a baseline never changes the account balance.
+model AccountLedgerBaseline {
+  id                   String    @id @default(cuid())
+  accountId            String
+  account              TradingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  amount               Decimal   @db.Decimal(18, 2)
+  currency             String    @default("USD")
+  capturedAt           DateTime  @default(now())
+  source               String
+  version              Int       @default(1)
+  historyComplete      Boolean   @default(false)
+  reconciliationStatus String    @default("BASELINED")
+  sourceReference      String?
+  createdBy            String?
+  createdAt            DateTime  @default(now())
+
+  @@unique([accountId, version])
+  @@index([accountId, capturedAt])
+}
+
+enum LedgerEntryType {
+  TRADE_PNL
+  ENTRY_COMMISSION
+  EXIT_COMMISSION
+  SWAP
+  ADJUSTMENT
+  REVERSAL
+  RECONCILIATION
+  PAYOUT_RESERVE
+  PAYOUT_RELEASE
+}
+
+/// Append-only double-entry-style account ledger. `amount` is signed (debit negative).
+model AccountLedgerEntry {
+  id             String          @id @default(cuid())
+  accountId      String
+  account        TradingAccount  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  type           LedgerEntryType
+  amount         Decimal         @db.Decimal(18, 2)
+  currency       String          @default("USD")
+  balanceAfter   Decimal         @db.Decimal(18, 2)
+  refType        String?
+  refId          String?
+  positionId     String?
+  executionId    String?
+  idempotencyKey String
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+
+  @@unique([accountId, idempotencyKey])
+  @@index([accountId, createdAt])
+  @@index([type, createdAt])
+  @@index([positionId])
+}
+
+/// Lifecycle of an FX reconciliation record. VOIDED is terminal and can never be resolved.
+enum FxReconciliationStatus {
+  UNRESOLVED
+  RESOLVED
+  VOIDED
+}
+
+/// Queue for closes whose quote currency could not be converted to USD at a
+/// verified rate. `appliedAmountUsd` records the amount already reflected in the
+/// balance (entry-rate fallback) so a later resolution applies only the delta.
+model FxReconciliation {
+  id             String    @id @default(cuid())
+  accountId      String
+  positionId     String?
+  tradeHistoryId String?
+  quoteCurrency  String
+  amountQuote    Decimal   @db.Decimal(18, 8)
+  status         FxReconciliationStatus @default(UNRESOLVED)
+  reason         String?
+  /// USD gross PnL already booked at close (entry-rate fallback); zero for a fully unresolved close.
+  appliedAmountUsd Decimal @default(0) @db.Decimal(18, 2)
+  appliedRate    Decimal?  @db.Decimal(18, 10)
+  resolutionRate Decimal?  @db.Decimal(18, 10)
+  ratePair       String?
+  rateTimestamp  DateTime?
+  rateSource     String?
+  resolutionVersion Int?
+  resolutionNote String?
+  voidedAt       DateTime?
+  voidReason     String?
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([status, createdAt])
+  @@index([accountId])
+  @@unique([tradeHistoryId])
 }
 
 /// Raw live-spread samples used to maintain the rolling 24h average.
@@ -761,4 +1167,220 @@ model RateLimitBucket {
   updatedAt DateTime @updatedAt
 
   @@index([resetAt])
+}
+
+// ---------------------------------------------------------------------------
+// Operational Observability (Phase 1.7.0)
+//
+// Heartbeat/execution/incident models for the System Health subsystem. These
+// tables are strictly operational: they never reference financial entities
+// (Payout, AccountLedgerEntry, TradingAccount) and never mutate balance, equity,
+// reserve, ledger, breach or account status. See docs in lib/ops/observability.ts.
+// ---------------------------------------------------------------------------
+
+enum ComponentGroup {
+  SCHEDULER
+  VERCEL
+  WORKER
+  MARKET_DATA
+  DATABASE
+  RISK_ENGINE
+  EMAIL
+}
+
+enum ComponentKind {
+  SCHEDULER
+  APP
+  WORKER
+  JOB
+  PROVIDER
+}
+
+enum LivenessState {
+  HEALTHY
+  STALE
+  FAILED
+  UNKNOWN
+}
+
+enum ExecutionState {
+  STARTED
+  RUNNING
+  SUCCEEDED
+  PARTIAL_SUCCESS
+  FAILED
+  TIMED_OUT
+}
+
+enum IncidentType {
+  HEARTBEAT_STALE
+  PROCESS_FAILED
+  PROCESS_TIMED_OUT
+  MARKET_STALE
+  MARKET_CONNECTION_FAILED
+  DB_UNAVAILABLE
+  EMAIL_DOWN
+  BATCH_PARTIAL_FAILURE
+  PROVIDER_FALLBACK_BROKEN
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  SUPPRESSED
+}
+
+enum IncidentSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+/// Registry of monitored components. One row per physical service / worker / job.
+model SystemComponent {
+  key                   String         @id
+  group                 ComponentGroup
+  kind                  ComponentKind
+  label                 String
+  /// Expected heartbeat interval in milliseconds (drives stale/failure thresholds).
+  expectedMs            Int
+  enabled               Boolean        @default(true)
+
+  heartbeat  SystemHeartbeat?
+  executions SystemExecution[]
+  incidents  SystemHealthIncident[]
+
+  @@map("SystemComponent")
+}
+
+/// Current liveness state per component (1 row per component, upserted in place).
+/// `lastSuccessfulAt` is never updated by a failed attempt; `lastMeta` holds only
+/// aggregated counters — never account ids or personal data.
+model SystemHeartbeat {
+  componentKey     String         @id
+  component        SystemComponent @relation(fields: [componentKey], references: [key], onDelete: Cascade)
+  liveness         LivenessState  @default(UNKNOWN)
+  lastStartedAt    DateTime?
+  lastAttemptAt    DateTime?
+  lastSuccessfulAt DateTime?
+  lastFailedAt     DateTime?
+  leaseExpiresAt   DateTime?
+  /// Current execution run id; used to discard late writes from superseded runs.
+  runId            String?
+  lastError        String?
+  lastErrorCount   Int            @default(0)
+  lastMeta         Json?
+  updatedAt        DateTime       @updatedAt
+
+  @@map("SystemHeartbeat")
+}
+
+/// One scheduled execution slot. `scheduledSlotKey` deduplicates the scheduled
+/// slot (not the run); `runId` identifies a concrete run for lease takeover.
+model SystemExecution {
+  id               String         @id @default(cuid())
+  componentKey     String
+  component        SystemComponent @relation(fields: [componentKey], references: [key], onDelete: Cascade)
+  scheduledSlotKey String
+  runId            String
+  state            ExecutionState @default(STARTED)
+  startedAt        DateTime       @default(now())
+  finishedAt       DateTime?
+  leaseExpiresAt   DateTime?
+  /// Aggregated counters only (`{ checked, ok, failed, skipped }`), no account ids.
+  summary          Json?
+  error            String?
+
+  @@unique([componentKey, scheduledSlotKey])
+  @@index([componentKey, startedAt])
+  @@index([runId])
+  /// Health-evaluator latest-terminal-state candidate queries (Phase 1.8.1, q1–q3).
+  @@index([componentKey, state, finishedAt, scheduledSlotKey])
+  /// q4 (TIMED_OUT candidates are ordered by lease expiry, not finishedAt).
+  @@index([componentKey, state, leaseExpiresAt, scheduledSlotKey])
+
+  @@map("SystemExecution")
+}
+
+/// Incident history. `activeKey` is non-null while OPEN/ACKNOWLEDGED/SUPPRESSED and
+/// is set to NULL on RESOLVED, so a future incident of the same type can be created
+/// without colliding with history (PostgreSQL treats NULLs as distinct under UNIQUE).
+model SystemHealthIncident {
+  id                String          @id @default(cuid())
+  incidentType      IncidentType
+  componentKey      String
+  component         SystemComponent @relation(fields: [componentKey], references: [key], onDelete: Cascade)
+  /// Non-null while active; NULL once RESOLVED (frees the unique slot).
+  activeKey         String?         @unique
+  severity          IncidentSeverity
+  status            IncidentStatus  @default(OPEN)
+  /// Time the underlying failure actually occurred (event time, not processing time).
+  occurredAt        DateTime        @default(now())
+  openedAt          DateTime        @default(now())
+  lastOccurredAt    DateTime        @default(now())
+  acknowledgedAt    DateTime?
+  acknowledgedBy    String?
+  resolvedAt        DateTime?
+  resolvedBy        String?
+  suppressedAt      DateTime?
+  suppressionReason String?
+  occurrenceCount   Int             @default(1)
+  title             String
+  detail            String?
+
+  @@index([componentKey, status])
+  @@index([openedAt])
+
+  @@map("SystemHealthIncident")
+}
+
+/// Per-pair recovery watermark `(componentKey, incidentType)`. Keeps event
+/// ordering isolated per incident type: recovering TYPE_A must not suppress a
+/// later failure of TYPE_B on the same component.
+model SystemIncidentWatermark {
+  componentKey           String
+  incidentType           IncidentType
+  lastResolvedOccurredAt DateTime
+  /// Opaque composite ordering key `pad(timeMs,15)|recoveryBit|scheduledSlotKey`
+  /// (Phase 1.8.1.10–1.8.1.12). NULL for legacy rows: they use the timestamp-only
+  /// guard until the first strictly newer resolution converts them. The column is
+  /// created with `COLLATE "C"` (see prisma/sql/observability-watermark-key.sql)
+  /// so SQL ordering matches the TypeScript code-unit ordering of the ASCII key.
+  /// Never parsed — compared as an opaque string only.
+  lastResolvedOrderKey   String?
+  updatedAt              DateTime        @updatedAt
+
+  @@id([componentKey, incidentType])
+  @@map("SystemIncidentWatermark")
+}
+
+/// Kind of a recorded incident event. Recovery events are deduplicated separately
+/// from failure events, so a failure and a recovery can never collide on the same
+/// id, and a re-delivered recovery cannot close a newer incident.
+enum IncidentEventKind {
+  FAILURE
+  RECOVERY
+}
+
+/// Durable deduplication ledger for incident events. The unique
+/// `(componentKey, incidentType, eventKind, eventId)` key guarantees a given
+/// event id is processed exactly once, even when re-delivered non-consecutively
+/// (A → B → A) or concurrently. Sources without a natural event id fall back to a
+/// deterministic derived id (see lib/ops/observability.ts).
+model SystemIncidentEvent {
+  id           String            @id @default(cuid())
+  componentKey String
+  incidentType IncidentType
+  eventKind    IncidentEventKind
+  eventId      String
+  incidentId   String?
+  processedAt  DateTime          @default(now())
+
+  @@unique([componentKey, incidentType, eventKind, eventId])
+  @@index([componentKey, incidentType, processedAt])
+
+  @@map("SystemIncidentEvent")
 }
