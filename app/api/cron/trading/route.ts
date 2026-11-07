@@ -16,8 +16,39 @@ import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
 import { detectCrossAccountHedges } from '@/lib/trading/net-exposure'
 import { cancelPendingOrdersAtCutoff, enforceSessionCutoff } from '@/lib/trading/overnight'
 import { evaluateActiveAccountsPassing } from '@/lib/trading/passing'
+import { claimExecution, finishExecution, registerComponent, writeHeartbeat } from '@/lib/ops/observability'
+import type { ClaimExecutionResult } from '@/lib/ops/observability'
+import { buildTradingCronSummary, tradingCronExecutionState, type TradingCronSummary } from '@/lib/ops/trading-cron-summary'
 
 export const dynamic = 'force-dynamic'
+
+const TRADING_CRON_COMPONENT = {
+  key: 'vercel:cron:trading',
+  group: 'VERCEL',
+  kind: 'JOB',
+  label: 'Trading cron',
+  expectedMs: 120_000,
+} as const
+
+/** UTC minute bucket for the execution slot (source is intentionally omitted — not distinguishable). */
+function tradingCronSlotKey(now = new Date()): string {
+  const minute = new Date(Math.floor(now.getTime() / 60_000) * 60_000)
+  return `vercel:cron:trading:${minute.toISOString()}`
+}
+
+/**
+ * Bounded observability helper: a single DB attempt, no retry, no Promise.race.
+ * An observability failure is logged and swallowed — it must never affect the
+ * Trading Cron business result.
+ */
+async function safeObserve<T>(fn: () => Promise<T>): Promise<T | null> {
+  try {
+    return await fn()
+  } catch (error) {
+    console.error('[pft trading cron] observability failed', error)
+    return null
+  }
+}
 
 async function run() {
   const riskFlags = await refreshUserRiskFlags()
@@ -48,15 +79,18 @@ async function run() {
     // Weekend or a stalled feed. There is nothing to mark or fill, but closure
     // consequences still have to be written, and the cron itself succeeded.
     const enforcement = await enforceBreachMatrix()
-    return NextResponse.json({
-      status: 'market_closed',
-      accounts: 0,
-      enforcement,
-      riskFlags,
-      rules,
-      relatedAccounts,
-      abuseScores,
-    })
+    return {
+      body: {
+        status: 'market_closed',
+        accounts: 0,
+        enforcement,
+        riskFlags,
+        rules,
+        relatedAccounts,
+        abuseScores,
+      },
+      summary: buildTradingCronSummary(0, [], true),
+    }
   }
 
   const warnedAccounts = await warnFundedAccountsBeforeNews()
@@ -150,7 +184,11 @@ async function run() {
     })
   }
 
-  return NextResponse.json({
+  const mappedResults = results.map((result) =>
+    result.status === 'fulfilled' ? result.value : { status: 'failed' as const },
+  )
+
+  const body = {
     accounts: accounts.length,
     newsWindows: { warnedAccounts },
     sessionCutoff: {
@@ -158,9 +196,7 @@ async function run() {
       closedAccounts: cutoffResults.length,
       violations: cutoffResults.filter((result) => result.violation).length,
     },
-    results: results.map((result) =>
-      result.status === 'fulfilled' ? result.value : { status: 'failed' as const },
-    ),
+    results: mappedResults,
     progression: progression.filter((item) => item.result.status !== 'noop'),
     enforcement,
     riskFlags,
@@ -170,7 +206,9 @@ async function run() {
     limitReconciliation,
     crossAccountHedges,
     inactivity,
-  })
+  }
+
+  return { body, summary: buildTradingCronSummary(accounts.length, mappedResults) }
 }
 
 export async function GET(request: Request) {
@@ -179,11 +217,59 @@ export async function GET(request: Request) {
   if (!secret || !auth || !safeSecretEqual(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: 'Unauthorized cron request' }, { status: 401 })
   }
+
+  // Observability: register the component, then claim the execution slot. Neither
+  // step blocks or gates the business run; failures are swallowed by safeObserve.
+  const claim = await safeObserve(async (): Promise<ClaimExecutionResult> => {
+    await registerComponent(TRADING_CRON_COMPONENT)
+    return claimExecution({
+      componentKey: TRADING_CRON_COMPONENT.key,
+      scheduledSlotKey: tradingCronSlotKey(),
+      expectedMs: TRADING_CRON_COMPONENT.expectedMs,
+      allowTakeover: false,
+    })
+  })
+
+  let state: 'SUCCEEDED' | 'PARTIAL_SUCCESS' | 'FAILED' = 'FAILED'
+  let summary: TradingCronSummary | null = null
+  let errorMessage: string | null = null
+
   try {
-    return await run()
+    const result = await run()
+    summary = result.summary
+    state = tradingCronExecutionState(result.summary, false)
+    return NextResponse.json(result.body)
   } catch (error) {
+    errorMessage = error instanceof Error ? error.message.slice(0, 200) : 'Trading cron failed'
+    state = tradingCronExecutionState(null, true)
     console.error('[pft trading cron]', error)
     return NextResponse.json({ error: 'Trading cron failed' }, { status: 500 })
+  } finally {
+    // A. Execution result — only for an invocation that actually claimed the slot.
+    if (claim && claim.claimed) {
+      await safeObserve(() =>
+        finishExecution({
+          runId: claim.runId,
+          state,
+          summary: summary ?? undefined,
+          error: errorMessage ?? undefined,
+        }),
+      )
+    }
+    // B. Heartbeat — process liveness, independent of the business result.
+    await safeObserve(() =>
+      writeHeartbeat({
+        key: TRADING_CRON_COMPONENT.key,
+        group: TRADING_CRON_COMPONENT.group,
+        kind: TRADING_CRON_COMPONENT.kind,
+        label: TRADING_CRON_COMPONENT.label,
+        expectedMs: TRADING_CRON_COMPONENT.expectedMs,
+        liveness: 'HEALTHY',
+        lastSuccessfulAt: new Date(),
+        lastError: null,
+        lastMeta: { lastExecutionState: state },
+      }),
+    )
   }
 }
 

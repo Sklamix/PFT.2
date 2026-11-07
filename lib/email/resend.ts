@@ -2,6 +2,96 @@ const RESEND_ENDPOINT = 'https://api.resend.com/emails'
 const SEND_TIMEOUT_MS = 8_000
 const DEFAULT_FROM = 'PFT Challenges <onboarding@resend.dev>'
 
+/**
+ * DEV-only Mailpit transport.
+ *
+ * Active ONLY when ALL of the following hold:
+ *  - NODE_ENV is exactly 'development';
+ *  - DEV_EMAIL_API_URL is explicitly set (opt-in);
+ *  - the URL points at a loopback host (localhost / 127.x / ::1) over http(s).
+ *
+ * In any other environment the DEV variable is ignored — except in production,
+ * where its mere presence is a configuration error and sendEmail() fails
+ * closed (throws) instead of silently falling back to another transport.
+ */
+const DEV_EMAIL_API_URL_ENV = 'DEV_EMAIL_API_URL'
+
+function isLoopbackUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+    const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '')
+    return host === 'localhost' || host === '::1' || /^127(\.\d{1,3}){3}$/.test(host)
+  } catch {
+    return false
+  }
+}
+
+function devTransportTarget(): { mode: 'resend' } | { mode: 'mailpit'; apiRoot: string } | { mode: 'fail-closed'; error: string } {
+  const configured = process.env[DEV_EMAIL_API_URL_ENV]
+  if (!configured) return { mode: 'resend' }
+  if (process.env.NODE_ENV === 'production') {
+    return { mode: 'fail-closed', error: `${DEV_EMAIL_API_URL_ENV} is set in a production environment` }
+  }
+  if (process.env.NODE_ENV !== 'development') {
+    // Any other non-dev runtime (e.g. tests, custom runtimes) stays on Resend.
+    return { mode: 'resend' }
+  }
+  if (!isLoopbackUrl(configured)) {
+    return { mode: 'fail-closed', error: `${DEV_EMAIL_API_URL_ENV} must be a loopback http(s) URL` }
+  }
+  return { mode: 'mailpit', apiRoot: configured.replace(/\/+$/, '') }
+}
+
+/**
+ * Parses a Resend-style "Name <email>" or bare "email" sender string into the
+ * Mailpit SendRequest `From` shape `{ Name?, Email }`. Returns null when the
+ * address cannot be reliably parsed so the caller can fail without sending.
+ */
+function parseFromAddress(raw: string): { name?: string; email: string } | null {
+  const trimmed = (raw ?? '').trim()
+  if (!trimmed) return null
+  const angled = /^(.*?)\s*<([^>]+)>$/.exec(trimmed)
+  if (angled) {
+    const name = angled[1].trim()
+    const email = angled[2].trim()
+    if (!email) return null
+    return name ? { name, email } : { email }
+  }
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return { email: trimmed }
+  return null
+}
+
+/** Sends a message to a local Mailpit instance via its HTTP send API. */
+async function sendViaMailpit(apiRoot: string, message: EmailMessage): Promise<EmailResult> {
+  const from = parseFromAddress(process.env.RESEND_FROM_EMAIL || DEFAULT_FROM)
+  if (!from) {
+    return { status: 'FAILED', error: 'Mailpit transport: invalid sender address' }
+  }
+  try {
+    const response = await fetch(`${apiRoot}/api/v1/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        From: from.name ? { Name: from.name, Email: from.email } : { Email: from.email },
+        To: [message.to].map((email) => ({ Email: email })),
+        Subject: message.subject,
+        HTML: message.html,
+        Text: message.text,
+        ...(message.idempotencyKey ? { Tags: [message.idempotencyKey] } : {}),
+      }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    })
+    const data = (await response.json().catch(() => null)) as { ID?: string } | null
+    if (!response.ok || !data?.ID) {
+      return { status: 'FAILED', error: `Mailpit ${response.status}: unexpected response` }
+    }
+    return { status: 'SENT', id: data.ID }
+  } catch (error) {
+    return { status: 'FAILED', error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 export interface EmailMessage {
   to: string
   subject: string
@@ -19,8 +109,27 @@ export function isEmailConfigured() {
   return Boolean(process.env.RESEND_API_KEY)
 }
 
-/** Sends an email through the Resend REST API. Never throws. */
+/**
+ * Whether the DEV-only Mailpit transport is active for this runtime.
+ *
+ * True only when devTransportTarget() resolves to `mailpit` — i.e. NODE_ENV is
+ * 'development', DEV_EMAIL_API_URL is set, and it is a valid loopback URL. Used
+ * by callers (e.g. the email-code route) to decide whether a real Resend API
+ * key is required.
+ */
+export function isDevMailpitActive(): boolean {
+  return devTransportTarget().mode === 'mailpit'
+}
+
+/** Sends an email through the Resend REST API (or DEV Mailpit when opted in). Never throws in DEV. */
 export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
+  const target = devTransportTarget()
+  if (target.mode === 'fail-closed') {
+    // Configuration error: refuse to send rather than silently switching transports.
+    throw new Error(`Email transport misconfigured: ${target.error}`)
+  }
+  if (target.mode === 'mailpit') return sendViaMailpit(target.apiRoot, message)
+
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return { status: 'SKIPPED', error: 'RESEND_API_KEY is not configured' }
 

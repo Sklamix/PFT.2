@@ -1,6 +1,7 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
 import { isFreshQuote, parseGmtTimeOfDay } from '../../../lib/market/feed-time'
 import { isIndexMarketOpen } from '../../../lib/market/index-sessions'
+import { aggregateCandles, buildCfHeartbeatMeta, writeCfHeartbeat } from '../../../lib/ops/cf-worker-heartbeat'
 
 const FXCM_URL = 'https://rates.fxcm.com/RatesXML'
 const SWISSQUOTE_URL = 'https://forex-data-feed.swissquote.com/public-quotes/bboquotes/instrument/XAU/USD'
@@ -144,7 +145,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function collect(sql: NeonQueryFunction<false, false>) {
+async function collect(sql: NeonQueryFunction<false, false>): Promise<{ collectedTicks: number; writeOk: boolean }> {
   const [fxResult, goldResult] = await Promise.allSettled([fetchFxcm(), fetchGold()])
   const now = Date.now()
   const ticks: Tick[] = []
@@ -154,16 +155,19 @@ async function collect(sql: NeonQueryFunction<false, false>) {
   if (goldResult.status === 'fulfilled' && goldResult.value) ticks.push(goldResult.value)
   else if (goldResult.status === 'rejected') console.error('[pft market worker] Gold failed', goldResult.reason)
 
+  let writeOk = false
   try {
     await upsertTicks(sql, ticks, now)
+    writeOk = true
     console.info('[pft market worker] stored', ticks.map((tick) => `${tick.symbol}:${tick.mid}`).join(' '))
   } catch (error) {
     console.error('[pft market worker] Failed to batch store ticks', error)
   }
+  return { collectedTicks: ticks.length, writeOk }
 }
 
-async function processTrading(env: Env) {
-  if (!env.PFT_APP_URL || !env.CRON_SECRET) return
+async function processTrading(env: Env): Promise<{ ok: boolean }> {
+  if (!env.PFT_APP_URL || !env.CRON_SECRET) return { ok: false }
   const url = `${env.PFT_APP_URL.replace(/\/+$/, '')}/api/cron/trading`
   try {
     const response = await fetch(url, {
@@ -171,15 +175,20 @@ async function processTrading(env: Env) {
       headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
       signal: AbortSignal.timeout(25_000),
     })
-    if (!response.ok) console.error('[pft market worker] Trading cron failed', response.status, await response.text())
-    else console.info('[pft market worker] trading cron processed')
+    if (!response.ok) {
+      console.error('[pft market worker] Trading cron failed', response.status, await response.text())
+      return { ok: false }
+    }
+    console.info('[pft market worker] trading cron processed')
+    return { ok: true }
   } catch (error) {
     console.error('[pft market worker] Trading cron request failed', error)
+    return { ok: false }
   }
 }
 
-async function processMarketConditions(env: Env) {
-  if (!env.PFT_APP_URL || !env.CRON_SECRET) return
+async function processMarketConditions(env: Env): Promise<{ ok: boolean }> {
+  if (!env.PFT_APP_URL || !env.CRON_SECRET) return { ok: false }
   const url = `${env.PFT_APP_URL.replace(/\/+$/, '')}/api/cron/market-conditions`
   try {
     const response = await fetch(url, {
@@ -187,15 +196,20 @@ async function processMarketConditions(env: Env) {
       headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
       signal: AbortSignal.timeout(25_000),
     })
-    if (!response.ok) console.error('[pft market worker] Conditions cron failed', response.status, await response.text())
-    else console.info('[pft market worker] conditions cron processed')
+    if (!response.ok) {
+      console.error('[pft market worker] Conditions cron failed', response.status, await response.text())
+      return { ok: false }
+    }
+    console.info('[pft market worker] conditions cron processed')
+    return { ok: true }
   } catch (error) {
     console.error('[pft market worker] Conditions cron request failed', error)
+    return { ok: false }
   }
 }
 
-async function processEconomicCalendar(env: Env) {
-  if (!env.PFT_APP_URL || !env.CRON_SECRET) return
+async function processEconomicCalendar(env: Env): Promise<{ ok: boolean }> {
+  if (!env.PFT_APP_URL || !env.CRON_SECRET) return { ok: false }
   const url = `${env.PFT_APP_URL.replace(/\/+$/, '')}/api/cron/economic-calendar`
   try {
     const response = await fetch(url, {
@@ -203,34 +217,83 @@ async function processEconomicCalendar(env: Env) {
       headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
       signal: AbortSignal.timeout(25_000),
     })
-    if (!response.ok) console.error('[pft market worker] Calendar cron failed', response.status, await response.text())
-    else console.info('[pft market worker] economic calendar cron processed')
+    if (!response.ok) {
+      console.error('[pft market worker] Calendar cron failed', response.status, await response.text())
+      return { ok: false }
+    }
+    console.info('[pft market worker] economic calendar cron processed')
+    return { ok: true }
   } catch (error) {
     console.error('[pft market worker] Calendar cron request failed', error)
+    return { ok: false }
   }
 }
 
-async function run(env: Env) {
+async function processHealthEvaluator(env: Env): Promise<{ ok: boolean }> {
+  if (!env.PFT_APP_URL || !env.CRON_SECRET) return { ok: false }
+  const url = `${env.PFT_APP_URL.replace(/\/+$/, '')}/api/cron/health-evaluator`
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${env.CRON_SECRET}` },
+      signal: AbortSignal.timeout(25_000),
+    })
+    if (!response.ok) {
+      console.error('[pft market worker] Health evaluator cron failed', response.status, await response.text())
+      return { ok: false }
+    }
+    console.info('[pft market worker] health evaluator cron processed')
+    return { ok: true }
+  } catch (error) {
+    console.error('[pft market worker] Health evaluator cron request failed', error)
+    return { ok: false }
+  }
+}
+
+async function run(env: Env): Promise<{ collectedTicks: number; storedTicks: number; candlesOk: boolean; lastTickAt: string | null }> {
   if (!env.DATABASE_URL) throw new Error('DATABASE_URL secret is not configured')
   const sql = neon(env.DATABASE_URL)
 
+  const cycles = []
   for (let cycle = 0; cycle < CYCLES; cycle += 1) {
-    await collect(sql)
+    cycles.push(await collect(sql))
     if (cycle < CYCLES - 1) await sleep(CYCLE_DELAY_MS)
   }
+
+  return aggregateCandles(cycles)
 }
 
 export default {
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
     ctx.waitUntil(
-      Promise.allSettled([
-        run(env).catch((error) => {
-          console.error('[pft market worker] Scheduled run failed', error)
-        }),
-        processTrading(env),
-        processMarketConditions(env),
-        processEconomicCalendar(env),
-      ]),
+      (async () => {
+        const results = await Promise.allSettled([
+          run(env),
+          processTrading(env),
+          processMarketConditions(env),
+          processEconomicCalendar(env),
+          processHealthEvaluator(env),
+        ])
+
+        if (results[0].status === 'rejected') {
+          console.error('[pft market worker] Scheduled run failed', results[0].reason)
+        }
+        const candles =
+          results[0].status === 'fulfilled'
+            ? results[0].value
+            : { collectedTicks: 0, storedTicks: 0, candlesOk: false, lastTickAt: null }
+        const fanOut = [results[1], results[2], results[3], results[4]].map((r) =>
+          r.status === 'fulfilled' ? r.value : { ok: false },
+        )
+
+        if (!env.DATABASE_URL) return
+        try {
+          const sql = neon(env.DATABASE_URL)
+          await writeCfHeartbeat(sql, buildCfHeartbeatMeta(candles, fanOut))
+        } catch (error) {
+          console.error('[pft market worker] heartbeat failed', error)
+        }
+      })(),
     )
   },
 
