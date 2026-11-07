@@ -58,6 +58,8 @@ export function verifySessionToken(token: string | undefined | null): AdminSessi
       name: payload.name,
       role: payload.role,
       tokenVersion: Number.isInteger(payload.tokenVersion) ? payload.tokenVersion : 0,
+      // Capability is never trusted from the signed cookie; it is re-read from the DB.
+      canConfirmPayouts: false,
     }
   } catch {
     return null
@@ -89,10 +91,10 @@ export async function getAdminSession(): Promise<AdminSession | null> {
     const { prisma } = await import('@/lib/prisma')
     const user = await prisma.user.findUnique({
       where: { id: session.sub },
-      select: { tokenVersion: true, role: true },
+      select: { tokenVersion: true, role: true, canConfirmPayouts: true },
     })
     if (!user || user.role !== session.role || user.tokenVersion !== session.tokenVersion) return null
-    return session
+    return { ...session, canConfirmPayouts: user.canConfirmPayouts }
   } catch (error) {
     console.error('[pft admin auth] Admin session validation failed', error)
     return null
@@ -114,6 +116,49 @@ export async function requireAdmin() {
     return {
       session: null,
       error: NextResponse.json({ error: 'Admin role required' }, { status: 403 }),
+    }
+  }
+  return { session, error: null }
+}
+
+/** Owner capability predicate. True only for the trusted owner account. */
+export function hasPayoutOwnerCapability(
+  user: { canConfirmPayouts: boolean } | null | undefined,
+): boolean {
+  return user?.canConfirmPayouts === true
+}
+
+/**
+ * Owner-only guard for confirming manual payouts. Requires an authenticated ADMIN and
+ * re-reads the capability from the database (authoritative, never from the signed cookie),
+ * so `canConfirmPayouts` cannot be forged via session tampering.
+ */
+export async function requirePayoutOwner() {
+  const { session, error } = await requireAdmin()
+  if (error) return { session: null, error }
+
+  if (!process.env.DATABASE_URL) {
+    return {
+      session: null,
+      error: NextResponse.json({ error: 'Owner capability requires a configured database.' }, { status: 503 }),
+    }
+  }
+  try {
+    const { prisma } = await import('@/lib/prisma')
+    const user = await prisma.user.findUnique({
+      where: { id: session.sub },
+      select: { canConfirmPayouts: true },
+    })
+    if (!hasPayoutOwnerCapability(user)) {
+      return {
+        session: null,
+        error: NextResponse.json({ error: 'Payout owner capability required' }, { status: 403 }),
+      }
+    }
+  } catch {
+    return {
+      session: null,
+      error: NextResponse.json({ error: 'Owner capability check failed' }, { status: 500 }),
     }
   }
   return { session, error: null }

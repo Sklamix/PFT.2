@@ -1,4 +1,6 @@
 import { hashPassword } from '@/lib/admin/auth'
+import { AccountOverrideError } from '@/lib/admin/account-override-error'
+import { PayoutApprovalError } from '@/lib/admin/payout-error'
 import { drawdownPressure, isBreached, isPassing, matchesTraderFilter, recomputeMetrics, riskBadge } from '@/lib/admin/risk'
 import type {
   AccountPhase,
@@ -57,6 +59,7 @@ type MockAccount = {
 type MockTrade = TradeRow & { accountId: string }
 type MockPayout = Omit<PayoutRow, 'traderName' | 'traderEmail' | 'accountDisplayId' | 'slaMinutes'> & {
   userId: string
+  executionPolicy: 'EXECUTION_V1' | 'LEGACY_MANUAL_APPROVAL'
 }
 
 const now = () => new Date().toISOString()
@@ -474,6 +477,7 @@ const payouts: MockPayout[] = [
     txHash: null,
     requestedAt: minutesAgo(210),
     reviewedAt: null,
+    executionPolicy: 'LEGACY_MANUAL_APPROVAL',
   },
   {
     id: 'po_2',
@@ -487,6 +491,7 @@ const payouts: MockPayout[] = [
     txHash: null,
     requestedAt: minutesAgo(74),
     reviewedAt: null,
+    executionPolicy: 'LEGACY_MANUAL_APPROVAL',
   },
   {
     id: 'po_3',
@@ -500,6 +505,7 @@ const payouts: MockPayout[] = [
     txHash: '0x8f3a1c9e2b7d44aa91c0',
     requestedAt: minutesAgo(60 * 24 * 14),
     reviewedAt: minutesAgo(60 * 24 * 14 - 38),
+    executionPolicy: 'LEGACY_MANUAL_APPROVAL',
   },
 ]
 
@@ -657,10 +663,23 @@ export const mockStore = {
   override(id: string, status: AccountStatus, reason: string) {
     const acc = accounts.find((item) => item.id === id)
     if (!acc) return null
+    if (status === 'FUNDED') {
+      const open = trades.filter((trade) => trade.accountId === id && trade.status === 'OPEN').length
+      if (open > 0) {
+        throw new AccountOverrideError(
+          `Cannot fund an account with ${open} open position${open === 1 ? '' : 's'}. Close them first.`,
+          'open_positions',
+        )
+      }
+    }
+    if (status === 'FUNDED' && acc.status === 'FUNDED' && acc.phase === 'FUNDED') {
+      return { ...toTraderRow(acc), alreadyApplied: true }
+    }
     acc.status = status
+    if (status === 'FUNDED') acc.phase = 'FUNDED'
     acc.breachReason = isBreached(status) ? reason : null
     acc.frozenAt = isBreached(status) ? now() : null
-    return toTraderRow(acc)
+    return { ...toTraderRow(acc), alreadyApplied: false }
   },
 
   refreshAccount(id: string) {
@@ -669,21 +688,24 @@ export const mockStore = {
     return toTraderRow(acc)
   },
 
-  approvePayout(id: string, txHash: string, actorId: string) {
+  approvePayout(id: string, txHash: string, actorId: string, reason?: string) {
     const payout = payouts.find((item) => item.id === id)
     if (!payout) return null
-    if (payout.status !== 'PENDING') return toPayoutRow(payout)
-    payout.status = 'DISBURSED'
-    payout.txHash = txHash
-    payout.reviewedAt = now()
-    const acc = accounts.find((item) => item.id === payout.accountId)
-    if (acc) {
-      acc.currentBalance = Number((acc.currentBalance - payout.amount).toFixed(2))
-      acc.currentEquity = Number((acc.currentEquity - payout.amount).toFixed(2))
-      Object.assign(acc, recomputeMetrics(acc))
+    if (payout.executionPolicy !== 'LEGACY_MANUAL_APPROVAL') {
+      throw new PayoutApprovalError(
+        'Mock payout is not marked as legacy; use the execution flow.',
+        'provenance_unknown',
+      )
     }
+    void txHash
     void actorId
-    return toPayoutRow(payout)
+    void reason
+    // The mock store has no immutable two-person evidence table, so a legacy payout can
+    // never be proven here. Fail closed rather than exposing a weaker path than prod.
+    throw new PayoutApprovalError(
+      'Legacy payout approval is disabled: no verified cutover evidence exists in the mock store.',
+      'legacy_evidence_invalid',
+    )
   },
 
   telemetry() {

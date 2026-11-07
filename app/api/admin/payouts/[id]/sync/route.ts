@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
+import { PAYOUT_EXECUTION_POLICIES } from '@/lib/admin/payout-execution'
 import { requireNowPaymentsPayoutConfig } from '@/lib/nowpayments/config'
 import { getNowPaymentsPayoutStatus, NowPaymentsApiError } from '@/lib/nowpayments/payouts'
 import { prisma } from '@/lib/prisma'
@@ -17,9 +18,14 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     const { id } = await context.params
     const payout = await prisma.payout.findUnique({
       where: { id },
-      select: { status: true, providerPayoutId: true, providerStatus: true },
+      select: { status: true, providerPayoutId: true, providerStatus: true, executionPolicy: true },
     })
     if (!payout) return jsonError('Payout not found.', 404)
+    // Only the legacy provider workflow may be synced. Manual payouts are settled by
+    // the owner and must never reach a provider status/retry path.
+    if (payout.executionPolicy !== PAYOUT_EXECUTION_POLICIES.EXECUTION_V1) {
+      return jsonError('Manual payouts are confirmed by the owner and cannot be synced with the provider.', 409)
+    }
     const recoverUnknownVerification =
       payout.status === 'PENDING' && payout.providerStatus === 'VERIFICATION_UNKNOWN'
     if ((payout.status !== 'APPROVED' && !recoverUnknownVerification) || !payout.providerPayoutId) {

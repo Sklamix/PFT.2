@@ -30,7 +30,7 @@ export async function ensureCertificatesForUser(userId: string): Promise<number>
       select: { id: true, status: true },
     }),
     prisma.payout.findMany({
-      where: { userId, status: 'DISBURSED' },
+      where: { userId, status: { in: ['DISBURSED', 'MANUALLY_PAID'] } },
       select: { id: true, accountId: true },
     }),
   ])

@@ -5,6 +5,8 @@ import { checkPayoutEligibility, type PayoutEligibilityCode } from '@/lib/payout
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
 import { recordActivity } from '@/lib/admin/activity'
+import { idempotencyKeyFromRequest, scopedIdempotencyKey } from '@/lib/finance/idempotency'
+import { PAYOUT_EXECUTION_POLICIES } from '@/lib/admin/payout-execution'
 
 const ELIGIBILITY_STATUS: Record<PayoutEligibilityCode, number> = {
   ACCOUNT_NOT_FOUND: 404,
@@ -41,6 +43,14 @@ function validWalletAddress(network: WalletNetwork, address: string) {
 function roundDownToCents(value: Prisma.Decimal) {
   return value.toDecimalPlaces(2, Prisma.Decimal.ROUND_DOWN)
 }
+
+const PAYOUT_SELECT = {
+  id: true,
+  amount: true,
+  network: true,
+  status: true,
+  requestedAt: true,
+} as const
 
 export async function POST(request: Request) {
   const { session, error } = await requireTrader()
@@ -79,14 +89,48 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Payout requests require a configured database.' }, { status: 503 })
   }
 
+  const rawRequestKey = idempotencyKeyFromRequest(request)
+  if (request.headers.get('Idempotency-Key') != null && rawRequestKey == null) {
+    return NextResponse.json({ error: 'Idempotency-Key is invalid.' }, { status: 400 })
+  }
+  const requestKey = rawRequestKey ? scopedIdempotencyKey('PAYOUT', session.sub, rawRequestKey) : null
+
   try {
     const payout = await prisma.$transaction(async (tx) => {
+      if (requestKey) {
+        const existing = await tx.payout.findFirst({
+          where: { userId: session.sub, requestKey },
+          select: PAYOUT_SELECT,
+        })
+        if (existing) return { payout: existing, duplicate: true }
+      }
+
+      // Serialize payout eligibility/reservation with the trading engine and other payouts.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "TradingAccount"
+        WHERE "id" = ${accountId} AND "userId" = ${session.sub}
+        FOR UPDATE
+      `
+      if (locked.length === 0) return { error: 'FUNDED_ACCOUNT_NOT_FOUND' as const }
+
+      // Re-check the idempotency key after the lock: a concurrent request may have
+      // committed while this transaction was waiting.
+      if (requestKey) {
+        const existing = await tx.payout.findFirst({
+          where: { userId: session.sub, requestKey },
+          select: PAYOUT_SELECT,
+        })
+        if (existing) return { payout: existing, duplicate: true }
+      }
+
       const account = await tx.tradingAccount.findFirst({
-        where: { id: accountId, userId: session.sub, status: 'FUNDED' },
+        where: { id: accountId, userId: session.sub, status: 'FUNDED', archivedAt: null },
         select: {
           id: true,
           userId: true,
           status: true,
+          archivedAt: true,
+          riskReviewAt: true,
           initialBalance: true,
           startingBalance: true,
           dailyStartingEquity: true,
@@ -100,6 +144,39 @@ export async function POST(request: Request) {
         },
       })
       if (!account) return { error: 'FUNDED_ACCOUNT_NOT_FOUND' as const }
+      if (account.archivedAt != null) return { error: 'FUNDED_ACCOUNT_NOT_FOUND' as const }
+      if (account.riskReviewAt != null) {
+        return { error: 'PAYOUT_RECONCILIATION_REQUIRED' as const, code: 'RISK_REVIEW', difference: '0.00' }
+      }
+
+      // No payout while financial reconciliation is incomplete.
+      const [unresolvedFx, baseline] = await Promise.all([
+        tx.fxReconciliation.count({ where: { accountId, status: 'UNRESOLVED' } }),
+        tx.accountLedgerBaseline.findFirst({ where: { accountId }, orderBy: { version: 'desc' } }),
+      ])
+      const [ledger, ledgerEntries] = await Promise.all([
+        tx.accountLedgerEntry.aggregate({
+          where: { accountId, ...(baseline ? { createdAt: { gte: baseline.capturedAt } } : {}) },
+          _sum: { amount: true },
+        }),
+        tx.accountLedgerEntry.count({ where: { accountId } }),
+      ])
+      if (unresolvedFx > 0) {
+        return { error: 'PAYOUT_RECONCILIATION_REQUIRED' as const, code: 'UNRESOLVED_FX', unresolvedFx }
+      }
+      const reconstructionBase = baseline?.amount ?? account.initialBalance
+      const expectedBalance = reconstructionBase.plus(ledger._sum.amount ?? new Prisma.Decimal(0))
+      const difference = account.currentBalance.minus(expectedBalance)
+      if (ledgerEntries > 0 && !difference.isZero()) {
+        return {
+          error: 'PAYOUT_RECONCILIATION_REQUIRED' as const,
+          code: 'LEDGER_DISCREPANCY',
+          difference: difference.toFixed(2),
+        }
+      }
+      if (ledgerEntries === 0 && !baseline) {
+        return { error: 'PAYOUT_RECONCILIATION_REQUIRED' as const, code: 'BASELINE_REQUIRED', difference: '0.00' }
+      }
 
       const eligibility = await checkPayoutEligibility(tx, {
         accountId,
@@ -114,8 +191,9 @@ export async function POST(request: Request) {
         }
       }
 
-      const cycleProfit = account.currentBalance.minus(account.startingBalance)
-      const abnormal = amount.gte(10_000) || cycleProfit.gte(new Prisma.Decimal(account.startingBalance).mul(0.5))
+      const startingBalanceDecimal = new Prisma.Decimal(account.startingBalance)
+      const cycleProfit = account.currentBalance.minus(startingBalanceDecimal)
+      const abnormal = amount.gte(10_000) || cycleProfit.gte(startingBalanceDecimal.mul(0.5))
       if (abnormal) {
         await tx.auditLog.create({
           data: {
@@ -138,7 +216,7 @@ export async function POST(request: Request) {
           _sum: { amount: true },
         }),
         tx.payout.aggregate({
-          where: { accountId, status: 'DISBURSED' },
+          where: { accountId, status: { in: ['DISBURSED', 'MANUALLY_PAID'] } },
           _sum: { amount: true },
         }),
       ])
@@ -207,14 +285,12 @@ export async function POST(request: Request) {
           network,
           status: 'PENDING',
           balanceReserved: true,
+          requestKey,
+          // PFT never transfers funds for a new payout: the owner pays off-platform
+          // and confirms it through the owner-only manual flow.
+          executionPolicy: PAYOUT_EXECUTION_POLICIES.MANUAL_V1,
         },
-        select: {
-          id: true,
-          amount: true,
-          network: true,
-          status: true,
-          requestedAt: true,
-        },
+        select: PAYOUT_SELECT,
       })
       await tx.auditLog.create({
         data: {
@@ -222,6 +298,19 @@ export async function POST(request: Request) {
           accountId: account.id,
           action: 'PAYOUT_REQUESTED',
           metadata: { payoutId: row.id, amount: amount.toFixed(2), network },
+        },
+      })
+      await tx.accountLedgerEntry.create({
+        data: {
+          accountId: account.id,
+          type: 'PAYOUT_RESERVE',
+          amount: amount.negated(),
+          currency: 'USD',
+          balanceAfter: account.currentBalance.minus(amount),
+          refType: 'PAYOUT',
+          refId: row.id,
+          idempotencyKey: `payout-reserve:${row.id}`,
+          metadata: { network, amount: amount.toFixed(2) },
         },
       })
       return { payout: row }
@@ -243,22 +332,45 @@ export async function POST(request: Request) {
           { status: ELIGIBILITY_STATUS[payout.code] },
         )
       }
+      if (payout.error === 'PAYOUT_RECONCILIATION_REQUIRED') {
+        const message =
+          payout.code === 'UNRESOLVED_FX'
+            ? 'A closed trade still has an unresolved FX conversion. Payouts resume after reconciliation.'
+            : payout.code === 'RISK_REVIEW'
+              ? 'The account is under a conservative risk review. Payouts resume after the position valuation is resolved.'
+              : payout.code === 'BASELINE_REQUIRED'
+                ? 'This legacy account needs a financial baseline before a payout can be calculated.'
+                : 'The account ledger does not reconcile to its current balance. Payouts are paused for review.'
+        return NextResponse.json(
+          { error: message, code: payout.code, difference: 'difference' in payout ? payout.difference : undefined },
+          { status: 409 },
+        )
+      }
+      if (payout.error === 'PAYOUT_BALANCE_CHANGED' && requestKey) {
+        const existing = await prisma.payout.findFirst({
+          where: { userId: session.sub, requestKey },
+          select: PAYOUT_SELECT,
+        })
+        if (existing) return NextResponse.json({ payout: existing }, { status: 201 })
+      }
       return NextResponse.json(
         { error: 'Your payout balance changed. Refresh your account and try again.' },
         { status: 409 },
       )
     }
 
-    void recordActivity({
-      actorId: session.sub,
-      action: 'TRADER_PAYOUT_REQUESTED',
-      request,
-      metadata: {
-        payoutId: payout.payout.id,
-        amount: Number(payout.payout.amount),
-        network: payout.payout.network,
-      },
-    })
+    if (!('duplicate' in payout) || !payout.duplicate) {
+      void recordActivity({
+        actorId: session.sub,
+        action: 'TRADER_PAYOUT_REQUESTED',
+        request,
+        metadata: {
+          payoutId: payout.payout.id,
+          amount: Number(payout.payout.amount),
+          network: payout.payout.network,
+        },
+      })
+    }
     return NextResponse.json({ payout: payout.payout }, { status: 201 })
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034') {
@@ -266,6 +378,13 @@ export async function POST(request: Request) {
         { error: 'Your payout balance changed. Refresh your account and try again.' },
         { status: 409 },
       )
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002' && requestKey) {
+      const existing = await prisma.payout.findFirst({
+        where: { userId: session.sub, requestKey },
+        select: PAYOUT_SELECT,
+      })
+      if (existing) return NextResponse.json({ payout: existing }, { status: 201 })
     }
     console.error('[pft payouts] Request creation failed', err)
     return NextResponse.json({ error: 'Unable to create payout request.' }, { status: 500 })

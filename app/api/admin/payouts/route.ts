@@ -4,7 +4,7 @@ import { jsonError, safeError } from '@/lib/admin/http'
 import { adminRepo } from '@/lib/admin/repository'
 import type { PayoutStatus } from '@/lib/admin/types'
 
-const STATUSES: PayoutStatus[] = ['PENDING', 'APPROVED', 'DISBURSED', 'REJECTED']
+const STATUSES: PayoutStatus[] = ['PENDING', 'APPROVED', 'DISBURSED', 'REJECTED', 'MANUALLY_PAID']
 
 export async function GET(request: Request) {
   const { error } = await requireAdmin()

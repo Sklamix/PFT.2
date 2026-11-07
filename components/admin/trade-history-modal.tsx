@@ -55,13 +55,18 @@ export function TradeHistoryModal({
                 <TableHead>Open</TableHead>
                 <TableHead>Close</TableHead>
                 <TableHead>P/L</TableHead>
+                <TableHead>Gross</TableHead>
+                <TableHead>Net</TableHead>
+                <TableHead>Commission</TableHead>
+                <TableHead>FX</TableHead>
+                <TableHead>Basis</TableHead>
                 <TableHead>State</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {trades.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-muted-foreground">
+                  <TableCell colSpan={13} className="text-muted-foreground">
                     No terminal trades or positions.
                   </TableCell>
                 </TableRow>
@@ -77,9 +82,29 @@ export function TradeHistoryModal({
                   <TableCell className={trade.profit >= 0 ? 'font-mono text-primary' : 'font-mono text-destructive'}>
                     {formatUsd(trade.profit)}
                   </TableCell>
+                  <TableCell className="font-mono">{trade.grossPnl == null ? '—' : formatUsd(trade.grossPnl)}</TableCell>
+                  <TableCell className="font-mono">{trade.netPnl == null ? '—' : formatUsd(trade.netPnl)}</TableCell>
+                  <TableCell className="font-mono text-[11px]">
+                    {trade.entryCommission == null && trade.exitCommission == null
+                      ? '—'
+                      : `${trade.entryCommission == null ? '—' : formatUsd(-trade.entryCommission)} / ${trade.exitCommission == null ? '—' : formatUsd(-trade.exitCommission)}`}
+                  </TableCell>
+                  <TableCell className="font-mono text-[11px]">
+                    {trade.fxRate == null
+                      ? trade.fxUnresolved ? 'unresolved' : '—'
+                      : `${trade.fxRate.toFixed(5)}${trade.fxUnresolved ? ' unresolved' : trade.fxStale ? ' stale' : ''}`}
+                  </TableCell>
+                  <TableCell className="font-mono text-[10px] uppercase text-slate-500">
+                    {trade.pnlBasis ?? '-'}
+                    {trade.valuationStatus && trade.valuationStatus !== 'RESOLVED_CURRENT'
+                      ? ` / ${trade.valuationStatus}`
+                      : ''}
+                  </TableCell>
                   <TableCell className="font-mono text-[11px]">
                     {trade.voidedAt ? `VOIDED · ${trade.voidReason ?? ''}` : trade.status}
                     {trade.markedForLiquidation ? ' · LIQ' : ''}
+                    {trade.priceStale ? ' - STALE PRICE' : ''}
+                    {trade.voidSynthetic ? ' - SYNTHETIC' : ''}
                     {trade.status === 'CLOSED' && !trade.voidedAt && (
                       <Button
                         size="xs"

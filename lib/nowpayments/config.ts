@@ -27,3 +27,17 @@ export function requireNowPaymentsPayoutConfig(
 
   return { apiKey, email, password }
 }
+
+/**
+ * Non-throwing membership check used by the payout policy before any claim is
+ * committed. Manual payouts and disabled legacy create paths must not require
+ * provider credentials at all.
+ */
+export function isNowPaymentsPayoutConfigured(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const apiKey = env[REQUIRED_PAYOUT_ENV.apiKey]?.trim()
+  const email = env[REQUIRED_PAYOUT_ENV.email]?.trim()
+  const password = env[REQUIRED_PAYOUT_ENV.password]
+  return Boolean(apiKey && email && password?.trim())
+}

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { toDecimal } from '@/lib/finance/money'
 import { getActivePayoutHold } from './holds'
 
 export type PayoutEligibilityCode =
@@ -38,13 +39,25 @@ function dayKey(date: Date) {
   return berlinDay.format(date)
 }
 
-function groupPnl(entries: { pnl: number; date: Date }[]) {
-  const grouped = new Map<string, number>()
+function groupPnl(entries: { pnl: Prisma.Decimal; date: Date }[]) {
+  const grouped = new Map<string, Prisma.Decimal>()
   for (const entry of entries) {
     const key = dayKey(entry.date)
-    grouped.set(key, (grouped.get(key) ?? 0) + entry.pnl)
+    const current = grouped.get(key) ?? toDecimal(0)
+    grouped.set(key, current.plus(entry.pnl))
   }
   return grouped
+}
+
+/** A profitable day is 0.5% of the cycle starting balance, compared in Decimal. */
+export function isProfitableDay(pnl: Prisma.Decimal, initialBalance: Prisma.Decimal): boolean {
+  return pnl.greaterThanOrEqualTo(initialBalance.times(toDecimal(PROFITABLE_DAY_RATE)))
+}
+
+/** Best-day consistency limit (20%) compared in Decimal, exactly at the boundary. */
+export function exceedsConsistencyLimit(bestDay: Prisma.Decimal, totalProfit: Prisma.Decimal): boolean {
+  if (totalProfit.lessThanOrEqualTo(0)) return false
+  return bestDay.dividedBy(totalProfit).greaterThan(toDecimal(CONSISTENCY_LIMIT))
 }
 
 /**
@@ -118,7 +131,7 @@ export async function checkPayoutEligibility(
       select: { openedAt: true },
     }),
     tx.payout.findFirst({
-      where: { accountId: account.id, status: 'DISBURSED' },
+      where: { accountId: account.id, status: { in: ['DISBURSED', 'MANUALLY_PAID'] } },
       orderBy: { reviewedAt: 'desc' },
       select: { reviewedAt: true, requestedAt: true },
     }),
@@ -149,13 +162,14 @@ export async function checkPayoutEligibility(
 
   const history = await tx.tradeHistory.findMany({
     where: { tradingAccountId: account.id, closedAt: { gte: cycleStart } },
-    select: { pnl: true, openedAt: true, closedAt: true },
+    select: { pnl: true, netPnl: true, openedAt: true, closedAt: true },
   })
 
-  const initialBalance = Number(account.initialBalance)
-  const profitableThreshold = initialBalance * PROFITABLE_DAY_RATE
-  const closedDays = groupPnl(history.map((trade) => ({ pnl: trade.pnl, date: trade.closedAt })))
-  const profitableDays = [...closedDays.values()].filter((pnl) => pnl >= profitableThreshold).length
+  const initialBalance = account.initialBalance
+  const pnlOf = (trade: { pnl: number; netPnl: Prisma.Decimal | null }) =>
+    trade.netPnl != null ? trade.netPnl : toDecimal(trade.pnl)
+  const closedDays = groupPnl(history.map((trade) => ({ pnl: pnlOf(trade), date: trade.closedAt })))
+  const profitableDays = [...closedDays.values()].filter((pnl) => isProfitableDay(pnl, initialBalance)).length
   if (profitableDays < 3) {
     return {
       ok: false,
@@ -166,13 +180,16 @@ export async function checkPayoutEligibility(
 
   const consistencyTrades = history
     .filter((trade) => trade.openedAt >= cycleStart)
-    .map((trade) => ({ pnl: trade.pnl, date: trade.openedAt }))
-  const totalProfit = consistencyTrades.reduce((sum, trade) => sum + trade.pnl, 0)
-  if (totalProfit <= 0) {
+    .map((trade) => ({ pnl: pnlOf(trade), date: trade.openedAt }))
+  const totalProfit = consistencyTrades.reduce((sum, trade) => sum.plus(trade.pnl), toDecimal(0))
+  if (totalProfit.lessThanOrEqualTo(0)) {
     return { ok: false, code: 'NO_PROFIT', message: 'The payout cycle has no positive profit.' }
   }
-  const bestDay = Math.max(...[...groupPnl(consistencyTrades).values(), 0])
-  if (bestDay / totalProfit > CONSISTENCY_LIMIT) {
+  const bestDay = [...groupPnl(consistencyTrades).values()].reduce(
+    (best, value) => (value.greaterThan(best) ? value : best),
+    toDecimal(0),
+  )
+  if (exceedsConsistencyLimit(bestDay, totalProfit)) {
     return {
       ok: false,
       code: 'CONSISTENCY_FAILED',
@@ -180,7 +197,7 @@ export async function checkPayoutEligibility(
     }
   }
 
-  const minimum = new Prisma.Decimal(Math.max(MIN_PAYOUT_USD, Number(account.currentBalance) * 0.01))
+  const minimum = Prisma.Decimal.max(toDecimal(MIN_PAYOUT_USD), account.currentBalance.times(toDecimal(0.01)))
   if (input.amount.lessThan(minimum)) {
     return {
       ok: false,

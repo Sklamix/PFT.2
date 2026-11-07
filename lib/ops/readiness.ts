@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { pendingLegalDocuments } from '@/lib/legal/status'
+import { evaluatePayoutOwnerReadiness } from '@/lib/admin/payout-owner'
 
 /**
  * Release readiness report: every external dependency, secret and schema
@@ -342,6 +343,34 @@ async function databaseChecks(): Promise<ReadinessCheck[]> {
       label: 'Two-admin approval coverage',
       severity: 'warning',
       detail: error instanceof Error ? error.message.slice(0, 200) : 'Admin count failed',
+    })
+  }
+
+  try {
+    const [owners, adminOwners] = await Promise.all([
+      prisma.user.count({ where: { canConfirmPayouts: true } }),
+      prisma.user.count({ where: { canConfirmPayouts: true, role: 'ADMIN' } }),
+    ])
+    const owner = evaluatePayoutOwnerReadiness({ owners, adminOwners })
+    checks.push({
+      id: 'payout-owner',
+      area: 'admin',
+      label: 'Manual payout owner',
+      severity: owner.severity,
+      detail: owner.detail,
+      hint: owner.hint,
+    })
+  } catch (error) {
+    checks.push({
+      id: 'payout-owner',
+      area: 'admin',
+      label: 'Manual payout owner',
+      severity: 'blocker',
+      detail:
+        error instanceof Error
+          ? `Owner capability check failed: ${error.message.slice(0, 180)}`
+          : 'Owner capability check failed',
+      hint: 'Apply prisma/sql/financial-core.sql, then grant canConfirmPayouts to the verified owner.',
     })
   }
 

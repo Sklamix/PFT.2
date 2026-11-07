@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
+import { PayoutApprovalError } from '@/lib/admin/payout-error'
 import { adminRepo } from '@/lib/admin/repository'
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -19,6 +20,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (payout.status !== 'REJECTED') return jsonError('Only pending payouts can be rejected.', 409)
     return NextResponse.json({ payout })
   } catch (err) {
+    if (err instanceof PayoutApprovalError) return jsonError(err.message, 409)
     return safeError(err)
   }
 }

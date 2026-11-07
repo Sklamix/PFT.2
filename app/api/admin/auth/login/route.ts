@@ -56,6 +56,7 @@ export async function POST(request: Request) {
       name: user.name,
       role: user.role as Exclude<Role, 'TRADER'>,
       tokenVersion,
+      canConfirmPayouts: false,
     })
     const response = NextResponse.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },

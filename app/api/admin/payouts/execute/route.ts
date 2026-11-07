@@ -1,27 +1,86 @@
-import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { requireNowPaymentsPayoutConfig } from '@/lib/nowpayments/config'
 import {
-  authenticateNowPayments,
-  createNowPaymentsPayout,
   NowPaymentsApiError,
   verifyNowPaymentsPayout,
 } from '@/lib/nowpayments/payouts'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/admin/auth'
+import {
+  assertPayoutExecutionLease,
+  claimPayoutExecutions,
+  classifyProviderFailure,
+  finalizePayoutExecution,
+  recordPayoutVerificationFailure,
+  type PayoutClaimFailure,
+} from '@/lib/admin/payout-execution'
 
 export const dynamic = 'force-dynamic'
 
 const MAX_BATCH_SIZE = 50
-const CURRENCY_BY_NETWORK = {
-  USDT_TRC20: 'usdttrc20',
-  USDT_ERC20: 'usdterc20',
-} as const
 
 function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status })
 }
 
+const CLAIM_FAILURE_STATUS: Record<PayoutClaimFailure, { message: string; status: number }> = {
+  not_found: { message: 'One or more payouts were not found.', status: 404 },
+  not_pending: { message: 'Only pending payouts can be executed.', status: 409 },
+  already_claimed: { message: 'One or more payouts are already being executed.', status: 409 },
+  reconciliation_required: {
+    message: 'This payout requires reconciliation before it can be executed again.',
+    status: 409,
+  },
+  mixed_batch: { message: 'Select payouts from a single NOWPayments batch.', status: 409 },
+  account_archived: { message: 'A payout account is archived; execution is disabled.', status: 409 },
+  unresolved_fx: {
+    message: 'A closed trade still has an unresolved FX conversion. Payout execution is disabled until reconciliation.',
+    status: 409,
+  },
+  open_positions: { message: 'A payout account still has open positions. Close them before executing.', status: 409 },
+  pending_orders: { message: 'A payout account still has pending orders. Cancel them before executing.', status: 409 },
+  insufficient_balance: {
+    message: 'The account no longer has sufficient available balance for this payout.',
+    status: 409,
+  },
+  reservation_invalid: {
+    message: 'The payout reservation is inconsistent with the account balance.',
+    status: 409,
+  },
+  provenance_unknown: {
+    message: 'Payout provenance is unknown; it cannot enter the execution flow. Use reconciliation.',
+    status: 409,
+  },
+  manual_policy: {
+    message: 'Manual payouts are confirmed by the owner and cannot be sent through the provider execution flow.',
+    status: 409,
+  },
+  provider_create_disabled: {
+    message: 'Provider payout creation is permanently disabled. Only verification of an existing provider batch is allowed.',
+    status: 409,
+  },
+  provider_not_configured: {
+    message: 'Provider payout credentials are not configured. No payout was claimed.',
+    status: 503,
+  },
+  not_verifiable: {
+    message: 'This payout does not have an existing provider batch awaiting verification.',
+    status: 409,
+  },
+  execution_snapshot_mismatch: {
+    message: 'Payout financial fields changed after execution started; execution is disabled until reconciliation.',
+    status: 409,
+  },
+}
+
+/**
+ * Legacy provider payout endpoint — VERIFY ONLY.
+ *
+ * Provider withdrawal creation is permanently disabled. This endpoint can only verify
+ * an EXECUTION_V1 payout that already carries a provider batch awaiting verification.
+ * MANUAL_V1, NULL and LEGACY_MANUAL_APPROVAL rows are rejected before any provider call.
+ */
 export async function POST(request: Request) {
   const { session, error } = await requireAdmin()
   if (error) return error
@@ -56,202 +115,74 @@ export async function POST(request: Request) {
   }
 
   const ids = payoutIds as string[]
-  let priorBatchId: string | null = null
-  let previousProviderStatus: string | null = null
-  let providerCreateStarted = false
-  let providerCreated = false
-  let providerIdsPersisted = false
-  let providerVerified = false
+  const actorId = session.sub
+  const ownerToken = randomUUID()
+
+  // 1. Atomically claim the verify attempt (payout + account locks + lease).
+  //    The claim policy permanently blocks provider CREATE and also blocks before any
+  //    mutation when provider credentials are missing. `MANUAL_V1` never gets this far.
+  const claim = await claimPayoutExecutions(prisma, ids, actorId, ownerToken)
+  if (!claim.ok) {
+    const mapping = CLAIM_FAILURE_STATUS[claim.reason]
+    return errorResponse(mapping.message, mapping.status)
+  }
+  if (claim.action !== 'verify') {
+    // Defensive: the policy type only allows verify, but never call the provider on
+    // anything else even if the return shape is changed by future code.
+    return errorResponse('Provider payout creation is permanently disabled.', 409)
+  }
 
   try {
-    const rows = await prisma.payout.findMany({
-      where: { id: { in: ids } },
-      select: {
-        id: true,
-        amount: true,
-        walletAddress: true,
-        network: true,
-        status: true,
-        providerBatchId: true,
-        providerPayoutId: true,
-        providerStatus: true,
-      },
-    })
-    if (rows.length !== ids.length) return errorResponse('One or more payouts were not found.', 404)
-    if (rows.some((payout) => payout.status !== 'PENDING')) {
-      return errorResponse('Only pending payouts can be executed.', 409)
-    }
+    const config = requireNowPaymentsPayoutConfig()
 
-    const batchIds = new Set(rows.map((payout) => payout.providerBatchId).filter(Boolean))
-    const hasProviderPayout = rows.some((payout) => payout.providerPayoutId)
-    if (batchIds.size > 1 || (batchIds.size === 1 && rows.some((payout) => !payout.providerBatchId))) {
-      return errorResponse('Select payouts from a single NOWPayments batch.', 409)
+    // 2. Verify the EXISTING provider batch. No create call exists in this route.
+    if (!(await assertPayoutExecutionLease(prisma, ids, ownerToken, 'verify'))) {
+      return errorResponse('Payout execution lease expired before verification. Reconcile before retrying.', 409)
     }
-    priorBatchId = batchIds.values().next().value ?? null
-    if (priorBatchId) {
-      const batchRows = await prisma.payout.findMany({
-        where: { providerBatchId: priorBatchId },
-        select: { id: true },
-      })
-      if (batchRows.length !== ids.length || batchRows.some((payout) => !ids.includes(payout.id))) {
-        return errorResponse('Retry must include every payout in the existing provider batch.', 409)
-      }
-      if (
-        rows.some(
-          (payout) =>
-            !payout.providerPayoutId || payout.providerStatus !== 'WAITING_FOR_VERIFICATION',
-        )
-      ) {
-        return errorResponse('This provider batch is not awaiting verification.', 409)
-      }
-      previousProviderStatus = 'WAITING_FOR_VERIFICATION'
-    } else if (hasProviderPayout || rows.some((payout) => payout.providerStatus)) {
+    await verifyNowPaymentsPayout(config, claim.batchId, verificationCode)
+
+    // 3. Finalize (SUBMITTED -> APPROVED) and release the account execution lock.
+    const finalized = await finalizePayoutExecution(prisma, { ids, actorId, ownerToken })
+    if (!finalized.ok) {
       return errorResponse(
-        'Payout execution state needs reconciliation before it can be retried.',
+        finalized.reason === 'reconciliation_required'
+          ? 'The account changed during execution; the payout was moved to reconciliation.'
+          : 'The payout execution state changed; reconcile before retrying.',
         409,
       )
     }
 
-    const claim = await prisma.payout.updateMany({
-      where: {
-        id: { in: ids },
-        status: 'PENDING',
-        providerStatus: previousProviderStatus,
-      },
-      data: { providerStatus: 'SUBMITTING' },
-    })
-    if (claim.count !== ids.length) {
-      return errorResponse('One or more payouts are already being processed.', 409)
-    }
-
-    const config = requireNowPaymentsPayoutConfig()
-    let batchId = priorBatchId
-    if (!batchId) {
-      const token = await authenticateNowPayments(config)
-      providerCreateStarted = true
-      const created = await createNowPaymentsPayout(
-        config,
-        token,
-        rows.map((payout) => ({
-          payoutId: payout.id,
-          address: payout.walletAddress,
-          currency: CURRENCY_BY_NETWORK[payout.network],
-          amount: payout.amount.toFixed(2),
-        })),
-      )
-      providerCreated = true
-      batchId = created.batchId
-
-      const withdrawalsByPayout = new Map(
-        created.withdrawals.map((withdrawal) => [withdrawal.payoutId, withdrawal]),
-      )
-      await prisma.$transaction(
-        rows.map((payout) => {
-          const withdrawal = withdrawalsByPayout.get(payout.id)
-          if (!withdrawal) throw new Error('NOWPayments response did not match the requested payouts.')
-          return prisma.payout.update({
-            where: { id: payout.id },
-            data: {
-              providerBatchId: batchId,
-              providerPayoutId: withdrawal.withdrawalId,
-              providerStatus: 'WAITING_FOR_VERIFICATION',
-            },
-          })
-        }),
-      )
-      providerIdsPersisted = true
-    }
-
-    await verifyNowPaymentsPayout(config, batchId, verificationCode)
-    providerVerified = true
-    const reviewedAt = new Date()
-    await prisma.$transaction(async (tx) => {
-      const updated = await tx.payout.updateMany({
-        where: {
-          id: { in: ids },
-          status: 'PENDING',
-          providerStatus: 'WAITING_FOR_VERIFICATION',
-          providerBatchId: batchId,
-        },
-        data: {
-          status: 'APPROVED',
-          providerStatus: 'WAITING',
-          reviewedAt,
-          reviewedById: session.sub,
-        },
-      })
-      if (updated.count !== ids.length) throw new Error('Payout records changed during execution.')
-      await tx.auditLog.createMany({
-        data: rows.map((payout) => ({
-          actorId: session.sub,
-          action: 'PAYOUT_SUBMITTED_TO_NOWPAYMENTS',
-          metadata: { payoutId: payout.id, providerBatchId: batchId },
-        })),
-      })
-    })
-
     return NextResponse.json({
       payoutIds: ids,
-      providerBatchId: batchId,
-      status: 'APPROVED',
+      providerBatchId: claim.batchId,
+      status: finalized.status,
       providerStatus: 'WAITING',
     })
   } catch (err) {
-    const knownProviderError = err instanceof NowPaymentsApiError
-    const providerCreateAmbiguous =
-      providerCreateStarted &&
-      (!(err instanceof NowPaymentsApiError) ||
-        (err instanceof NowPaymentsApiError && err.status >= 500))
-    let stateAfterError = previousProviderStatus
-    if (providerVerified) {
-      stateAfterError = 'VERIFICATION_UNKNOWN'
-    } else if (providerCreated) {
-      stateAfterError = providerIdsPersisted ? 'WAITING_FOR_VERIFICATION' : 'SUBMISSION_UNKNOWN'
-    } else if (providerCreateAmbiguous) {
-      stateAfterError = 'SUBMISSION_UNKNOWN'
-    }
+    const classification = classifyProviderFailure('verify', {
+      isProviderError: err instanceof NowPaymentsApiError,
+      status: err instanceof NowPaymentsApiError ? err.status : null,
+    })
+    const ambiguous = classification.action === 'verify_failure' ? classification.ambiguous : true
+    const reason = err instanceof Error ? err.message : null
 
-    try {
-      await prisma.payout.updateMany({
-        where: {
-          id: { in: ids },
-          status: 'PENDING',
-          providerStatus: { in: ['SUBMITTING', 'WAITING_FOR_VERIFICATION'] },
-        },
-        data: { providerStatus: stateAfterError },
-      })
-    } catch (stateError) {
-      console.error('[pft payouts] Could not restore payout execution state', stateError)
-    }
-
-    if (knownProviderError) {
-      console.warn('[pft payouts] NOWPayments rejected payout execution', err.status, err.message)
-      if (stateAfterError === 'SUBMISSION_UNKNOWN') {
-        return errorResponse(
-          'NOWPayments may have received this payout request. Do not retry until its status is reconciled.',
-          502,
-        )
-      }
-      return errorResponse(err.message, err.status >= 400 && err.status < 500 ? 400 : 502)
-    }
-    if (err instanceof Error && err.message.startsWith('NOWPayments Payout API is not configured.')) {
-      console.error('[pft payouts] Payout API credentials are missing', err.message)
-      return errorResponse('NOWPayments Payout API is not configured.', 503)
-    }
-    if (err instanceof Prisma.PrismaClientKnownRequestError) {
-      console.error('[pft payouts] Database error during payout execution', err)
-      return errorResponse('Unable to update payout execution state.', 500)
-    }
-    console.error('[pft payouts] Payout execution failed', err)
+    // Verification failed. The provider batch already exists: preserve SUBMITTED,
+    // provider identifiers and the account lock. A safe verification retry is allowed.
+    await recordPayoutVerificationFailure(prisma, {
+      ids,
+      actorId,
+      ownerToken,
+      ambiguous,
+      reason,
+    }).catch((auditError) => {
+      console.error('[pft payouts] Could not record verification failure', auditError)
+    })
+    console.warn('[pft payouts] NOWPayments payout verification failed', err)
     return errorResponse(
-      stateAfterError === 'SUBMISSION_UNKNOWN'
-        ? 'NOWPayments may have received this payout request. Do not retry until its status is reconciled.'
-        : stateAfterError === 'VERIFICATION_UNKNOWN'
-          ? 'NOWPayments verified this batch, but the database could not confirm it. Reconcile the payout status before retrying.'
-        : providerCreated
-          ? 'Payout was created but verification did not complete. Retry verification for the same payout batch.'
-          : 'Unable to execute payout batch.',
-      502,
+      ambiguous
+        ? 'NOWPayments may have verified this batch, but the result is unknown. Reconcile before retrying.'
+        : 'Payout verification failed. The provider batch is preserved; retry verification with a valid code.',
+      409,
     )
   }
 }

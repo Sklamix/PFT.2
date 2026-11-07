@@ -512,14 +512,44 @@ export function AdminDesk({ user }: { user: AdminSession }) {
         onOpenChange={setQueueOpen}
         items={payouts}
         canApprove={user.role === 'ADMIN'}
-        onApprove={async (id, txHash) => {
+        canConfirmPayouts={user.canConfirmPayouts}
+        onApprove={async (id, txHash, reason) => {
           try {
-            await api(`/api/admin/payouts/${id}/approve`, { method: 'POST', body: JSON.stringify({ txHash }) })
+            await api(`/api/admin/payouts/${id}/approve`, {
+              method: 'POST',
+              body: JSON.stringify({ txHash, reason }),
+            })
             await load()
           } catch (err) {
             setError(err instanceof Error ? err.message : 'Payout approval failed')
             throw err
           }
+        }}
+        onManualApprove={async (id) => {
+          await api(`/api/admin/payouts/${id}/manual-approve`, { method: 'POST' })
+          await load()
+        }}
+        onManualConfirm={async (id, transactionRef, paymentMethod) => {
+          const payout = payouts.find((item) => item.id === id)
+          if (!payout) throw new Error('Payout not found')
+          await api(`/api/admin/payouts/${id}/manual-confirm`, {
+            method: 'POST',
+            body: JSON.stringify({
+              paidAmount: payout.amount,
+              paidCurrency: payout.network,
+              paidAt: new Date().toISOString(),
+              paymentMethod,
+              transactionRef,
+            }),
+          })
+          await load()
+        }}
+        onManualReject={async (id, reason) => {
+          await api(`/api/admin/payouts/${id}/manual-reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reason }),
+          })
+          await load()
         }}
       />
 

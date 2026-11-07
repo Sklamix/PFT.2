@@ -15,6 +15,7 @@ const STATUS_LABELS: Record<AccountStatus, string> = {
   BREACHED: 'Breached',
   PASSED: 'Passed',
   EXPIRED: 'Backup expired',
+  ARCHIVED: 'Archived',
 }
 
 function requestedLabel(iso: string) {
