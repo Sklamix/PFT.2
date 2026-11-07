@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma'
+import { AccountOverrideError } from '@/lib/admin/account-override-error'
 import { adminRepo } from '@/lib/admin/repository'
 import type { AccountStatus, PendingAccountOverride } from '@/lib/admin/types'
 import { syncChallengeStatus } from '@/lib/kyc/state'
@@ -31,7 +32,9 @@ export class OverrideApprovalError extends Error {
       | 'not_found'
       | 'self_approval'
       | 'expired'
-      | 'already_decided',
+      | 'already_decided'
+      | 'open_positions'
+      | 'fx_unresolved',
   ) {
     super(message)
     this.name = 'OverrideApprovalError'
@@ -74,11 +77,26 @@ async function assertEligible(accountId: string, status: AccountStatus) {
   if (status === 'FUNDED') {
     const eligibility = await canFundAccount(accountId)
     if (!eligibility.ok) {
+      if (eligibility.reason === 'fx_unresolved') {
+        throw new OverrideApprovalError(
+          'Account has a closed trade with an unresolved FX conversion. Funding is blocked until reconciliation.',
+          'fx_unresolved',
+        )
+      }
       throw new OverrideApprovalError(
         eligibility.reason === 'kyc_not_approved'
           ? 'KYC must be approved before funding.'
           : 'Account must be passed before it can be funded.',
         'not_eligible',
+      )
+    }
+    const openPositions = await prisma.position.count({
+      where: { tradingAccountId: accountId, status: 'OPEN' },
+    })
+    if (openPositions > 0) {
+      throw new OverrideApprovalError(
+        `Cannot fund an account with ${openPositions} open position${openPositions === 1 ? '' : 's'}. Close them first.`,
+        'open_positions',
       )
     }
     return
@@ -161,7 +179,22 @@ export async function approveAccountOverride(
 
   await assertEligible(accountId, status)
 
-  const account = await adminRepo.override(accountId, status, reason, actorId)
+  let account
+  try {
+    account = await adminRepo.override(accountId, status, reason, actorId, requestId)
+  } catch (error) {
+    if (error instanceof AccountOverrideError) {
+      throw new OverrideApprovalError(
+        error.message,
+        error.code === 'open_positions'
+          ? 'open_positions'
+          : error.code === 'fx_unresolved'
+            ? 'fx_unresolved'
+            : 'not_found',
+      )
+    }
+    throw error
+  }
   if (!account) throw new OverrideApprovalError('Account not found.', 'not_found')
   await prisma.auditLog.create({
     data: {

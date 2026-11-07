@@ -14,6 +14,7 @@ export type AccountStatus =
   | 'BREACHED'
   | 'PASSED'
   | 'EXPIRED'
+  | 'ARCHIVED'
 export type TraderFilter = 'all' | 'near_limit' | 'breached' | 'passing' | 'funded' | 'evaluation'
 
 export type PendingAccountOverride = {
@@ -49,7 +50,7 @@ export type PendingActionReview = {
   automated: boolean
 }
 export type RiskBadge = 'ACTIVE - PASSING' | 'NEAR LIMIT' | 'RULE BREACHED'
-export type PayoutStatus = 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED'
+export type PayoutStatus = 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED' | 'MANUALLY_PAID'
 export type OrderStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
 export type EmailDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
 export type WalletNetwork = 'USDT_TRC20' | 'USDT_ERC20'
@@ -62,6 +63,8 @@ export type AdminSession = {
   name: string
   role: Exclude<Role, 'TRADER'>
   tokenVersion: number
+  /** Owner-only manual payout confirmation capability (authoritative server-side). */
+  canConfirmPayouts: boolean
 }
 
 export type TraderRow = {
@@ -95,6 +98,8 @@ export type TraderRow = {
   riskBadge: RiskBadge
   lastTelemetryAt: string | null
   breachReason: string | null
+  /** Set by an idempotent admin override retry that did not change the account. */
+  alreadyApplied?: boolean
   /** User-level risk review flag (rulebook 9.4); pauses purchases and payouts. */
   riskFlagged: boolean
   riskFlagReason: string | null
@@ -115,8 +120,21 @@ export type TradeRow = {
   openTime: string
   closeTime: string | null
   profit: number
-  swap: number
-  commission: number
+  swap: number | null
+  /** Null when the ledger does not record a commission (unknown, not zero). */
+  commission: number | null
+  grossPnl?: number | null
+  netPnl?: number | null
+  entryCommission?: number | null
+  exitCommission?: number | null
+  fxRate?: number | null
+  fxSource?: string | null
+  fxStale?: boolean | null
+  fxUnresolved?: boolean | null
+  pnlBasis?: string | null
+  valuationStatus?: string | null
+  priceStale?: boolean | null
+  voidSynthetic?: boolean
   status: TradeStatus
   markedForLiquidation: boolean
   voidedAt: string | null
@@ -138,6 +156,24 @@ export type PayoutRow = {
   requestedAt: string
   reviewedAt: string | null
   slaMinutes: number
+  /** Provenance policy: MANUAL_V1 vs EXECUTION_V1 (legacy provider) vs null. */
+  executionPolicy: string | null
+  rejectReason?: string | null
+  /** Admin context: trading account status (ACTIVE, FUNDED, BREACHED variants, ARCHIVED, EXPIRED). */
+  accountStatus?: string | null
+  /** Admin context: reason recorded when the account was breached (null if never breached). */
+  breachReason?: string | null
+  /** Admin context: the request debited the balance and holds a reserve. */
+  balanceReserved?: boolean
+  /** Admin context: set when a manual rejection forfeited the reserve on a terminal account. */
+  forfeitedAt?: string | null
+  /** Admin context: source of the cancellation outcome, e.g. ACCOUNT_CLOSED_FORFEITURE. */
+  cancelSource?: string | null
+  transactionRef?: string | null
+  paidAmount?: number | null
+  paidCurrency?: string | null
+  paidAt?: string | null
+  paymentMethod?: string | null
 }
 
 export type OrderRow = {

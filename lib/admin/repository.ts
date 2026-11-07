@@ -1,8 +1,31 @@
 import { Prisma } from '@prisma/client'
 import { applyBreach } from '@/lib/rules/breach-matrix'
+import { BREACH_EVENT_SOURCE, BREACH_EVENT_TIME_SOURCE } from '@/lib/rules/breach-event'
 import { mockStore } from '@/lib/admin/mock-store'
 import { drawdownPressure, isBreached, isPassing, matchesTraderFilter, recomputeMetrics, riskBadge } from '@/lib/admin/risk'
 import { fundingResetData } from '@/lib/trading/funding'
+import { countUnresolvedFxReconciliations, unresolvedFxGate } from '@/lib/finance/fx-gate'
+import { AccountOverrideError } from '@/lib/admin/account-override-error'
+import { PayoutApprovalError } from '@/lib/admin/payout-error'
+import { payoutApprovalBlocker } from '@/lib/admin/payout-policy'
+import {
+  ACTIVE_EXECUTION_STATES,
+  PAYOUT_EXECUTION_POLICIES,
+  PAYOUT_EXECUTION_STATES,
+  PayoutExecutionConflictError,
+  approveManualPayoutInTx,
+  confirmManualPaymentInTx,
+  isActiveExecutionState,
+  payoutExecutionSnapshotMatches,
+  rejectManualPayoutInTx,
+  resolvePayoutApprovalGate,
+} from '@/lib/admin/payout-execution'
+import type {
+  ApproveManualPayoutResult,
+  ConfirmManualPaymentResult,
+  ManualPaymentInput,
+  RejectManualPayoutResult,
+} from '@/lib/admin/payout-execution'
 import type {
   AccountStatus,
   OverviewMetrics,
@@ -45,6 +68,15 @@ async function db() {
 
 function num(value: Prisma.Decimal | number | string) {
   return Number(value)
+}
+
+/** Detects a PostgreSQL unique-constraint violation (Prisma P2002). */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    typeof (error as { code?: unknown }).code === 'string' &&
+    (error as { code?: unknown }).code === 'P2002'
+  )
 }
 
 function slaMinutes(requestedAt: Date, reviewedAt: Date | null) {
@@ -109,8 +141,20 @@ function mapPosition(position: Prisma.PositionGetPayload<object>): TradeRow {
     openTime: position.openedAt.toISOString(),
     closeTime: null,
     profit: position.floatingPnl,
-    swap: 0,
-    commission: 0,
+    swap: null,
+    commission: position.entryCommission == null ? null : -Number(position.entryCommission),
+    grossPnl: null,
+    netPnl: null,
+    entryCommission: position.entryCommission == null ? null : Number(position.entryCommission),
+    exitCommission: null,
+    fxRate: position.entryFxRate == null ? null : Number(position.entryFxRate),
+    fxSource: null,
+    fxStale: null,
+    fxUnresolved: null,
+    pnlBasis: position.valuationStatus ?? null,
+    valuationStatus: position.valuationStatus ?? null,
+    priceStale: null,
+    voidSynthetic: false,
     status: 'OPEN',
     markedForLiquidation: false,
     voidedAt: null,
@@ -130,8 +174,20 @@ function mapTradeHistory(trade: Prisma.TradeHistoryGetPayload<object>): TradeRow
     openTime: trade.openedAt.toISOString(),
     closeTime: trade.closedAt.toISOString(),
     profit: trade.pnl,
-    swap: 0,
-    commission: 0,
+    swap: null,
+    commission: trade.totalCommission == null ? null : -Number(trade.totalCommission),
+    grossPnl: trade.grossPnl,
+    netPnl: trade.netPnl == null ? null : Number(trade.netPnl),
+    entryCommission: trade.entryCommission == null ? null : Number(trade.entryCommission),
+    exitCommission: trade.exitCommission == null ? null : Number(trade.exitCommission),
+    fxRate: trade.fxRate == null ? null : Number(trade.fxRate),
+    fxSource: trade.fxSource,
+    fxStale: trade.fxStale,
+    fxUnresolved: trade.fxUnresolved,
+    pnlBasis: trade.pnlBasis,
+    valuationStatus: trade.valuationStatus,
+    priceStale: trade.priceStale,
+    voidSynthetic: trade.voidSynthetic,
     status: 'CLOSED',
     markedForLiquidation: false,
     voidedAt: trade.voidedAt?.toISOString() ?? null,
@@ -157,6 +213,18 @@ function mapPayout(
     requestedAt: payout.requestedAt.toISOString(),
     reviewedAt: payout.reviewedAt?.toISOString() ?? null,
     slaMinutes: slaMinutes(payout.requestedAt, payout.reviewedAt),
+    executionPolicy: payout.executionPolicy,
+    rejectReason: payout.rejectReason,
+    accountStatus: payout.account.status,
+    breachReason: payout.account.breachReason,
+    balanceReserved: payout.balanceReserved,
+    forfeitedAt: payout.forfeitedAt?.toISOString() ?? null,
+    cancelSource: payout.cancelSource,
+    transactionRef: payout.transactionRef,
+    paidAmount: payout.paidAmount != null ? num(payout.paidAmount) : null,
+    paidCurrency: payout.paidCurrency,
+    paidAt: payout.paidAt?.toISOString() ?? null,
+    paymentMethod: payout.paymentMethod,
   }
 }
 
@@ -216,6 +284,108 @@ function searchClause(q: string): Prisma.TradingAccountWhereInput {
       { user: { name: { contains: q, mode: 'insensitive' } } },
     ],
   }
+}
+
+/**
+ * Account override inside the caller's transaction. Exported so the financial gates
+ * (especially the unresolved-FX gate) can be regression-tested without a database.
+ */
+export async function applyAccountOverrideInTransaction(
+  tx: Prisma.TransactionClient,
+  input: {
+    id: string
+    status: AccountStatus
+    reason: string
+    actorId: string
+    operationKey?: string
+  },
+): Promise<{ alreadyApplied: boolean }> {
+  const { id, status, reason, actorId, operationKey } = input
+  // Serialize with the trading engine (which also locks this row).
+  const locked = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "TradingAccount" WHERE "id" = ${id} FOR UPDATE
+  `
+  if (locked.length === 0) throw new AccountOverrideError('Account not found.', 'account_not_found')
+
+  const current = await tx.tradingAccount.findUniqueOrThrow({
+    where: { id },
+    select: { initialBalance: true, currentBalance: true, status: true, phase: true },
+  })
+
+  const fxGate = unresolvedFxGate(
+    'ADMIN_OVERRIDE',
+    await countUnresolvedFxReconciliations(tx, id),
+  )
+  if (!fxGate.ok) {
+    throw new AccountOverrideError(
+      'Account has a closed trade with an unresolved FX conversion. Resolve or void it before changing the financial state.',
+      'fx_unresolved',
+    )
+  }
+
+  if (status === 'FUNDED') {
+    const openPositions = await tx.position.count({
+      where: { tradingAccountId: id, status: 'OPEN' },
+    })
+    if (openPositions > 0) {
+      throw new AccountOverrideError(
+        `Cannot fund an account with ${openPositions} open position${openPositions === 1 ? '' : 's'}. Close them first.`,
+        'open_positions',
+      )
+    }
+  }
+
+  // A repeated FUNDED override must not reset a funded account again. A legitimate
+  // new reset requires moving the account out of FUNDED first (a separate operation).
+  if (status === 'FUNDED' && current.status === 'FUNDED' && current.phase === 'FUNDED') {
+    await tx.auditLog.create({
+      data: {
+        actorId,
+        accountId: id,
+        action: 'STATUS_OVERRIDE_NOOP',
+        reason,
+        metadata: { status, operationKey: operationKey ?? null },
+      },
+    })
+    return { alreadyApplied: true }
+  }
+
+  const data: Prisma.TradingAccountUncheckedUpdateInput = {
+    status,
+    breachReason: isBreached(status) ? reason : null,
+    frozenAt: isBreached(status) ? new Date() : null,
+  }
+
+  if (status === 'FUNDED') {
+    Object.assign(data, fundingResetData(current.initialBalance))
+  }
+
+  await tx.tradingAccount.update({ where: { id }, data })
+  await tx.auditLog.create({
+    data: { actorId, accountId: id, action: 'STATUS_OVERRIDE', reason, metadata: { status, operationKey: operationKey ?? null } },
+  })
+  if (status === 'FUNDED') {
+    const resetDelta = new Prisma.Decimal(current.initialBalance).minus(current.currentBalance)
+    if (!resetDelta.isZero()) {
+      // Deterministic operation key: the previous status/phase for a direct override,
+      // or the approval request id when one exists.
+      const resetKey = operationKey ?? `${current.status}:${current.phase}`
+      await tx.accountLedgerEntry.create({
+        data: {
+          accountId: id,
+          type: 'ADJUSTMENT',
+          amount: resetDelta,
+          currency: 'USD',
+          balanceAfter: current.initialBalance,
+          refType: 'ACCOUNT_FUNDING',
+          refId: id,
+          idempotencyKey: `admin-funding-reset:${id}:${resetKey}`,
+          metadata: { reason, previousBalance: current.currentBalance.toString(), operationKey: resetKey },
+        },
+      })
+    }
+  }
+  return { alreadyApplied: false }
 }
 
 export const adminRepo = {
@@ -372,10 +542,17 @@ export const adminRepo = {
     return row ? mapTrader(row) : null
   },
 
-  async breach(id: string, type: 'BREACHED_DAILY' | 'BREACHED_MAX', reason: string, actorId: string) {
+  async breach(
+    id: string,
+    type: 'BREACHED_DAILY' | 'BREACHED_MAX',
+    reason: string,
+    actorId: string,
+    options?: { occurredAt?: Date | null; evidence?: string | null },
+  ) {
     const prisma = await db()
     if (!prisma) return mockStore.breach(id, type, reason, actorId)
 
+    const occurredAt = options?.occurredAt ?? null
     await prisma.$transaction((tx) =>
       applyBreach(tx, {
         accountId: id,
@@ -383,74 +560,116 @@ export const adminRepo = {
         actorId,
         reason,
         summary: type === 'BREACHED_DAILY' ? 'Daily loss kill-switch' : 'Max drawdown kill-switch',
+        breachEvent: {
+          occurredAt,
+          source: BREACH_EVENT_SOURCE.ADMIN,
+          timeSource: occurredAt ? BREACH_EVENT_TIME_SOURCE.ADMIN_SUPPLIED : null,
+          requiresManualReview: occurredAt == null,
+          dedupeKey: `admin-breach:${id}:${type}:${occurredAt?.toISOString() ?? 'manual-review'}:${reason}`,
+          payload: {
+            type,
+            evidence: options?.evidence ?? null,
+          },
+        },
       }),
     )
     return this.getAccount(id)
   },
 
-  async override(id: string, status: AccountStatus, reason: string, actorId: string) {
+  async override(id: string, status: AccountStatus, reason: string, actorId: string, operationKey?: string) {
     const prisma = await db()
     if (!prisma) return mockStore.override(id, status, reason)
 
-    const current = await prisma.tradingAccount.findUnique({
-      where: { id },
-      select: { initialBalance: true },
+    let alreadyApplied = false
+    await prisma.$transaction(async (tx) => {
+      const applied = await applyAccountOverrideInTransaction(tx, { id, status, reason, actorId, operationKey })
+      alreadyApplied = applied.alreadyApplied
     })
-    if (!current) return null
-
-    const data: Prisma.TradingAccountUncheckedUpdateInput = {
-      status,
-      breachReason: isBreached(status) ? reason : null,
-      frozenAt: isBreached(status) ? new Date() : null,
-    }
-
-    if (status === 'FUNDED') {
-      Object.assign(data, fundingResetData(current.initialBalance))
-    }
-
-    await prisma.tradingAccount.update({ where: { id }, data })
-    await prisma.auditLog.create({
-      data: { actorId, accountId: id, action: 'STATUS_OVERRIDE', reason, metadata: { status } },
-    })
-    return this.getAccount(id)
+    const account = await this.getAccount(id)
+    return account ? { ...account, alreadyApplied } : null
   },
 
   async refreshAccount(id: string) {
     return this.getAccount(id)
   },
 
-  async approvePayout(id: string, txHash: string, actorId: string) {
+  async approvePayout(id: string, txHash: string, actorId: string, reason?: string) {
     const prisma = await db()
-    if (!prisma) return mockStore.approvePayout(id, txHash, actorId)
+    if (!prisma) return mockStore.approvePayout(id, txHash, actorId, reason)
 
-    const payout = await prisma.payout.findUnique({ where: { id } })
-    if (!payout) return null
-    if (payout.status !== 'PENDING' && payout.status !== 'APPROVED') {
-      const full = await prisma.payout.findUnique({ where: { id }, include: { user: true, account: true } })
-      return full ? mapPayout(full) : null
-    }
-    if (
-      (payout.providerPayoutId && payout.providerStatus !== 'FINISHED') ||
-      (payout.providerStatus && !payout.providerPayoutId) ||
-      (payout.providerPayoutId && payout.txHash && txHash !== payout.txHash)
-    ) {
-      const full = await prisma.payout.findUnique({ where: { id }, include: { user: true, account: true } })
-      return full ? mapPayout(full) : null
-    }
-    const settlementHash = payout.providerPayoutId ? payout.txHash : txHash
-    if (!settlementHash) {
-      const full = await prisma.payout.findUnique({ where: { id }, include: { user: true, account: true } })
-      return full ? mapPayout(full) : null
-    }
-
-    const amount = num(payout.amount)
     const updated = await prisma.$transaction(async (tx) => {
+      // Lock the payout row first and re-read it under the lock. Every financial value
+      // used below comes from this fresh snapshot, never from a pre-transaction read.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Payout" WHERE "id" = ${id} FOR UPDATE
+      `
+      if (locked.length === 0) return null
+      const payout = await tx.payout.findUnique({ where: { id } })
+      if (!payout) return null
+
+      const gate = resolvePayoutApprovalGate(payout)
+      if (gate.action === 'blocked') {
+        const messages: Record<typeof gate.reason, string> = {
+          provenance_unknown:
+            'Payout provenance is unknown; it cannot use the legacy approval path and has not completed execution.',
+          policy_conflict:
+            'Payout has conflicting execution fields for its declared policy; disbursement is disabled.',
+          execution_incomplete: 'Payout execution has not reached a verified APPROVED state.',
+          reconciliation_required: 'Payout requires reconciliation before it can be disbursed.',
+          execution_failed: 'Payout execution failed and cannot be disbursed.',
+          snapshot_missing:
+            'Payout execution snapshot is missing; disbursement is disabled until reconciliation.',
+          snapshot_mismatch:
+            'Payout financial fields changed after execution started; disbursement is disabled.',
+          legacy_disabled:
+            'Legacy payout approval is disabled: no trusted two-administrator cutover workflow exists.',
+          manual_policy:
+            'Manual payouts are confirmed by the owner, not disbursed through the provider approval path.',
+        }
+        throw new PayoutApprovalError(messages[gate.reason], gate.reason)
+      }
+
+      if (payout.status !== 'PENDING' && payout.status !== 'APPROVED') {
+        return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      }
+      if (
+        (payout.providerPayoutId && payout.providerStatus !== 'FINISHED') ||
+        (payout.providerStatus && !payout.providerPayoutId) ||
+        (payout.providerPayoutId && payout.txHash && txHash !== payout.txHash)
+      ) {
+        return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      }
+      if (gate.action === 'execution_approved' && !payout.providerPayoutId) {
+        return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      }
+      const settlementHash = payout.providerPayoutId ? payout.txHash ?? txHash : txHash
+      if (!settlementHash) {
+        return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      }
+
+      const amount = num(payout.amount)
+      // CAS binds every financially significant field so no concurrent writer can change
+      // the payout between the snapshot check and DISBURSED (defense-in-depth on top of
+      // the FOR UPDATE lock already held above).
       const changed = await tx.payout.updateMany({
         where: {
           id,
           status: { in: ['PENDING', 'APPROVED'] },
           providerStatus: payout.providerStatus,
           providerPayoutId: payout.providerPayoutId,
+          executionPolicy: payout.executionPolicy,
+          executionState: payout.executionState,
+          executionKey: payout.executionKey,
+          executionClaimedAt: payout.executionClaimedAt,
+          executionClaimedBy: payout.executionClaimedBy,
+          executionLeaseUntil: payout.executionLeaseUntil,
+          executionSnapshotHash: payout.executionSnapshotHash,
+          amount: payout.amount,
+          accountId: payout.accountId,
+          network: payout.network,
+          walletAddress: payout.walletAddress,
+          balanceReserved: payout.balanceReserved,
+          profitSplitPct: payout.profitSplitPct,
         },
         data: { status: 'DISBURSED', txHash: settlementHash, reviewedAt: new Date(), reviewedById: actorId },
       })
@@ -458,19 +677,56 @@ export const adminRepo = {
         return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
       }
 
+      // Lock the account before reading any financial value for the update.
+      await tx.$queryRaw`SELECT "id" FROM "TradingAccount" WHERE "id" = ${payout.accountId} FOR UPDATE`
       const before = await tx.tradingAccount.findUniqueOrThrow({ where: { id: payout.accountId } })
+      if (before.payoutExecutionAt != null) {
+        throw new PayoutApprovalError(
+          'Payout execution is in progress; approval is disabled until it finalizes or is reconciled.',
+          'execution_active',
+        )
+      }
+      if (before.archivedAt != null || before.status === 'ARCHIVED') {
+        throw new PayoutApprovalError('Account is archived; payout approval is disabled.', 'archived_account')
+      }
+      const fxGate = unresolvedFxGate(
+        'PAYOUT',
+        await countUnresolvedFxReconciliations(tx, payout.accountId),
+      )
+      if (!fxGate.ok) {
+        throw new PayoutApprovalError(
+          'Account has a closed trade with an unresolved FX conversion. Payout approval is disabled until reconciliation.',
+          'fx_unresolved',
+        )
+      }
+      const blocker = payoutApprovalBlocker({
+        balance: before.currentBalance,
+        amount,
+        balanceReserved: payout.balanceReserved,
+        archived: false,
+      })
+      if (blocker === 'insufficient_balance') {
+        throw new PayoutApprovalError(
+          'Account balance is insufficient for this non-reserved payout.',
+          'insufficient_balance',
+        )
+      }
       const account = payout.balanceReserved
         ? before
         : await tx.tradingAccount.update({
             where: { id: payout.accountId },
             data: {
-              currentBalance: { decrement: amount },
-              currentEquity: { decrement: amount },
+              currentBalance: { decrement: new Prisma.Decimal(amount) },
+              currentEquity: { decrement: new Prisma.Decimal(amount) },
               balance: { decrement: amount },
               equity: { decrement: amount },
-              dailyStartingBalance: { decrement: amount },
-              dailyStartingEquity: { decrement: amount },
+              dailyStartingBalance: { decrement: new Prisma.Decimal(amount) },
+              dailyStartingEquity: { decrement: new Prisma.Decimal(amount) },
               peakEquity: Math.max(num(before.initialBalance), before.peakEquity - amount),
+              peakEquityDecimal: Prisma.Decimal.max(
+                before.initialBalance,
+                (before.peakEquityDecimal ?? new Prisma.Decimal(before.peakEquity)).minus(amount),
+              ),
             },
           })
       const metrics = payout.balanceReserved
@@ -493,9 +749,31 @@ export const adminRepo = {
           actorId,
           accountId: payout.accountId,
           action: 'PAYOUT_DISBURSED',
-          metadata: { payoutId: id, txHash: settlementHash },
+          reason: null,
+          metadata: {
+            payoutId: id,
+            txHash: settlementHash,
+            approvalPath: gate.action,
+            executionPolicy: payout.executionPolicy,
+            executionState: payout.executionState,
+          },
         },
       })
+      if (!payout.balanceReserved) {
+        await tx.accountLedgerEntry.create({
+          data: {
+            accountId: payout.accountId,
+            type: 'PAYOUT_RELEASE',
+            amount: new Prisma.Decimal(amount).negated(),
+            currency: 'USD',
+            balanceAfter: account.currentBalance,
+            refType: 'PAYOUT',
+            refId: id,
+            idempotencyKey: `payout-disburse:${id}`,
+            metadata: { txHash: settlementHash },
+          },
+        })
+      }
       return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
     })
     return updated ? mapPayout(updated) : null
@@ -506,6 +784,12 @@ export const adminRepo = {
     if (!prisma) return null
     const payout = await prisma.payout.findUnique({ where: { id } })
     if (!payout) return null
+    if (isActiveExecutionState(payout.executionState)) {
+      throw new PayoutApprovalError(
+        'Payout execution is in progress; rejection is disabled until it finalizes or is reconciled.',
+        'execution_active',
+      )
+    }
 
     return prisma.$transaction(async (tx) => {
       const changed = await tx.payout.updateMany({
@@ -515,24 +799,34 @@ export const adminRepo = {
           providerBatchId: null,
           providerPayoutId: null,
           providerStatus: null,
+          executionState: payout.executionState,
         },
-        data: { status: 'REJECTED', rejectReason: reason, reviewedAt: new Date(), reviewedById: actorId },
+        data: {
+          status: 'REJECTED',
+          rejectReason: reason,
+          reviewedAt: new Date(),
+          reviewedById: actorId,
+          executionState: null,
+          executionKey: null,
+          providerStatus: null,
+        },
       })
       const row = await tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
       if (changed.count !== 1 || !row) return row ? mapPayout(row) : null
 
+      await tx.$queryRaw`SELECT "id" FROM "TradingAccount" WHERE "id" = ${payout.accountId} FOR UPDATE`
       const before = await tx.tradingAccount.findUniqueOrThrow({ where: { id: payout.accountId } })
       const amount = num(payout.amount)
       const account = payout.balanceReserved
         ? await tx.tradingAccount.update({
             where: { id: payout.accountId },
             data: {
-              currentBalance: { increment: amount },
-              currentEquity: { increment: amount },
+              currentBalance: { increment: new Prisma.Decimal(amount) },
+              currentEquity: { increment: new Prisma.Decimal(amount) },
               balance: { increment: amount },
               equity: { increment: amount },
-              dailyStartingBalance: { increment: amount },
-              dailyStartingEquity: { increment: amount },
+              dailyStartingBalance: { increment: new Prisma.Decimal(amount) },
+              dailyStartingEquity: { increment: new Prisma.Decimal(amount) },
             },
           })
         : before
@@ -551,6 +845,12 @@ export const adminRepo = {
         where: { id: payout.accountId },
         data: { ...metrics, reservedPayoutAmount: reserved._sum.amount ?? 0 },
       })
+      const activeExecutions = await tx.payout.count({
+        where: { accountId: payout.accountId, executionState: { in: [...ACTIVE_EXECUTION_STATES] } },
+      })
+      if (activeExecutions === 0) {
+        await tx.tradingAccount.update({ where: { id: payout.accountId }, data: { payoutExecutionAt: null } })
+      }
       await tx.auditLog.create({
         data: {
           actorId,
@@ -560,6 +860,21 @@ export const adminRepo = {
           metadata: { payoutId: id },
         },
       })
+      if (payout.balanceReserved) {
+        await tx.accountLedgerEntry.create({
+          data: {
+            accountId: payout.accountId,
+            type: 'PAYOUT_RELEASE',
+            amount: new Prisma.Decimal(amount),
+            currency: 'USD',
+            balanceAfter: account.currentBalance,
+            refType: 'PAYOUT',
+            refId: id,
+            idempotencyKey: `payout-release:${id}`,
+            metadata: { reason },
+          },
+        })
+      }
       return mapPayout(row)
     })
   },
@@ -573,30 +888,52 @@ export const adminRepo = {
   ) {
     const prisma = await db()
     if (!prisma) return null
-    const payout = await prisma.payout.findUnique({ where: { id } })
-    if (!payout || !payout.providerPayoutId) return null
-    const recoverUnknownVerification =
-      payout.status === 'PENDING' && payout.providerStatus === 'VERIFICATION_UNKNOWN'
-    if (payout.status !== 'APPROVED' && !recoverUnknownVerification) {
-      const current = await prisma.payout.findUnique({
-        where: { id },
-        include: { user: true, account: true },
-      })
-      return current ? mapPayout(current) : null
-    }
-
     const isFailure = status === 'FAILED' || status === 'REJECTED'
     return prisma.$transaction(async (tx) => {
+      // Lock and re-read the payout; every financial value and the snapshot check use
+      // this fresh row, never a pre-transaction read.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Payout" WHERE "id" = ${id} FOR UPDATE
+      `
+      if (locked.length === 0) return null
+      const payout = await tx.payout.findUnique({ where: { id } })
+      if (!payout || !payout.providerPayoutId) return null
+      if (payout.executionPolicy !== PAYOUT_EXECUTION_POLICIES.EXECUTION_V1) return null
+      if (!payoutExecutionSnapshotMatches(payout)) return null
+      const recoverUnknownVerification =
+        payout.status === 'PENDING' && payout.providerStatus === 'VERIFICATION_UNKNOWN'
+      if (payout.status !== 'APPROVED' && !recoverUnknownVerification) {
+        return tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+      }
+
       const changed = await tx.payout.updateMany({
         where: {
           id,
           status: payout.status,
           providerPayoutId: payout.providerPayoutId,
           providerStatus: payout.providerStatus,
+          executionPolicy: PAYOUT_EXECUTION_POLICIES.EXECUTION_V1,
+          executionState: {
+            in: [
+              PAYOUT_EXECUTION_STATES.SUBMITTED,
+              PAYOUT_EXECUTION_STATES.RECONCILIATION_REQUIRED,
+              PAYOUT_EXECUTION_STATES.APPROVED,
+            ],
+          },
+          executionSnapshotHash: payout.executionSnapshotHash,
+          amount: payout.amount,
+          accountId: payout.accountId,
+          network: payout.network,
+          walletAddress: payout.walletAddress,
+          balanceReserved: payout.balanceReserved,
+          profitSplitPct: payout.profitSplitPct,
         },
         data: {
           status: isFailure ? 'REJECTED' : 'APPROVED',
           providerStatus: status,
+          executionState: isFailure ? PAYOUT_EXECUTION_STATES.FAILED : PAYOUT_EXECUTION_STATES.APPROVED,
+          executionClaimedBy: null,
+          executionLeaseUntil: null,
           txHash: txHash ?? undefined,
           rejectReason: isFailure ? providerError?.slice(0, 500) || `NOWPayments status: ${status}` : undefined,
           reviewedAt: isFailure ? new Date() : undefined,
@@ -608,19 +945,20 @@ export const adminRepo = {
         return current ? mapPayout(current) : null
       }
 
-      if (isFailure) {
+      if (isFailure && payout.status !== 'REJECTED') {
+        await tx.$queryRaw`SELECT "id" FROM "TradingAccount" WHERE "id" = ${payout.accountId} FOR UPDATE`
         const before = await tx.tradingAccount.findUniqueOrThrow({ where: { id: payout.accountId } })
         const amount = num(payout.amount)
         const account = payout.balanceReserved
           ? await tx.tradingAccount.update({
               where: { id: payout.accountId },
               data: {
-                currentBalance: { increment: amount },
-                currentEquity: { increment: amount },
+                currentBalance: { increment: new Prisma.Decimal(amount) },
+                currentEquity: { increment: new Prisma.Decimal(amount) },
                 balance: { increment: amount },
                 equity: { increment: amount },
-                dailyStartingBalance: { increment: amount },
-                dailyStartingEquity: { increment: amount },
+                dailyStartingBalance: { increment: new Prisma.Decimal(amount) },
+                dailyStartingEquity: { increment: new Prisma.Decimal(amount) },
               },
             })
           : before
@@ -639,6 +977,31 @@ export const adminRepo = {
           where: { id: payout.accountId },
           data: { ...metrics, reservedPayoutAmount: reserved._sum.amount ?? 0 },
         })
+        if (payout.balanceReserved) {
+          await tx.accountLedgerEntry.create({
+            data: {
+              accountId: payout.accountId,
+              type: 'PAYOUT_RELEASE',
+              amount: new Prisma.Decimal(amount),
+              currency: 'USD',
+              balanceAfter: account.currentBalance,
+              refType: 'PAYOUT',
+              refId: id,
+              idempotencyKey: `payout-release:${id}`,
+              metadata: { reason: 'provider failure', providerStatus: status },
+            },
+          })
+        }
+      }
+
+      // Resolve the account execution lock once this execution reached a terminal
+      // provider result. An ambiguous outcome keeps the lock (it is reconciled here).
+      await tx.$queryRaw`SELECT "id" FROM "TradingAccount" WHERE "id" = ${payout.accountId} FOR UPDATE`
+      const activeExecutions = await tx.payout.count({
+        where: { accountId: payout.accountId, executionState: { in: [...ACTIVE_EXECUTION_STATES] } },
+      })
+      if (activeExecutions === 0) {
+        await tx.tradingAccount.update({ where: { id: payout.accountId }, data: { payoutExecutionAt: null } })
       }
 
       await tx.auditLog.create({
@@ -653,6 +1016,60 @@ export const adminRepo = {
       const updated = await tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
       return updated ? mapPayout(updated) : null
     })
+  },
+
+  async approveManualPayout(id: string, actorId: string): Promise<ApproveManualPayoutResult | null> {
+    const prisma = await db()
+    if (!prisma) return null
+    try {
+      return await prisma.$transaction((tx) => approveManualPayoutInTx(tx, { id, actorId }))
+    } catch (error) {
+      if (error instanceof PayoutExecutionConflictError) {
+        return { ok: false, reason: 'state_changed' }
+      }
+      throw error
+    }
+  },
+
+  async confirmManualPayment(
+    id: string,
+    ownerId: string,
+    input: ManualPaymentInput,
+  ): Promise<ConfirmManualPaymentResult | null> {
+    const prisma = await db()
+    if (!prisma) return null
+    try {
+      return await prisma.$transaction((tx) =>
+        confirmManualPaymentInTx(tx, { id, ownerId, ...input }),
+      )
+    } catch (error) {
+      if (error instanceof PayoutExecutionConflictError) {
+        return { ok: false, reason: 'state_changed' }
+      }
+      if (isUniqueConstraintViolation(error)) {
+        return { ok: false, reason: 'duplicate_transaction_ref' }
+      }
+      throw error
+    }
+  },
+
+  async rejectManualPayout(
+    id: string,
+    actorId: string,
+    reason: string,
+  ): Promise<RejectManualPayoutResult | null> {
+    const prisma = await db()
+    if (!prisma) return null
+    try {
+      return await prisma.$transaction((tx) =>
+        rejectManualPayoutInTx(tx, { id, actorId, reason }),
+      )
+    } catch (error) {
+      if (error instanceof PayoutExecutionConflictError) {
+        return { ok: false, reason: 'state_changed' }
+      }
+      throw error
+    }
   },
 
   async telemetry(): Promise<TelemetryState> {

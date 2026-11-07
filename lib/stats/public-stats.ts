@@ -136,7 +136,7 @@ export async function recordDisbursedPayoutProof(payoutId: string) {
       where: { id: payoutId },
       include: { user: true, account: true },
     })
-    if (!payout || payout.status !== 'DISBURSED') return null
+    if (!payout || (payout.status !== 'DISBURSED' && payout.status !== 'MANUALLY_PAID')) return null
 
     const existing = await tx.payoutProof.findUnique({ where: { sourcePayoutId: payout.id } })
     if (existing) return serializePayout(existing)

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
+import { PayoutApprovalError } from '@/lib/admin/payout-error'
 import { adminRepo } from '@/lib/admin/repository'
 import { recordDisbursedPayoutProof } from '@/lib/stats/public-stats'
 
@@ -14,8 +15,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       body && typeof body === 'object' && 'txHash' in body && typeof body.txHash === 'string'
         ? body.txHash.trim()
         : ''
+    const reason =
+      body && typeof body === 'object' && 'reason' in body && typeof body.reason === 'string'
+        ? body.reason.trim()
+        : ''
     if (!txHash) return jsonError('Transaction hash is required')
-    const payout = await adminRepo.approvePayout(id, txHash, session.sub)
+    const payout = await adminRepo.approvePayout(id, txHash, session.sub, reason)
     if (!payout) return jsonError('Payout not found', 404)
     if (payout.status !== 'DISBURSED') {
       return jsonError('Payout must finish in NOWPayments before it can be marked disbursed.', 409)
@@ -30,6 +35,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
     return NextResponse.json({ payout })
   } catch (err) {
+    if (err instanceof PayoutApprovalError) return jsonError(err.message, 409)
     return safeError(err)
   }
 }
