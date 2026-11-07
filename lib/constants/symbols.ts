@@ -230,7 +230,8 @@ export const SYMBOLS: Record<TerminalSymbolId, MarketSymbol> = {
 export const SYMBOL_LIST: MarketSymbol[] = TERMINAL_SYMBOLS.map((id) => SYMBOLS[id])
 
 export function isTerminalSymbol(value: string): value is TerminalSymbolId {
-  return value in SYMBOLS
+  // `in` would also accept Object.prototype keys (`constructor`, `__proto__`, `toString`).
+  return Object.prototype.hasOwnProperty.call(SYMBOLS, value)
 }
 
 export function getSymbol(symbol: string): MarketSymbol {
