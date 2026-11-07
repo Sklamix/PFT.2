@@ -1,5 +1,13 @@
 import type { AccountStatus, Prisma } from '@prisma/client'
 import { actionReviewRequestData } from '@/lib/admin/action-review'
+import {
+  BREACH_EVENT_SOURCE,
+  findUnlinkedBreachEvent,
+  linkBreachEventAudit,
+  loadBreachEvent,
+  lockBreachEventAudit,
+  recordAccountBreachEvent,
+} from './breach-event'
 
 /**
  * Deterministic breach matrix (rulebook v1.6, section 19).
@@ -297,6 +305,15 @@ export async function applyBreach(
     summary?: string
     /** Set false for automated actions that are not admin overrides. */
     requireReview?: boolean
+    /** Canonical event timing supplied by the producer (engine/admin/overnight/inactivity). */
+    breachEvent?: {
+      occurredAt?: Date | null
+      timeSource?: string | null
+      source?: string
+      requiresManualReview?: boolean
+      payload?: Prisma.InputJsonValue
+      dedupeKey?: string
+    }
   },
 ): Promise<AppliedBreach> {
   const account = await tx.tradingAccount.findUnique({
@@ -309,6 +326,54 @@ export async function applyBreach(
   const now = new Date()
   let voidedTrades = 0
   let cancelledPayouts = 0
+  let protectedPayoutIds: string[] = []
+
+  // Reuse the event created by the engine (already atomic with its BREACHED transition)
+  // or upsert the canonical event here. No money movement happens in this phase.
+  const pendingEvent = await findUnlinkedBreachEvent(tx, account.id, input.kind)
+  let eventId: string
+  if (pendingEvent) {
+    eventId = pendingEvent.id
+  } else {
+    const occurredAtInput = input.breachEvent?.occurredAt ?? null
+    const created = await recordAccountBreachEvent(tx, {
+      accountId: account.id,
+      kind: input.kind,
+      occurredAt: occurredAtInput,
+      detectedAt: now,
+      source: input.breachEvent?.source ?? BREACH_EVENT_SOURCE.ENFORCEMENT,
+      timeSource: input.breachEvent?.timeSource ?? null,
+      requiresManualReview:
+        input.breachEvent?.requiresManualReview ?? occurredAtInput == null,
+      ...(input.breachEvent?.dedupeKey !== undefined
+        ? { dedupeKey: input.breachEvent.dedupeKey }
+        : {}),
+      ...(input.breachEvent?.payload !== undefined
+        ? { payload: input.breachEvent.payload }
+        : {}),
+    })
+    eventId = created.id
+  }
+
+  // Serialize audit creation per event. A second concurrent/repeated enforcement sees the
+  // already-linked audit and returns without duplicating account/payout/audit effects.
+  const alreadyAudited = await lockBreachEventAudit(tx, eventId)
+  if (alreadyAudited) {
+    return {
+      accountId: account.id,
+      kind: input.kind,
+      previousStatus: account.status,
+      consequences: entry,
+      voidedTrades: 0,
+      cancelledPayouts: 0,
+    }
+  }
+
+  const stored = await loadBreachEvent(tx, eventId)
+  const occurredAt = stored?.occurredAt ?? null
+  const timeSource = stored?.timeSource ?? null
+  const requiresManualReview = stored?.requiresManualReview ?? occurredAt == null
+  const breachEvent = { id: eventId }
 
   if (entry.accountStatus) {
     await tx.tradingAccount.update({
@@ -340,11 +405,15 @@ export async function applyBreach(
   }
 
   if (entry.cancelPayouts) {
-    const result = await tx.payout.updateMany({
+    // Policy Q1/Q9: a payout reserved before the breach stays protected and is
+    // never auto-rejected; a post-breach request is likewise left for manual
+    // review. No payout status, reserve or ledger mutation happens here.
+    const open = await tx.payout.findMany({
       where: { accountId: account.id, status: { in: ['PENDING', 'APPROVED'] } },
-      data: { status: 'REJECTED', rejectReason: `Account closed: ${input.reason}` },
+      select: { id: true },
     })
-    cancelledPayouts = result.count
+    protectedPayoutIds = open.map((payout) => payout.id)
+    // `cancelledPayouts` stays 0 — no payout is rejected automatically.
   }
 
   if (entry.payoutHoldDays) {
@@ -359,7 +428,7 @@ export async function applyBreach(
     })
   }
 
-  await tx.auditLog.create({
+  const breachAudit = await tx.auditLog.create({
     data: {
       actorId: input.actorId,
       accountId: account.id,
@@ -373,12 +442,18 @@ export async function applyBreach(
         voidProfit: entry.voidProfit,
         voidedTrades,
         cancelledPayouts,
+        protectedPayoutIds,
         payoutHoldDays: entry.payoutHoldDays,
         refundFee: entry.refundFee,
         automated: input.actorId === null,
+        breachEventId: breachEvent.id,
+        occurredAt: occurredAt?.toISOString() ?? null,
+        detectedAt: now.toISOString(),
+        requiresManualReview,
       },
     },
   })
+  await linkBreachEventAudit(tx, breachEvent.id, breachAudit.id)
 
   if (input.requireReview !== false) {
     await tx.auditLog.create({

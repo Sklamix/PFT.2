@@ -1,4 +1,6 @@
-import type { AccountStatus, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { AccountStatus } from '@prisma/client'
+import { voidTrade } from '@/lib/finance/void-trade'
 import { sendBreachNotice, sendSoftBreachNotice } from '@/lib/email/breach-notice'
 import { prisma } from '@/lib/prisma'
 import {
@@ -7,6 +9,7 @@ import {
   consequenceSummary,
   type BreachKind,
 } from '@/lib/rules/breach-matrix'
+import { BREACH_EVENT_SOURCE, BREACH_EVENT_TIME_SOURCE } from '@/lib/rules/breach-event'
 
 const BREACHED_STATUSES: AccountStatus[] = ['BREACHED', 'BREACHED_DAILY', 'BREACHED_MAX']
 const DAY_MS = 24 * 60 * 60_000
@@ -88,7 +91,16 @@ export async function enforceBreachMatrix(now = new Date()): Promise<Enforcement
     const kind = classifyBreach(account.status, account.breachReason)
     const reason = account.breachReason ?? BREACH_MATRIX[kind].label
     const result = await prisma.$transaction((tx) =>
-      applyBreach(tx, { accountId: account.id, kind, actorId: null, reason }),
+      applyBreach(tx, {
+        accountId: account.id,
+        kind,
+        actorId: null,
+        reason,
+        breachEvent: {
+          source: BREACH_EVENT_SOURCE.ENFORCEMENT,
+          dedupeKey: `enforcement:${account.id}:${kind}:${account.frozenAt?.toISOString() ?? 'unknown'}`,
+        },
+      }),
     )
 
     const email =
@@ -222,6 +234,8 @@ export async function recordOvernightHolding(input: {
   accountId: string
   reason: string
   closedTrades: { id: string; pnl: number }[]
+  /** Actual session-cutoff time; null means no trustworthy source. */
+  occurredAt?: Date | null
 }): Promise<OvernightViolation | null> {
   const prior = await prisma.auditLog.count({
     where: { accountId: input.accountId, action: 'OVERNIGHT_HOLDING_VIOLATION' },
@@ -240,6 +254,13 @@ export async function recordOvernightHolding(input: {
         kind: 'OVERNIGHT_SECOND',
         actorId: null,
         reason: input.reason,
+        breachEvent: {
+          occurredAt: input.occurredAt ?? null,
+          source: BREACH_EVENT_SOURCE.OVERNIGHT,
+          timeSource: input.occurredAt ? BREACH_EVENT_TIME_SOURCE.SESSION_CUTOFF : null,
+          requiresManualReview: input.occurredAt == null,
+          payload: { closedTradeIds: input.closedTrades.map((trade) => trade.id) },
+        },
       }),
     )
     await sendBreachNotice({
@@ -261,31 +282,25 @@ export async function recordOvernightHolding(input: {
   }
 
   const profitable = input.closedTrades.filter((trade) => trade.pnl > 0)
-  const voidedProfit = profitable.reduce((sum, trade) => sum + trade.pnl, 0)
+  let voidedProfit = 0
 
   await prisma.$transaction(async (tx) => {
+    const voidedIds: string[] = []
+    let adjustment = new Prisma.Decimal(0)
+
     for (const trade of profitable) {
-      await tx.tradeHistory.update({
-        where: { id: trade.id },
-        data: {
-          originalPnl: trade.pnl,
-          pnl: 0,
-          voidedAt: new Date(),
-          voidReason: `Overnight/weekend holding: ${input.reason}`,
-        },
+      const voided = await voidTrade(tx, {
+        tradeId: trade.id,
+        reason: `Overnight/weekend holding: ${input.reason}`,
+        actorId: null,
+        kind: 'OVERNIGHT',
       })
+      if (!voided.ok) continue
+      voidedIds.push(voided.tradeId)
+      adjustment = adjustment.plus(voided.adjustment)
     }
-    if (voidedProfit > 0) {
-      await tx.tradingAccount.update({
-        where: { id: input.accountId },
-        data: {
-          balance: { decrement: voidedProfit },
-          currentBalance: { decrement: voidedProfit },
-          equity: { decrement: voidedProfit },
-          currentEquity: { decrement: voidedProfit },
-        },
-      })
-    }
+    if (!adjustment.isZero()) voidedProfit = Number(adjustment.negated().toFixed(2))
+
     await tx.auditLog.create({
       data: {
         action: 'OVERNIGHT_HOLDING_VIOLATION',
@@ -295,6 +310,7 @@ export async function recordOvernightHolding(input: {
           violationNumber: prior + 1,
           voidedProfit,
           positions: input.closedTrades.length,
+          voidedTradeIds: voidedIds,
         },
       },
     })
