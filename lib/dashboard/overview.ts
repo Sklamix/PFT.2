@@ -59,25 +59,21 @@ export async function getTraderOverview(userId: string): Promise<OverviewData> {
   const history = await prisma.tradeHistory.findMany({
     where: { tradingAccountId: { in: accounts.map((account) => account.id) } },
     orderBy: { closedAt: 'asc' },
-    select: { tradingAccountId: true, pnl: true, closedAt: true },
+    select: { tradingAccountId: true, pnl: true, netPnl: true, closedAt: true },
   })
 
   const historyByAccount = new Map<string, { pnl: number; closedAt: Date }[]>()
   for (const row of history) {
     const list = historyByAccount.get(row.tradingAccountId) ?? []
-    list.push(row)
+    list.push({ pnl: row.netPnl != null ? Number(row.netPnl) : row.pnl, closedAt: row.closedAt })
     historyByAccount.set(row.tradingAccountId, list)
   }
 
   const overview: OverviewAccount[] = accounts.map((account) => {
     const startingBalance =
       account.startingBalance > 0 ? account.startingBalance : toNumber(account.initialBalance)
-    const balance =
-      account.startingBalance > 0
-        ? account.balance
-        : toNumber(account.currentBalance) || toNumber(account.initialBalance)
-    const equity =
-      account.startingBalance > 0 ? account.equity : toNumber(account.currentEquity) || balance
+    const balance = toNumber(account.currentBalance)
+    const equity = toNumber(account.currentEquity)
     const totalPnl = round2(equity - startingBalance)
     const floatingPnl = round2(equity - balance)
     const dayStartEquity = toNumber(account.dailyStartingEquity)

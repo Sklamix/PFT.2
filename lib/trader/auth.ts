@@ -104,9 +104,10 @@ export async function getTraderSession(): Promise<TraderSession | null> {
     const { prisma } = await import('@/lib/prisma')
     const user = await prisma.user.findUnique({
       where: { id: session.sub },
-      select: { tokenVersion: true, role: true, activeSessionId: true },
+      select: { tokenVersion: true, role: true, activeSessionId: true, archivedAt: true },
     })
     if (!user || user.role !== 'TRADER' || user.tokenVersion !== session.tokenVersion) return null
+    if (user.archivedAt != null) return null
     // Require the exact active session. A missing id (legacy cookie) or a cleared slot
     // (logout) must not keep a previously signed cookie alive.
     if (!session.sessionId || user.activeSessionId !== session.sessionId) return null

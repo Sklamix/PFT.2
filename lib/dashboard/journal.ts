@@ -15,6 +15,11 @@ export type JournalTrade = {
   entryPrice: number
   exitPrice: number
   pnl: number
+  pnlBasis?: string | null
+  valuationStatus?: string | null
+  fxStale?: boolean
+  fxUnresolved?: boolean
+  priceStale?: boolean | null
   pnlPct: number
   openedAt: number
   closedAt: number
@@ -73,8 +78,13 @@ export async function getJournalData(userId: string): Promise<JournalData> {
       sizeLots: round2(trade.sizeLots),
       entryPrice: trade.entryPrice,
       exitPrice: trade.exitPrice,
-      pnl: round2(trade.pnl),
-      pnlPct: initial > 0 ? round2((trade.pnl / initial) * 100) : 0,
+      pnl: round2(trade.netPnl != null ? Number(trade.netPnl) : trade.pnl),
+      pnlBasis: trade.pnlBasis,
+      valuationStatus: trade.valuationStatus,
+      fxStale: trade.fxStale ?? false,
+      fxUnresolved: trade.fxUnresolved ?? false,
+      priceStale: trade.priceStale,
+      pnlPct: initial > 0 ? round2((Number(trade.netPnl ?? trade.pnl) / initial) * 100) : 0,
       openedAt: trade.openedAt.getTime(),
       closedAt: trade.closedAt.getTime(),
       durationMs: trade.closedAt.getTime() - trade.openedAt.getTime(),

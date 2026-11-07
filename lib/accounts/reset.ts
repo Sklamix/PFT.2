@@ -3,6 +3,7 @@ import type { AccountSize, ChallengeType as PlanChallengeType, DrawdownMode } fr
 import { CHALLENGES, getChallengeFee } from '@/lib/challenges'
 import { actionReviewRequestData } from '@/lib/admin/action-review'
 import { prisma } from '@/lib/prisma'
+import { countUnresolvedFxReconciliations, unresolvedFxGate } from '@/lib/finance/fx-gate'
 import { provisionChallengeAccounts } from '@/lib/provisioning/challenge-account'
 
 type Db = PrismaClient | Prisma.TransactionClient
@@ -67,13 +68,22 @@ export async function getResetEligibility(accountId: string, db: Db = prisma): P
       breachReason: true,
       frozenAt: true,
       updatedAt: true,
-      user: { select: { riskFlaggedAt: true } },
+      user: { select: { riskFlaggedAt: true, archivedAt: true } },
     },
   })
   if (!account) throw new ResetError('Account not found.', 'not_found')
+  if (account.user.archivedAt != null) {
+    throw new ResetError('Reset is not available for an archived trader.', 'risk')
+  }
   if (account.user.riskFlaggedAt) {
     throw new ResetError(
       'New purchases are paused while a risk review on your trading activity is open.',
+      'risk',
+    )
+  }
+  if ((await countUnresolvedFxReconciliations(db, accountId)) > 0) {
+    throw new ResetError(
+      'This account still has an unresolved closed-trade FX conversion. Reset is available after reconciliation.',
       'risk',
     )
   }
@@ -202,6 +212,16 @@ async function provisionReset(
     requestReview: boolean
   },
 ) {
+  const fxGate = unresolvedFxGate(
+    'PHASE_RESET',
+    await countUnresolvedFxReconciliations(tx, input.accountId),
+  )
+  if (!fxGate.ok) {
+    throw new ResetError(
+      'This account still has an unresolved closed-trade FX conversion. Reset is available after reconciliation.',
+      'risk',
+    )
+  }
   const result = await provisionChallengeAccounts(tx, {
     userId: input.userId,
     orderId: input.orderId,

@@ -3,6 +3,7 @@ import { sendInactivityClosed, sendInactivityWarning } from '@/lib/email/inactiv
 import { notifyBookEvents } from '@/lib/email/trade-events'
 import { closeAllPositions } from '@/lib/trading/engine'
 import type { Quotes } from '@/lib/trading/types'
+import { BREACH_EVENT_SOURCE, BREACH_EVENT_TIME_SOURCE, recordAccountBreachEvent } from '@/lib/rules/breach-event'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WARNING_DAYS = 60
@@ -37,6 +38,10 @@ export async function scanInactiveAccounts(quotes: Quotes, now = new Date()): Pr
     const days = Math.floor((now.getTime() - lastActivity.getTime()) / DAY_MS)
     if (days < WARNING_DAYS) continue
 
+    // The actual inactivity threshold is deterministic: 90 days after the last activity.
+    // Detection/closure may happen later; the event keeps the real threshold time.
+    const occurredAt = new Date(lastActivity.getTime() + CLOSE_DAYS * DAY_MS)
+
     const warning = await prisma.auditLog.findFirst({
       where: { accountId: account.id, action: 'INACTIVITY_WARNING' },
       orderBy: { createdAt: 'desc' },
@@ -70,26 +75,62 @@ export async function scanInactiveAccounts(quotes: Quotes, now = new Date()): Pr
       where: { tradingAccountId: account.id, status: 'OPEN' },
     })
     if (openPositions > 0) {
-      const closedBook = await closeAllPositions(account.id, quotes)
+      const closedBook = await closeAllPositions(
+        account.id,
+        quotes,
+        null,
+        Object.fromEntries(
+          Object.keys(quotes).map((symbol) => [symbol, { source: 'INACTIVITY_CLOSE', timestamp: new Date(), stale: false }]),
+        ),
+        { enforceMarketHours: true },
+      )
       if (!closedBook.ok) continue
+      if (closedBook.status !== 'SUCCESS') {
+        await prisma.auditLog.create({
+          data: {
+            accountId: account.id,
+            action: 'INACTIVITY_CLOSE_DEFERRED',
+            reason: 'Some positions could not be closed at a defensible price',
+            metadata: { failed: closedBook.failed },
+          },
+        })
+        continue
+      }
       await notifyBookEvents(closedBook.book)
     }
 
-    await prisma.tradingAccount.update({
-      where: { id: account.id },
-      data: {
-        status: 'BREACHED',
-        breachReason: 'Inactivity: 90 days without a closed trade',
-        frozenAt: new Date(),
-      },
-    })
-    await prisma.auditLog.create({
-      data: {
+    await prisma.$transaction(async (tx) => {
+      await recordAccountBreachEvent(tx, {
         accountId: account.id,
-        action: 'INACTIVITY_CLOSED',
-        reason: `${days} days without a closed trade`,
-        metadata: { days, lastActivity: lastActivity.toISOString() },
-      },
+        kind: 'INACTIVITY',
+        occurredAt,
+        detectedAt: now,
+        source: BREACH_EVENT_SOURCE.INACTIVITY,
+        timeSource: BREACH_EVENT_TIME_SOURCE.LAST_ACTIVITY_PLUS_LIMIT,
+        requiresManualReview: false,
+        payload: {
+          days,
+          lastActivity: lastActivity.toISOString(),
+          threshold: occurredAt.toISOString(),
+        },
+      })
+
+      await tx.tradingAccount.update({
+        where: { id: account.id },
+        data: {
+          status: 'BREACHED',
+          breachReason: 'Inactivity: 90 days without a closed trade',
+          frozenAt: new Date(),
+        },
+      })
+      await tx.auditLog.create({
+        data: {
+          accountId: account.id,
+          action: 'INACTIVITY_CLOSED',
+          reason: `${days} days without a closed trade`,
+          metadata: { days, lastActivity: lastActivity.toISOString() },
+        },
+      })
     })
     await sendInactivityClosed({
       to: account.user.email,

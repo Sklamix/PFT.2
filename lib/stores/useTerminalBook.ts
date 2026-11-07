@@ -17,6 +17,7 @@ export type TerminalAccountSnapshot = {
   peakEquity: number
   dayStartEquity: number
   marginUsed: number
+  marginUnknown: boolean
   freeMargin: number
   floatingPnl: number
   dailyLossUsed: number
@@ -107,6 +108,10 @@ type ServerResponse = {
   trade?: ServerBook['history'][number]
   closed?: number
   cancelled?: number
+  status?: 'SUCCESS' | 'PARTIAL' | 'FAILED'
+  partial?: boolean
+  remainingOpen?: number
+  failed?: { positionId: string; reason: string }[]
 }
 
 function seedMarks(): Marks {
@@ -142,6 +147,7 @@ function emptySnapshot(): TerminalAccountSnapshot {
     peakEquity: 0,
     dayStartEquity: 0,
     marginUsed: 0,
+    marginUnknown: false,
     freeMargin: 0,
     floatingPnl: 0,
     dailyLossUsed: 0,
@@ -174,16 +180,20 @@ function buildSnapshot(account: AccountView | null, positions: Position[], pendi
     },
     positions,
   )
-  const reservedPendingMargin = pendingOrders.reduce(
-    (total, order) =>
-      total +
-      positionMargin(
-        { symbol: order.symbol, sizeLots: order.sizeLots, entryPrice: order.limitPrice, currentPrice: order.limitPrice },
-        account.leverage || DEFAULT_LEVERAGE,
-      ),
-    0,
-  )
-  const marginUsed = metrics.marginUsed + reservedPendingMargin
+  let marginUnknown = false
+  const reservedPendingMargin = pendingOrders.reduce((total, order) => {
+    const margin = positionMargin(
+      { symbol: order.symbol, sizeLots: order.sizeLots, entryPrice: order.limitPrice, currentPrice: order.limitPrice },
+      account.leverage || DEFAULT_LEVERAGE,
+    )
+    if (margin == null) {
+      // Unknown margin must never display as zero free margin.
+      marginUnknown = true
+      return total
+    }
+    return total + margin
+  }, 0)
+  const marginUsed = marginUnknown ? metrics.equity : metrics.marginUsed + reservedPendingMargin
   return {
     balance: metrics.balance,
     equity: metrics.equity,
@@ -191,7 +201,8 @@ function buildSnapshot(account: AccountView | null, positions: Position[], pendi
     peakEquity: metrics.peakEquity,
     dayStartEquity: metrics.dayStartEquity,
     marginUsed,
-    freeMargin: metrics.equity - marginUsed,
+    marginUnknown,
+    freeMargin: Math.max(0, metrics.equity - marginUsed),
     floatingPnl: metrics.floatingPnl,
     dailyLossUsed: metrics.dailyLossUsd,
     dailyLossLimitUsd: metrics.dailyLossLimitUsd,
@@ -408,6 +419,14 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       })
       applyBook(body.book)
       if (!ok) return { ok: false, error: body.error ?? 'Close all failed' }
+      if (body.status === 'PARTIAL' || body.partial) {
+        const reasons = body.failed?.map((item) => item.reason).filter(Boolean).join('; ')
+        return {
+          ok: false,
+          error: `Book is not flat: ${body.remainingOpen ?? 'some'} position(s) remain open${reasons ? ` (${reasons})` : ''}.`,
+        }
+      }
+      if (body.status === 'FAILED') return { ok: false, error: body.error ?? 'No position was closed' }
       return { ok: true, closed: Number(body.closed ?? 0) }
     },
 

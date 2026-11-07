@@ -1,9 +1,17 @@
-import type { Prisma, PrismaClient } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { PrismaClient } from '@prisma/client'
 import { MAX_ACTIVE_ACCOUNTS, MAX_AGGREGATE_ALLOCATION } from '@/lib/accounts/limits'
 import { FOREX_MAJORS } from '@/lib/constants/symbols'
+import { canonicalSymbol } from '@/lib/instruments/registry'
+import type { CommissionPlanRow } from '@/lib/finance/commission'
+import type { InstrumentRow } from '@/lib/finance/instrument'
+import type { LedgerDraft } from '@/lib/finance/ledger'
+import { roundLots } from '@/lib/finance/money'
 import type { CloseReason, OrderSide, PendingTradeOrder, PendingTradeOrderStatus, Position, TradeHistory } from '@/lib/types/terminal'
 import type { NewsExposure, NewsViolationEvent } from './types'
 import { berlinDayKey, isTargetLockedState } from './target-lock'
+import { recordAccountBreachEvent } from '@/lib/rules/breach-event'
+import { classifyNewsExposure } from './news-window'
 
 const liveWorkerSymbols = new Set<string>(FOREX_MAJORS)
 
@@ -17,12 +25,21 @@ export type AccountRow = {
   breachReason: string | null
   initialBalance: number
   currentBalance: number
+  currentBalanceDecimal: Prisma.Decimal
+  currentEquityDecimal: Prisma.Decimal
   balance: number
   startingBalance: number
   dailyStartingBalance: number
   dailyStartingEquity: number
   dailyStartedAt: Date | null
   peakEquity: number
+  peakEquityDecimal: Prisma.Decimal
+  riskReviewAt: Date | null
+  riskReviewReason: string | null
+  /** Set while a payout provider execution is in flight; blocks new/increased exposure. */
+  payoutExecutionAt: Date | null
+  dailyStartingBalanceDecimal: Prisma.Decimal
+  dailyStartingEquityDecimal: Prisma.Decimal
   withdrawnProfit: number
   maxDailyLoss: number
   maxTrailingDrawdown: number
@@ -30,11 +47,18 @@ export type AccountRow = {
 
 export type AccountSave = {
   balance: number
+  balanceDecimal: Prisma.Decimal
   equity: number
+  equityDecimal: Prisma.Decimal
   startingBalance: number
   peakEquity: number
+  peakEquityDecimal: Prisma.Decimal
+  riskReviewAt: Date | null
+  riskReviewReason: string | null
   dayStartEquity: number
   dailyStartingBalance: number
+  dailyStartingBalanceDecimal: Prisma.Decimal
+  dailyStartingEquityDecimal: Prisma.Decimal
   dailyStartedAt: Date
 
   dailyDrawdownPct: number
@@ -42,6 +66,15 @@ export type AccountSave = {
   profitPct: number
   status?: 'BREACHED'
   breachReason?: string
+  /** Canonical breach timing captured at the moment the engine detects the breach. */
+  breach?: {
+    kind: string
+    occurredAt: Date | null
+    source: string
+    timeSource: string | null
+    requiresManualReview: boolean
+    payload?: Prisma.InputJsonValue
+  }
 }
 
 export type NewPosition = {
@@ -53,19 +86,77 @@ export type NewPosition = {
   stopLoss: number | null
   takeProfit: number | null
   floatingPnl: number
+  /** Phase 2 financial snapshot. Optional only for legacy/mock paths. */
+  originalLots?: number
+  remainingLots?: number
+  closedLots?: number
+  /** Decimal inputs are persisted verbatim; numbers are treated as an external boundary. */
+  contractSizeSnapshot?: Prisma.Decimal | number | null
+  quoteCurrencySnapshot?: string | null
+  instrumentLeverage?: number | null
+  commissionPlanId?: string | null
+  commissionModel?: string | null
+  entryRateSnapshot?: Prisma.Decimal | number | null
+  exitRateSnapshot?: Prisma.Decimal | number | null
+  minFeeSnapshot?: Prisma.Decimal | number | null
+  maxFeeSnapshot?: Prisma.Decimal | number | null
+  entryCommission?: Prisma.Decimal | number | null
+  entryCommissionCurrency?: string | null
+  allocatedEntryCommission?: Prisma.Decimal | number | null
+  entryFxRate?: Prisma.Decimal | number | null
+  entryFxTimestamp?: Date | null
+  commissionSource?: string | null
+  valuationStatus?: string | null
+  idempotencyKey?: string | null
 }
 
 export type CloseRequest = {
   position: Position
   exitPrice: number
+  /** Net realised PnL for the executed quantity (legacy `pnl` semantics). */
   pnl: number
   reason: CloseReason
+  closedLots?: number
+  grossPnl?: Prisma.Decimal | number | null
+  netPnl?: Prisma.Decimal | number | null
+  entryCommission?: Prisma.Decimal | number | null
+  exitCommission?: Prisma.Decimal | number | null
+  totalCommission?: Prisma.Decimal | number | null
+  fxRate?: Prisma.Decimal | number | null
+  fxTimestamp?: Date | null
+  fxSource?: string | null
+  fxStale?: boolean
+  fxUnresolved?: boolean
+  pnlBasis?: string | null
+  valuationStatus?: string | null
+  idempotencyKey?: string | null
+  /** Cumulative allocated entry commission after this close (partial-close residual tracking). */
+  allocatedEntryCommission?: Prisma.Decimal | number | null
+  priceSource?: string | null
+  priceTimestamp?: Date | null
+  priceStale?: boolean | null
+}
+
+export type CloseResult = {
+  trade: TradeHistory
+  /** True when an existing TradeHistory row was returned for a repeated idempotency key. */
+  duplicate: boolean
 }
 
 export type NewPendingOrder = Pick<
   PendingTradeOrder,
-  'symbol' | 'side' | 'type' | 'sizeLots' | 'limitPrice' | 'stopPrice' | 'stopLoss' | 'takeProfit'
->
+  | 'symbol'
+  | 'side'
+  | 'type'
+  | 'sizeLots'
+  | 'limitPrice'
+  | 'stopPrice'
+  | 'stopLoss'
+  | 'takeProfit'
+  | 'idempotencyKey'
+  | 'instrumentLeverage'
+  | 'quoteCurrencySnapshot'
+> & { contractSizeSnapshot?: Prisma.Decimal | number | null }
 
 /** Operations available while holding an exclusive lock on one trading account. */
 export interface BookTx {
@@ -73,7 +164,7 @@ export interface BookTx {
   positions: Position[]
   pendingOrders: PendingTradeOrder[]
   /** True when the evaluation target and minimum trading days are met, so new exposure is locked. */
-  targetLocked(balance: number, startingBalance: number): Promise<boolean>
+  targetLocked(balance: Prisma.Decimal | number | string, startingBalance: Prisma.Decimal | number | string): Promise<boolean>
   realizedSince(since: Date): Promise<number>
   recentHistory(limit: number): Promise<TradeHistory[]>
   createPosition(data: NewPosition): Promise<Position>
@@ -85,10 +176,12 @@ export interface BookTx {
   /** Updates SL/TP on an open position. */
   updatePositionProtection(id: string, stopLoss: number | null, takeProfit: number | null): Promise<boolean>
   updatePendingOrderStatus(id: string, status: PendingTradeOrderStatus, reason?: string): Promise<boolean>
+  /** Reverts a FILLED claim when position creation fails; keeps the order traceable. */
+  rejectFilledPendingOrder(id: string, reason: string): Promise<boolean>
   cancelPendingOrders(reason: string): Promise<void>
   markPositions(positions: Position[]): Promise<void>
   /** Closes the position if still open; returns null if it was already closed. */
-  closePosition(request: CloseRequest): Promise<TradeHistory | null>
+  closePosition(request: CloseRequest): Promise<CloseResult | null>
   saveAccount(data: AccountSave): Promise<void>
   /** Promotes another FROZEN_STANDBY account owned by the same user to ACTIVE. */
   activateStandby(): Promise<string | null>
@@ -97,6 +190,26 @@ export interface BookTx {
   /** Finds a high-impact event that makes this position a news-window exposure. */
   newsExposure(position: Pick<Position, 'id' | 'symbol' | 'openedAt'>, closedAt: Date): Promise<NewsExposure | null>
   newsViolationCount(accountId: string): Promise<number>
+  /** Financial-core helpers. Mock backend returns null and falls back to the code registry. */
+  loadInstrument(symbol: string): Promise<InstrumentRow | null>
+  loadCommissionPlan(instrumentId: string): Promise<CommissionPlanRow | null>
+  findPositionByIdempotencyKey(key: string): Promise<Position | null>
+  findTradeByIdempotencyKey(key: string): Promise<TradeHistory | null>
+  /** Counts trades already produced by a group operation, for retry reporting. */
+  countTradesByIdempotencyPrefix(prefix: string): Promise<number>
+  findPendingOrderByIdempotencyKey(key: string): Promise<PendingTradeOrder | null>
+  recordLedger(entry: LedgerDraft): Promise<void>
+  recordFxReconciliation(input: {
+    positionId: string | null
+    tradeHistoryId: string | null
+    quoteCurrency: string
+    amountQuote: Prisma.Decimal | number | string
+    appliedAmountUsd: Prisma.Decimal | number | string
+    appliedRate: Prisma.Decimal | number | null
+    reason: string
+  }): Promise<void>
+  /** Closed trades whose FX conversion is still unresolved (the DB row is authoritative). */
+  countUnresolvedFxReconciliations(): Promise<number>
   /** Writes an account audit entry inside the same engine transaction. */
   recordAudit(input: { action: string; reason: string; metadata?: Record<string, unknown> }): Promise<void>
   recordNewsViolation(input: {
@@ -136,6 +249,26 @@ function toPosition(row: Prisma.PositionGetPayload<object>): Position {
     status: row.status,
     openedAt: row.openedAt,
     closedAt: row.closedAt,
+    originalLots: row.originalLots,
+    remainingLots: row.remainingLots,
+    closedLots: row.closedLots,
+    contractSizeSnapshot: row.contractSizeSnapshot == null ? null : Number(row.contractSizeSnapshot),
+    quoteCurrencySnapshot: row.quoteCurrencySnapshot,
+    instrumentLeverage: row.instrumentLeverage,
+    entryCommission: row.entryCommission == null ? null : Number(row.entryCommission),
+    entryCommissionCurrency: row.entryCommissionCurrency,
+    allocatedEntryCommission: row.allocatedEntryCommission == null ? null : Number(row.allocatedEntryCommission),
+    entryFxRate: row.entryFxRate == null ? null : Number(row.entryFxRate),
+    entryFxTimestamp: row.entryFxTimestamp,
+    commissionModel: row.commissionModel,
+    entryRateSnapshot: row.entryRateSnapshot == null ? null : Number(row.entryRateSnapshot),
+    exitRateSnapshot: row.exitRateSnapshot == null ? null : Number(row.exitRateSnapshot),
+    minFeeSnapshot: row.minFeeSnapshot == null ? null : Number(row.minFeeSnapshot),
+    maxFeeSnapshot: row.maxFeeSnapshot == null ? null : Number(row.maxFeeSnapshot),
+    commissionPlanId: row.commissionPlanId,
+    commissionSource: row.commissionSource,
+    valuationStatus: row.valuationStatus,
+    idempotencyKey: row.idempotencyKey,
   }
 }
 
@@ -152,6 +285,34 @@ function toHistory(row: Prisma.TradeHistoryGetPayload<object>): TradeHistory {
     closeReason: row.closeReason,
     openedAt: row.openedAt,
     closedAt: row.closedAt,
+    positionId: row.positionId,
+    grossPnl: row.grossPnl,
+    entryCommission: row.entryCommission == null ? null : Number(row.entryCommission),
+    exitCommission: row.exitCommission == null ? null : Number(row.exitCommission),
+    totalCommission: row.totalCommission == null ? null : Number(row.totalCommission),
+    netPnl: row.netPnl == null ? null : Number(row.netPnl),
+    closedLots: row.closedLots,
+    remainingLots: row.remainingLots,
+    fxRate: row.fxRate == null ? null : Number(row.fxRate),
+    fxTimestamp: row.fxTimestamp,
+    fxSource: row.fxSource,
+    fxStale: row.fxStale ?? false,
+    fxUnresolved: row.fxUnresolved ?? false,
+    pnlBasis: row.pnlBasis,
+    valuationStatus: row.valuationStatus,
+    idempotencyKey: row.idempotencyKey,
+    originalGrossPnl: row.originalGrossPnl,
+    originalNetPnl: row.originalNetPnl == null ? null : Number(row.originalNetPnl),
+    originalFxRate: row.originalFxRate == null ? null : Number(row.originalFxRate),
+    originalFxSource: row.originalFxSource,
+    originalFxStale: row.originalFxStale,
+    originalFxUnresolved: row.originalFxUnresolved,
+    voidedById: row.voidedById,
+    voidedByKind: row.voidedByKind,
+    voidSynthetic: row.voidSynthetic,
+    priceSource: row.priceSource,
+    priceTimestamp: row.priceTimestamp,
+    priceStale: row.priceStale,
   }
 }
 
@@ -179,6 +340,10 @@ function toPendingOrder(row: Prisma.PendingTradeOrderGetPayload<object>): Pendin
     updatedAt: row.updatedAt,
     filledAt: row.filledAt,
     cancelledAt: row.cancelledAt,
+    idempotencyKey: row.idempotencyKey,
+    instrumentLeverage: row.instrumentLeverage,
+    contractSizeSnapshot: row.contractSizeSnapshot == null ? null : Number(row.contractSizeSnapshot),
+    quoteCurrencySnapshot: row.quoteCurrencySnapshot,
   }
 }
 
@@ -219,7 +384,7 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
         status: row.status,
         phase: row.phase,
         challengeType: row.challengeType,
-        profitTarget: Number(row.profitTarget),
+        profitTarget: row.profitTarget,
         startingBalance,
         balance,
         tradingDays,
@@ -244,13 +409,51 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
     },
 
     async createPosition(data) {
-      const row = await tx.position.create({ data: { ...data, tradingAccountId: accountId, status: 'OPEN' } })
+      const row = await tx.position.create({
+        data: {
+          tradingAccountId: accountId,
+          symbol: data.symbol,
+          side: data.side,
+          sizeLots: data.sizeLots,
+          entryPrice: data.entryPrice,
+          currentPrice: data.currentPrice,
+          stopLoss: data.stopLoss,
+          takeProfit: data.takeProfit,
+          floatingPnl: data.floatingPnl,
+          status: 'OPEN',
+          originalLots: data.originalLots ?? data.sizeLots,
+          remainingLots: data.remainingLots ?? data.sizeLots,
+          closedLots: data.closedLots ?? 0,
+          contractSizeSnapshot: data.contractSizeSnapshot == null ? null : new Prisma.Decimal(data.contractSizeSnapshot),
+          quoteCurrencySnapshot: data.quoteCurrencySnapshot ?? null,
+          instrumentLeverage: data.instrumentLeverage ?? null,
+          commissionPlanId: data.commissionPlanId ?? null,
+          commissionModel: (data.commissionModel as Prisma.PositionCreateInput['commissionModel']) ?? null,
+          entryRateSnapshot: data.entryRateSnapshot == null ? null : new Prisma.Decimal(data.entryRateSnapshot),
+          exitRateSnapshot: data.exitRateSnapshot == null ? null : new Prisma.Decimal(data.exitRateSnapshot),
+          minFeeSnapshot: data.minFeeSnapshot == null ? null : new Prisma.Decimal(data.minFeeSnapshot),
+          maxFeeSnapshot: data.maxFeeSnapshot == null ? null : new Prisma.Decimal(data.maxFeeSnapshot),
+          entryCommission: data.entryCommission == null ? null : new Prisma.Decimal(data.entryCommission),
+          entryCommissionCurrency: data.entryCommissionCurrency ?? null,
+          allocatedEntryCommission:
+            data.allocatedEntryCommission == null ? new Prisma.Decimal(0) : new Prisma.Decimal(data.allocatedEntryCommission),
+          entryFxRate: data.entryFxRate == null ? null : new Prisma.Decimal(data.entryFxRate),
+          entryFxTimestamp: data.entryFxTimestamp ?? null,
+          commissionSource: data.commissionSource ?? null,
+          valuationStatus: data.valuationStatus ?? null,
+          idempotencyKey: data.idempotencyKey ?? null,
+        },
+      })
       return toPosition(row)
     },
 
     async createPendingOrder(data) {
       const row = await tx.pendingTradeOrder.create({
-        data: { ...data, tradingAccountId: accountId },
+        data: {
+          ...data,
+          tradingAccountId: accountId,
+          contractSizeSnapshot: data.contractSizeSnapshot == null ? null : new Prisma.Decimal(data.contractSizeSnapshot),
+        },
       })
       const order = toPendingOrder(row)
       pendingOrders.unshift(order)
@@ -310,6 +513,14 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
       return result.count > 0
     },
 
+    async rejectFilledPendingOrder(id, reason) {
+      const result = await tx.pendingTradeOrder.updateMany({
+        where: { id, tradingAccountId: accountId, status: 'FILLED' },
+        data: { status: 'REJECTED', reason },
+      })
+      return result.count > 0
+    },
+
     async cancelPendingOrders(reason) {
       await tx.pendingTradeOrder.updateMany({
         where: { tradingAccountId: accountId, status: 'PENDING' },
@@ -322,37 +533,88 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
       for (const position of updated) {
         await tx.position.update({
           where: { id: position.id },
-          data: { currentPrice: position.currentPrice, floatingPnl: position.floatingPnl },
+          data: {
+            currentPrice: position.currentPrice,
+            floatingPnl: position.floatingPnl,
+            valuationStatus: position.valuation ?? null,
+          },
         })
       }
     },
 
-    async closePosition({ position, exitPrice, pnl, reason }) {
+    async closePosition(request) {
+      const { position, exitPrice, pnl, reason } = request
       const closedAt = new Date()
+
+      if (request.idempotencyKey) {
+        const existing = await tx.tradeHistory.findFirst({
+          where: { tradingAccountId: accountId, idempotencyKey: request.idempotencyKey },
+        })
+        // Explicit duplicate signal: the caller must not apply balance/ledger again.
+        if (existing) return { trade: toHistory(existing), duplicate: true }
+      }
+
+      const remainingBefore = roundLots(position.remainingLots ?? position.sizeLots)
+      const closedLots = roundLots(request.closedLots ?? remainingBefore)
+      const remainingAfter = roundLots(Math.max(0, remainingBefore - closedLots))
+      const isFinal = remainingAfter <= 1e-9
+
       const claimed = await tx.position.updateMany({
         where: { id: position.id, tradingAccountId: accountId, status: 'OPEN' },
-        data: { status: 'CLOSED', closedAt, currentPrice: exitPrice, floatingPnl: 0 },
+        data: {
+          status: isFinal ? 'CLOSED' : 'OPEN',
+          closedAt: isFinal ? closedAt : null,
+          currentPrice: exitPrice,
+          floatingPnl: isFinal ? 0 : position.floatingPnl,
+          remainingLots: remainingAfter,
+          closedLots: roundLots((position.closedLots ?? 0) + closedLots),
+          ...(request.allocatedEntryCommission == null
+            ? {}
+            : { allocatedEntryCommission: new Prisma.Decimal(request.allocatedEntryCommission) }),
+        },
       })
       if (claimed.count === 0) return null
+
       const row = await tx.tradeHistory.create({
         data: {
           tradingAccountId: accountId,
           symbol: position.symbol,
           side: position.side,
-          sizeLots: position.sizeLots,
+          sizeLots: closedLots,
           entryPrice: position.entryPrice,
           exitPrice,
+          // Net realised PnL (entry commission allocated + exit commission deducted).
           pnl,
           closeReason: reason,
           openedAt: position.openedAt,
           closedAt,
+          positionId: position.id,
+          grossPnl: request.grossPnl == null ? null : new Prisma.Decimal(request.grossPnl).toNumber(),
+          entryCommission: request.entryCommission == null ? null : new Prisma.Decimal(request.entryCommission),
+          exitCommission: request.exitCommission == null ? null : new Prisma.Decimal(request.exitCommission),
+          totalCommission: request.totalCommission == null ? null : new Prisma.Decimal(request.totalCommission),
+          netPnl: request.netPnl == null ? null : new Prisma.Decimal(request.netPnl),
+          closedLots,
+          remainingLots: remainingAfter,
+          fxRate: request.fxRate == null ? null : new Prisma.Decimal(request.fxRate),
+          fxTimestamp: request.fxTimestamp ?? null,
+          fxSource: request.fxSource ?? null,
+          fxStale: request.fxStale ?? false,
+          fxUnresolved: request.fxUnresolved ?? false,
+          pnlBasis: request.pnlBasis ?? null,
+          valuationStatus: request.valuationStatus ?? null,
+          idempotencyKey: request.idempotencyKey ?? null,
+          priceSource: request.priceSource ?? null,
+          priceTimestamp: request.priceTimestamp ?? null,
+          priceStale: request.priceStale ?? null,
         },
       })
-      return toHistory(row)
+      return { trade: toHistory(row), duplicate: false }
     },
 
     async saveAccount(data) {
       const breached = data.status === 'BREACHED'
+      const detectedAt = new Date()
       await tx.tradingAccount.update({
         where: { id: accountId },
         data: {
@@ -360,18 +622,36 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
           equity: data.equity,
           startingBalance: data.startingBalance,
           peakEquity: data.peakEquity,
-          currentBalance: data.balance,
-          currentEquity: data.equity,
-          dailyStartingBalance: data.dailyStartingBalance,
-          dailyStartingEquity: data.dayStartEquity,
+          peakEquityDecimal: data.peakEquityDecimal,
+          currentBalance: data.balanceDecimal,
+          currentEquity: data.equityDecimal,
+          dailyStartingBalance: data.dailyStartingBalanceDecimal,
+          dailyStartingEquity: data.dailyStartingEquityDecimal,
           dailyStartedAt: data.dailyStartedAt,
           dailyDrawdownPct: data.dailyDrawdownPct,
           maxDrawdownPct: data.maxDrawdownPct,
           profitPct: data.profitPct,
+          riskReviewAt: data.riskReviewAt ?? null,
+          riskReviewReason: data.riskReviewReason ?? null,
           lastTelemetryAt: new Date(),
-          ...(breached ? { status: 'BREACHED' as const, breachReason: data.breachReason ?? null, frozenAt: new Date() } : {}),
+          ...(breached ? { status: 'BREACHED' as const, breachReason: data.breachReason ?? null, frozenAt: detectedAt } : {}),
         },
       })
+
+      // The engine knows the quote/trade time that produced this breach. Persist it in the
+      // same transaction as the BREACHED status so enforcement never invents a later time.
+      if (breached && data.breach) {
+        await recordAccountBreachEvent(tx, {
+          accountId,
+          kind: data.breach.kind,
+          occurredAt: data.breach.occurredAt,
+          detectedAt,
+          source: data.breach.source,
+          timeSource: data.breach.timeSource,
+          requiresManualReview: data.breach.requiresManualReview,
+          payload: data.breach.payload,
+        })
+      }
     },
 
     async newsExposure(position, closedAt) {
@@ -391,16 +671,31 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
 
       let warning: NewsExposure | null = null
       for (const event of events) {
-        const eventTime = event.time.getTime()
-        const delta = eventTime - opener
-        if (delta >= -5 * 60_000 && delta <= 5 * 60_000) {
-          return { kind: 'violation', eventId: event.id, eventTitle: event.title, eventTime: event.time }
+        const classification = classifyNewsExposure({
+          openedAt: position.openedAt,
+          closedAt,
+          eventTime: event.time,
+        })
+        if (!classification) continue
+        if (classification.kind === 'violation') {
+          return {
+            kind: 'violation',
+            eventId: event.id,
+            eventTitle: event.title,
+            eventTime: event.time,
+            occurredAt: classification.occurredAt,
+            occurredAtSource: classification.occurredAtSource,
+          }
         }
-        if (delta > 5 * 60_000 && delta <= 60 * 60_000 && closed >= eventTime) {
-          return { kind: 'violation', eventId: event.id, eventTitle: event.title, eventTime: event.time }
-        }
-        if (delta > 60 * 60_000 && closed >= eventTime && !warning) {
-          warning = { kind: 'warning', eventId: event.id, eventTitle: event.title, eventTime: event.time }
+        if (!warning) {
+          warning = {
+            kind: 'warning',
+            eventId: event.id,
+            eventTitle: event.title,
+            eventTime: event.time,
+            occurredAt: classification.occurredAt,
+            occurredAtSource: classification.occurredAtSource,
+          }
         }
       }
       return warning
@@ -421,6 +716,72 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
           metadata: (input.metadata ?? {}) as Prisma.InputJsonValue,
         },
       })
+    },
+
+    async loadInstrument(symbol) {
+      const canonical = canonicalSymbol(symbol) ?? symbol
+      const row = await tx.tradingInstrument.findFirst({
+        where: { OR: [{ terminalSymbol: canonical }, { symbol }] },
+      })
+      return row as InstrumentRow | null
+    },
+
+    async loadCommissionPlan(instrumentId) {
+      const plan = await tx.commissionPlan.findFirst({
+        where: { instrumentId, isActive: true },
+        orderBy: { effectiveFrom: 'desc' },
+      })
+      return plan ? (plan as unknown as CommissionPlanRow) : null
+    },
+
+    async findPositionByIdempotencyKey(key) {
+      const row = await tx.position.findFirst({ where: { tradingAccountId: accountId, idempotencyKey: key } })
+      return row ? toPosition(row) : null
+    },
+
+    async findTradeByIdempotencyKey(key) {
+      const row = await tx.tradeHistory.findFirst({ where: { tradingAccountId: accountId, idempotencyKey: key } })
+      return row ? toHistory(row) : null
+    },
+
+    async countTradesByIdempotencyPrefix(prefix) {
+      return tx.tradeHistory.count({
+        where: { tradingAccountId: accountId, idempotencyKey: { startsWith: prefix } },
+      })
+    },
+
+    async findPendingOrderByIdempotencyKey(key) {
+      const row = await tx.pendingTradeOrder.findFirst({ where: { tradingAccountId: accountId, idempotencyKey: key } })
+      return row ? toPendingOrder(row) : null
+    },
+
+    async recordLedger(entry) {
+      // A uniqueness conflict means the balance mutation that produced this entry was
+      // already applied (or the key collides). Never swallow it: the whole transaction
+      // must roll back so balance and ledger cannot diverge.
+      await tx.accountLedgerEntry.create({ data: entry })
+    },
+
+    async recordFxReconciliation(input) {
+      // The unique (tradeHistoryId) constraint is the final protection against a
+      // duplicate enqueue. A conflict must fail the transaction, not be ignored.
+      await tx.fxReconciliation.create({
+        data: {
+          accountId,
+          positionId: input.positionId,
+          tradeHistoryId: input.tradeHistoryId,
+          quoteCurrency: input.quoteCurrency,
+          amountQuote: new Prisma.Decimal(input.amountQuote),
+          appliedAmountUsd: new Prisma.Decimal(input.appliedAmountUsd),
+          appliedRate: input.appliedRate == null ? null : new Prisma.Decimal(input.appliedRate),
+          status: 'UNRESOLVED',
+          reason: input.reason,
+        },
+      })
+    },
+
+    async countUnresolvedFxReconciliations() {
+      return tx.fxReconciliation.count({ where: { accountId, status: 'UNRESOLVED' } })
     },
 
     async recordNewsViolation(input) {
@@ -532,7 +893,7 @@ async function withPrismaBook<T>(accountId: string, fn: (book: BookTx) => Promis
         where: {
           accountId,
           balanceReserved: true,
-          status: { in: ['PENDING', 'APPROVED', 'DISBURSED'] },
+          status: { in: ['PENDING', 'APPROVED', 'DISBURSED', 'MANUALLY_PAID'] },
         },
         _sum: { amount: true },
       })
@@ -546,12 +907,20 @@ async function withPrismaBook<T>(accountId: string, fn: (book: BookTx) => Promis
         breachReason: row.breachReason,
         initialBalance: Number(row.initialBalance),
         currentBalance: Number(row.currentBalance),
+        currentBalanceDecimal: row.currentBalance,
+        currentEquityDecimal: row.currentEquity,
         balance: row.balance,
         startingBalance: row.startingBalance,
         dailyStartingBalance: Number(row.dailyStartingBalance),
         dailyStartingEquity: Number(row.dailyStartingEquity),
         dailyStartedAt: row.dailyStartedAt,
         peakEquity: row.peakEquity,
+        peakEquityDecimal: row.peakEquityDecimal ?? new Prisma.Decimal(row.peakEquity),
+        riskReviewAt: row.riskReviewAt,
+        riskReviewReason: row.riskReviewReason,
+        payoutExecutionAt: row.payoutExecutionAt,
+        dailyStartingBalanceDecimal: row.dailyStartingBalance,
+        dailyStartingEquityDecimal: row.dailyStartingEquity,
         withdrawnProfit: Number(withdrawn._sum.amount ?? 0),
         maxDailyLoss: row.maxDailyLoss,
         maxTrailingDrawdown: row.maxTrailingDrawdown,
@@ -587,6 +956,20 @@ type MockState = {
   positions: Map<string, Position>
   pendingOrders: Map<string, PendingTradeOrder>
   history: TradeHistory[]
+  ledger: LedgerDraft[]
+  /** Test-only active plan so mocked engine runs can exercise real tariff snapshots. */
+  commissionPlan?: import('@/lib/finance/commission').CommissionPlanRow | null
+  fxReconciliations: {
+    accountId: string
+    positionId: string | null
+    tradeHistoryId: string | null
+    quoteCurrency: string
+    amountQuote: string
+    appliedAmountUsd: string
+    appliedRate: string | null
+    reason: string
+    status: string
+  }[]
   locks: Map<string, Promise<unknown>>
 }
 
@@ -603,6 +986,8 @@ function mockAccount(id: string, status: string, offsetMs: number): MockAccount 
     breachReason: null,
     initialBalance: 100_000,
     currentBalance: 100_000,
+    currentBalanceDecimal: new Prisma.Decimal(100000),
+    currentEquityDecimal: new Prisma.Decimal(100000),
     balance: 100_000,
     equity: 100_000,
     startingBalance: 100_000,
@@ -610,6 +995,12 @@ function mockAccount(id: string, status: string, offsetMs: number): MockAccount 
     dailyStartingEquity: 100_000,
     dailyStartedAt: new Date(),
     peakEquity: 100_000,
+    peakEquityDecimal: new Prisma.Decimal(100000),
+    riskReviewAt: null,
+    riskReviewReason: null,
+    payoutExecutionAt: null,
+    dailyStartingBalanceDecimal: new Prisma.Decimal(100000),
+    dailyStartingEquityDecimal: new Prisma.Decimal(100000),
     withdrawnProfit: 0,
     dayStartEquity: 100_000,
     maxDailyLoss: 0.05,
@@ -628,7 +1019,7 @@ function mockState(): MockState {
     const accounts = new Map<string, MockAccount>()
     accounts.set('terminal-demo', mockAccount('terminal-demo', 'ACTIVE', 0))
     accounts.set('terminal-demo-standby', mockAccount('terminal-demo-standby', 'FROZEN_STANDBY', 1))
-    holder.__pftTradingMock = { accounts, positions: new Map(), pendingOrders: new Map(), history: [], locks: new Map() }
+    holder.__pftTradingMock = { accounts, positions: new Map(), pendingOrders: new Map(), history: [], ledger: [], fxReconciliations: [], locks: new Map() }
   }
   return holder.__pftTradingMock
 }
@@ -679,6 +1070,8 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
     },
 
     async createPosition(data) {
+      const decimalNumber = (value: Prisma.Decimal | number | null | undefined) =>
+        value == null ? null : Number(new Prisma.Decimal(value))
       const position: Position = {
         ...data,
         id: mockId('pos'),
@@ -686,6 +1079,18 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
         status: 'OPEN',
         openedAt: new Date(),
         closedAt: null,
+        originalLots: data.originalLots ?? data.sizeLots,
+        remainingLots: data.remainingLots ?? data.sizeLots,
+        closedLots: data.closedLots ?? 0,
+        contractSizeSnapshot: decimalNumber(data.contractSizeSnapshot),
+        entryRateSnapshot: decimalNumber(data.entryRateSnapshot),
+        exitRateSnapshot: decimalNumber(data.exitRateSnapshot),
+        minFeeSnapshot: decimalNumber(data.minFeeSnapshot),
+        maxFeeSnapshot: decimalNumber(data.maxFeeSnapshot),
+        entryCommission: decimalNumber(data.entryCommission),
+        entryFxRate: decimalNumber(data.entryFxRate),
+        allocatedEntryCommission: decimalNumber(data.allocatedEntryCommission) ?? 0,
+        valuationStatus: data.valuationStatus ?? null,
       }
       state.positions.set(position.id, position)
       return { ...position }
@@ -695,6 +1100,8 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       const now = new Date()
       const order: PendingTradeOrder = {
         ...data,
+        contractSizeSnapshot:
+          data.contractSizeSnapshot == null ? null : Number(new Prisma.Decimal(data.contractSizeSnapshot)),
         id: mockId('order'),
         tradingAccountId: accountId,
         triggeredAt: null,
@@ -750,6 +1157,15 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
       return true
     },
 
+    async rejectFilledPendingOrder(id, reason) {
+      const order = state.pendingOrders.get(id)
+      if (!order || order.tradingAccountId !== accountId || order.status !== 'FILLED') return false
+      order.status = 'REJECTED'
+      order.reason = reason
+      order.updatedAt = new Date()
+      return true
+    },
+
     async cancelPendingOrders(reason) {
       for (const order of [...this.pendingOrders]) {
         await this.updatePendingOrderStatus(order.id, 'CANCELLED', reason)
@@ -759,41 +1175,99 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
     async markPositions(updated) {
       for (const position of updated) {
         const stored = state.positions.get(position.id)
-        if (stored) Object.assign(stored, { currentPrice: position.currentPrice, floatingPnl: position.floatingPnl })
+        if (stored) {
+          Object.assign(stored, {
+            currentPrice: position.currentPrice,
+            floatingPnl: position.floatingPnl,
+            valuation: position.valuation ?? null,
+            valuationStatus: position.valuation ?? null,
+          })
+        }
       }
     },
 
-    async closePosition({ position, exitPrice, pnl, reason }) {
+    async closePosition(request) {
+      const { position, exitPrice, pnl, reason } = request
       const stored = state.positions.get(position.id)
       if (!stored || stored.status !== 'OPEN' || stored.tradingAccountId !== accountId) return null
+      if (request.idempotencyKey) {
+        const existing = state.history.find(
+          (trade) => trade.tradingAccountId === accountId && trade.idempotencyKey === request.idempotencyKey,
+        )
+        if (existing) return { trade: { ...existing }, duplicate: true }
+      }
+
       const closedAt = new Date()
-      Object.assign(stored, { status: 'CLOSED', closedAt, currentPrice: exitPrice, floatingPnl: 0 })
+      const remainingBefore = roundLots(stored.remainingLots ?? stored.sizeLots)
+      const closedLots = roundLots(request.closedLots ?? remainingBefore)
+      const remainingAfter = roundLots(Math.max(0, remainingBefore - closedLots))
+      const isFinal = remainingAfter <= 1e-9
+      Object.assign(stored, {
+        status: isFinal ? 'CLOSED' : 'OPEN',
+        closedAt: isFinal ? closedAt : null,
+        currentPrice: exitPrice,
+        floatingPnl: isFinal ? 0 : stored.floatingPnl,
+        remainingLots: remainingAfter,
+        closedLots: roundLots((stored.closedLots ?? 0) + closedLots),
+        allocatedEntryCommission:
+          request.allocatedEntryCommission == null
+            ? stored.allocatedEntryCommission ?? 0
+            : Number(new Prisma.Decimal(request.allocatedEntryCommission)),
+      })
+      const decimalNumber = (value: Prisma.Decimal | number | null | undefined) =>
+        value == null ? null : Number(new Prisma.Decimal(value))
       const trade: TradeHistory = {
         id: mockId('th'),
         tradingAccountId: accountId,
         symbol: position.symbol,
         side: position.side,
-        sizeLots: position.sizeLots,
+        sizeLots: closedLots,
         entryPrice: position.entryPrice,
         exitPrice,
         pnl,
         closeReason: reason,
         openedAt: position.openedAt,
         closedAt,
+        positionId: position.id,
+        grossPnl: request.grossPnl == null ? null : Number(new Prisma.Decimal(request.grossPnl)),
+        entryCommission: decimalNumber(request.entryCommission),
+        exitCommission: decimalNumber(request.exitCommission),
+        totalCommission: decimalNumber(request.totalCommission),
+        netPnl: decimalNumber(request.netPnl),
+        closedLots,
+        remainingLots: remainingAfter,
+        fxRate: decimalNumber(request.fxRate),
+        fxTimestamp: request.fxTimestamp ?? null,
+        fxSource: request.fxSource ?? null,
+        fxStale: request.fxStale ?? false,
+        fxUnresolved: request.fxUnresolved ?? false,
+        pnlBasis: request.pnlBasis ?? null,
+        valuationStatus: request.valuationStatus ?? null,
+        idempotencyKey: request.idempotencyKey ?? null,
+        priceSource: request.priceSource ?? null,
+        priceTimestamp: request.priceTimestamp ?? null,
+        priceStale: request.priceStale ?? null,
       }
       state.history.unshift(trade)
-      return { ...trade }
+      return { trade: { ...trade }, duplicate: false }
     },
 
     async saveAccount(data) {
       Object.assign(account, {
         balance: data.balance,
-        currentBalance: data.balance,
+        currentBalance: data.balanceDecimal.toNumber(),
+        currentBalanceDecimal: data.balanceDecimal,
+        currentEquityDecimal: data.equityDecimal,
         equity: data.equity,
         startingBalance: data.startingBalance,
         peakEquity: data.peakEquity,
+        peakEquityDecimal: data.peakEquityDecimal,
+        riskReviewAt: data.riskReviewAt ?? null,
+        riskReviewReason: data.riskReviewReason ?? null,
         dailyStartingBalance: data.dailyStartingBalance,
         dailyStartingEquity: data.dayStartEquity,
+        dailyStartingBalanceDecimal: data.dailyStartingBalanceDecimal,
+        dailyStartingEquityDecimal: data.dailyStartingEquityDecimal,
         dailyStartedAt: data.dailyStartedAt,
         dayStartEquity: data.dayStartEquity,
       })
@@ -812,6 +1286,97 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
 
     async recordAudit() {
       return undefined
+    },
+
+    async loadInstrument(symbol) {
+      if (!state.commissionPlan) return null
+      // Test-only synthetic row so a mocked run can exercise an active commission plan.
+      return {
+        id: 'test-instrument',
+        symbol,
+        terminalSymbol: symbol,
+        category: 'Forex',
+        contractSize: null,
+        minLots: null,
+        lotStep: null,
+        maxLots: null,
+        tickSize: null,
+        quoteCurrency: null,
+        profitCurrency: null,
+        leverage: null,
+        conversionMode: null,
+        commissionPerLot: new Prisma.Decimal(3),
+        commissionConfigured: true,
+        zeroFeeApproved: false,
+        specVerification: null,
+      } as unknown as InstrumentRow
+    },
+
+    async loadCommissionPlan() {
+      return state.commissionPlan ?? null
+    },
+
+    async findPositionByIdempotencyKey(key) {
+      const found = [...state.positions.values()].find(
+        (position) => position.tradingAccountId === accountId && position.idempotencyKey === key,
+      )
+      return found ? { ...found } : null
+    },
+
+    async findTradeByIdempotencyKey(key) {
+      const found = state.history.find(
+        (trade) => trade.tradingAccountId === accountId && trade.idempotencyKey === key,
+      )
+      return found ? { ...found } : null
+    },
+
+    async countTradesByIdempotencyPrefix(prefix) {
+      return state.history.filter(
+        (trade) =>
+          trade.tradingAccountId === accountId &&
+          typeof trade.idempotencyKey === 'string' &&
+          trade.idempotencyKey.startsWith(prefix),
+      ).length
+    },
+
+    async findPendingOrderByIdempotencyKey(key) {
+      const found = [...state.pendingOrders.values()].find(
+        (order) => order.tradingAccountId === accountId && order.idempotencyKey === key,
+      )
+      return found ? { ...found } : null
+    },
+
+    async recordLedger(entry) {
+      // Mirror the database unique constraint so tests exercise duplicate protection.
+      const duplicate = state.ledger.some(
+        (item) => item.accountId === entry.accountId && item.idempotencyKey === entry.idempotencyKey,
+      )
+      if (duplicate) throw new Error(`duplicate ledger key: ${entry.idempotencyKey}`)
+      state.ledger.push({ ...entry })
+    },
+
+    async recordFxReconciliation(input) {
+      const duplicate = state.fxReconciliations.some(
+        (item) => input.tradeHistoryId != null && item.tradeHistoryId === input.tradeHistoryId,
+      )
+      if (duplicate) throw new Error(`duplicate FX reconciliation for trade ${input.tradeHistoryId}`)
+      state.fxReconciliations.push({
+        accountId,
+        positionId: input.positionId,
+        tradeHistoryId: input.tradeHistoryId,
+        quoteCurrency: input.quoteCurrency,
+        amountQuote: new Prisma.Decimal(input.amountQuote).toString(),
+        appliedAmountUsd: new Prisma.Decimal(input.appliedAmountUsd).toString(),
+        appliedRate: input.appliedRate == null ? null : new Prisma.Decimal(input.appliedRate).toString(),
+        reason: input.reason,
+        status: 'UNRESOLVED',
+      })
+    },
+
+    async countUnresolvedFxReconciliations() {
+      return state.fxReconciliations.filter(
+        (item) => item.accountId === accountId && item.status === 'UNRESOLVED',
+      ).length
     },
 
     async recordNewsViolation() {

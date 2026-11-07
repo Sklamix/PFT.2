@@ -1,11 +1,29 @@
 import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { CHALLENGES } from '@/lib/challenges'
+import { toDecimal } from '@/lib/finance/money'
+import { countUnresolvedFxReconciliations, unresolvedFxGate } from '@/lib/finance/fx-gate'
 import { berlinDayKey as dayKey, challengeKey, isTargetLockedState } from './target-lock'
 
 export type PassingResult =
   | { status: 'noop'; reason: string }
   | { status: 'phase_2' }
   | { status: 'passed'; phase: 'ONE_STEP' | 'TWO_STEP' }
+
+/**
+ * Decimal target comparison shared by the pass evaluator and the target lock.
+ * Returns `reached` only when profit is at or above the target; exact equality passes.
+ */
+export function evaluateTarget(input: {
+  currentBalance: Prisma.Decimal
+  startingBalance: Prisma.Decimal | number | string
+  profitTarget: number
+}): { profit: Prisma.Decimal; target: Prisma.Decimal; reached: boolean } {
+  const startingBalance = toDecimal(input.startingBalance)
+  const target = startingBalance.times(toDecimal(input.profitTarget))
+  const profit = input.currentBalance.minus(startingBalance)
+  return { profit, target, reached: !profit.lessThan(target) }
+}
 
 /**
  * Target lock is close-only. Pending orders created before the lock must not be
@@ -71,10 +89,20 @@ async function phaseStartedAt(tx: Prisma.TransactionClient, accountId: string, p
  * It only advances an account when the closed P&L target and the minimum
  * distinct trading days are both satisfied.
  */
-export async function evaluateAccountPassing(accountId: string): Promise<PassingResult> {
+export async function evaluateAccountPassing(
+  accountId: string,
+  existingTx?: Prisma.TransactionClient,
+): Promise<PassingResult> {
   const { prisma } = await import('@/lib/prisma')
 
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: Prisma.TransactionClient): Promise<PassingResult> => {
+    const operationId = randomUUID()
+    // Serialize with order/close transactions, which lock the same account row.
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "TradingAccount" WHERE "id" = ${accountId} FOR UPDATE
+    `
+    if (locked.length === 0) return { status: 'noop', reason: 'account_not_found' }
+
     const account = await tx.tradingAccount.findUnique({
       where: { id: accountId },
       select: {
@@ -102,6 +130,14 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
       return { status: 'noop', reason: 'open_positions' }
     }
 
+    // A closed trade can still have an unresolved financial result. The position is
+    // gone from valuation, so the reconciliation row is checked under the account lock.
+    const fxGate = unresolvedFxGate(
+      account.phase === 'PHASE_1' ? 'PHASE_RESET' : 'PHASE_PASS',
+      await countUnresolvedFxReconciliations(tx, account.id),
+    )
+    if (!fxGate.ok) return { status: 'noop', reason: 'fx_unresolved' }
+
     const start = await phaseStartedAt(tx, account.id, account.phase, account.createdAt)
     const history = await tx.tradeHistory.findMany({
       where: { tradingAccountId: account.id, openedAt: { gte: start } },
@@ -109,8 +145,13 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
     })
     const tradingDays = new Set(history.map((trade) => dayKey(trade.openedAt))).size
     const rules = CHALLENGES[challengeKey(account.challengeType)]
-    const target = account.profitTarget * Number(account.startingBalance)
-    const profit = Number(account.currentBalance) - Number(account.startingBalance)
+    // Decimal thresholds: a cent-level rounding difference can never flip a pass/fail.
+    const targetResult = evaluateTarget({
+      currentBalance: account.currentBalance,
+      startingBalance: account.startingBalance,
+      profitTarget: account.profitTarget,
+    })
+    const profit = targetResult.profit
 
     if (tradingDays !== account.tradingDaysCount) {
       await tx.tradingAccount.update({
@@ -119,10 +160,10 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
       })
     }
 
-    if (profit < target || tradingDays < rules.minTradingDays) {
+    if (!targetResult.reached || tradingDays < rules.minTradingDays) {
       return {
         status: 'noop',
-        reason: profit < target ? 'target_not_reached' : 'min_days_not_met',
+        reason: !targetResult.reached ? 'target_not_reached' : 'min_days_not_met',
       } satisfies PassingResult
     }
 
@@ -147,7 +188,7 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
           accountId: account.id,
           action: 'PHASE_PASSED',
           reason: 'One-step target reached',
-          metadata: { phase: 'FUNDED', tradingDays, profit },
+          metadata: { phase: 'FUNDED', tradingDays, profit: profit.toNumber() },
         },
       })
       await expireLinkedBackups(tx, account.id)
@@ -168,6 +209,8 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
           equity: Number(initial),
           startingBalance: Number(initial),
           peakEquity: Number(initial),
+          peakEquityDecimal: initial,
+          dailyStartingBalance: initial,
           dailyStartingEquity: initial,
           dailyDrawdownPct: 0,
           maxDrawdownPct: 0,
@@ -178,6 +221,24 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
         },
       })
       if (changed.count !== 1) return { status: 'noop', reason: 'state_changed' }
+
+      const resetDelta = new Prisma.Decimal(initial).minus(account.currentBalance)
+      if (!resetDelta.isZero()) {
+        await tx.accountLedgerEntry.create({
+          data: {
+            accountId: account.id,
+            type: 'ADJUSTMENT',
+            amount: resetDelta,
+            currency: 'USD',
+            balanceAfter: new Prisma.Decimal(initial),
+            refType: 'PHASE_RESET',
+            refId: `${account.id}:PHASE_2`,
+            idempotencyKey: `phase-reset:${account.id}:PHASE_2:${operationId}`,
+            metadata: { previousBalance: account.currentBalance.toString(), phase: 'PHASE_2', operationId },
+          },
+        })
+      }
+
       await cancelLockedPendingOrders(
         tx,
         account.id,
@@ -188,7 +249,7 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
           accountId: account.id,
           action: 'PHASE_PASSED',
           reason: 'Phase 1 target reached',
-          metadata: { phase: 'PHASE_2', tradingDays, profit },
+          metadata: { phase: 'PHASE_2', tradingDays, profit: profit.toNumber() },
         },
       })
       return { status: 'phase_2' }
@@ -219,7 +280,8 @@ export async function evaluateAccountPassing(accountId: string): Promise<Passing
     })
     await expireLinkedBackups(tx, account.id)
     return { status: 'passed', phase: 'TWO_STEP' }
-  })
+  }
+  return existingTx ? run(existingTx) : prisma.$transaction(run)
 }
 
 export async function evaluateActiveAccountsPassing(limit = 500) {
@@ -259,9 +321,12 @@ export async function isTargetLocked(accountId: string) {
     return false
   }
   if (account.profitTarget <= 0) return false
-  const target = account.profitTarget * Number(account.startingBalance)
-  const profit = Number(account.currentBalance) - Number(account.startingBalance)
-  if (profit < target) return false
+  const targetResult = evaluateTarget({
+    currentBalance: account.currentBalance,
+    startingBalance: account.startingBalance,
+    profitTarget: account.profitTarget,
+  })
+  if (!targetResult.reached) return false
 
   const marker =
     account.phase === 'PHASE_2'
@@ -281,9 +346,9 @@ export async function isTargetLocked(accountId: string) {
     status: account.status,
     phase: account.phase,
     challengeType: account.challengeType,
-    profitTarget: Number(account.profitTarget),
-    startingBalance: Number(account.startingBalance),
-    balance: Number(account.currentBalance),
+    profitTarget: account.profitTarget,
+    startingBalance: account.startingBalance,
+    balance: account.currentBalance,
     tradingDays: days,
   })
 }
@@ -305,5 +370,10 @@ export async function canFundAccount(accountId: string) {
   if (account.user.kycStatus !== 'APPROVED') {
     return { ok: false as const, reason: 'kyc_not_approved' }
   }
+  const fxGate = unresolvedFxGate(
+    'ACCOUNT_FUNDING',
+    await countUnresolvedFxReconciliations(prisma, accountId),
+  )
+  if (!fxGate.ok) return { ok: false as const, reason: 'fx_unresolved' }
   return { ok: true as const }
 }

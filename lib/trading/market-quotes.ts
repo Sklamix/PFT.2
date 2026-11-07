@@ -125,3 +125,70 @@ export async function getFreshMarketQuotes(): Promise<Quotes> {
     snapshots.map((quote) => [quote.symbol, { bid: quote.bid, ask: quote.ask } satisfies Quote]),
   )
 }
+
+/** A close may use the last trusted server-side quote for at most this long. */
+export const STALE_CLOSE_MAX_AGE_MS = 15 * 60_000
+
+export type QuoteProvenance = {
+  source: string
+  timestamp: Date
+  stale: boolean
+}
+
+export type CloseQuoteSet = {
+  quotes: Quotes
+  provenance: Record<string, QuoteProvenance>
+  missing: string[]
+}
+
+/**
+ * Trusted price set for risk-reducing closes.
+ *
+ * Fresh provider quotes win. When a symbol is unavailable, the last persisted
+ * server-side MarketQuote (never a client value) is used up to 15 minutes old and is
+ * explicitly marked stale. If neither exists the symbol is reported missing; the
+ * caller must return a safe failure instead of inventing a price.
+ */
+export async function getCloseQuotes(symbols: readonly string[] = TERMINAL_SYMBOLS): Promise<CloseQuoteSet> {
+  const wanted = symbols.filter((symbol): symbol is TerminalSymbolId =>
+    (TERMINAL_SYMBOLS as readonly string[]).includes(symbol),
+  )
+  const snapshots = await getQuoteSnapshots(wanted)
+  const quotes: Quotes = {}
+  const provenance: Record<string, QuoteProvenance> = {}
+  for (const snapshot of snapshots) {
+    quotes[snapshot.symbol] = { bid: snapshot.bid, ask: snapshot.ask }
+    provenance[snapshot.symbol] = {
+      source: snapshot.source,
+      timestamp: new Date(snapshot.providerTime),
+      stale: false,
+    }
+  }
+
+  const missing = wanted.filter((symbol) => !quotes[symbol])
+  if (missing.length > 0) {
+    const cutoff = new Date(Date.now() - STALE_CLOSE_MAX_AGE_MS)
+    const rows = await prisma.marketQuote.findMany({
+      where: { symbol: { in: missing }, providerTime: { gte: cutoff } },
+      select: { symbol: true, bid: true, ask: true, source: true, providerTime: true },
+    })
+    for (const row of rows) {
+      if (!(TERMINAL_SYMBOLS as readonly string[]).includes(row.symbol)) continue
+      const bid = Number(row.bid)
+      const ask = Number(row.ask)
+      if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0 || ask < bid) continue
+      quotes[row.symbol] = { bid, ask }
+      provenance[row.symbol] = {
+        source: `${row.source}_LAST_KNOWN`,
+        timestamp: row.providerTime,
+        stale: true,
+      }
+    }
+  }
+
+  return {
+    quotes,
+    provenance,
+    missing: wanted.filter((symbol) => !quotes[symbol]),
+  }
+}

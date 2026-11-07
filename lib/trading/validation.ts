@@ -177,5 +177,14 @@ function nullablePrice(body: Body, key: string) {
 export function parseCloseInput(raw: unknown): CloseInput {
   const body = asBody(raw)
   const accountId = typeof body.accountId === 'string' && body.accountId.trim() ? body.accountId.trim() : null
-  return { positionId: requiredString(body, 'positionId'), accountId, quote: body.quote ?? null }
+  let lots: number | null = null
+  if (body.lots != null) {
+    const rawLots = typeof body.lots === 'string' ? Number(body.lots) : body.lots
+    if (typeof rawLots !== 'number' || !Number.isFinite(rawLots) || rawLots <= 0) {
+      throw new ValidationError('lots must be a positive number')
+    }
+    lots = Math.round(rawLots * 100) / 100
+    if (Math.abs(lots - rawLots) > 1e-9) throw new ValidationError('lots must be in steps of 0.01')
+  }
+  return { positionId: requiredString(body, 'positionId'), accountId, quote: body.quote ?? null, lots }
 }

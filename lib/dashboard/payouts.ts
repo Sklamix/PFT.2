@@ -13,7 +13,7 @@ export type PayoutRow = {
   amount: number
   profitSplitPct: number
   network: string
-  status: 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED' | 'MANUALLY_PAID'
   txHash: string | null
   rejectReason: string | null
   requestedAt: number
@@ -133,7 +133,7 @@ export async function getPayoutsData(userId: string): Promise<PayoutsData> {
   })
 
   const withdrawn = round2(
-    payouts.filter((payout) => payout.status === 'DISBURSED').reduce((sum, payout) => sum + Number(payout.amount), 0),
+    payouts.filter((payout) => payout.status === 'DISBURSED' || payout.status === 'MANUALLY_PAID').reduce((sum, payout) => sum + Number(payout.amount), 0),
   )
   const pending = round2(
     payouts
@@ -147,7 +147,7 @@ export async function getPayoutsData(userId: string): Promise<PayoutsData> {
   for (const account of accounts.filter((item) => item.status === 'FUNDED')) {
     const own = payouts.filter((payout) => payout.accountId === account.id)
     const paid = own
-      .filter((payout) => payout.status === 'DISBURSED')
+      .filter((payout) => payout.status === 'DISBURSED' || payout.status === 'MANUALLY_PAID')
       .reduce((sum, payout) => sum + Number(payout.amount), 0)
     const reserved = own
       .filter((payout) => payout.status === 'PENDING' || payout.status === 'APPROVED')
@@ -161,7 +161,7 @@ export async function getPayoutsData(userId: string): Promise<PayoutsData> {
     const available = round2(Math.max(0, profitShare - paid - reserved))
 
     const lastDisbursed = own
-      .filter((payout) => payout.status === 'DISBURSED')
+      .filter((payout) => payout.status === 'DISBURSED' || payout.status === 'MANUALLY_PAID')
       .sort((a, b) => {
         const aTime = a.reviewedAt ? a.reviewedAt.getTime() : a.requestedAt.getTime()
         const bTime = b.reviewedAt ? b.reviewedAt.getTime() : b.requestedAt.getTime()

@@ -45,9 +45,10 @@ export async function authenticateTrader(email: string, password: string): Promi
   }
   const user = await (await db()).user.findUnique({
     where: { email: normalized },
-    select: { id: true, email: true, name: true, role: true, passwordHash: true, tokenVersion: true },
+    select: { id: true, email: true, name: true, role: true, passwordHash: true, tokenVersion: true, archivedAt: true },
   })
   if (!user || user.role !== 'TRADER' || !hasUsablePassword(user.passwordHash)) return null
+  if (user.archivedAt != null) return null
   if (!verifyPassword(password, user.passwordHash)) return null
   return { sub: user.id, email: user.email, name: user.name, tokenVersion: user.tokenVersion }
 }
@@ -93,11 +94,12 @@ export async function setPasswordWithToken(token: string, password: string): Pro
   const hash = hashPasswordToken(token)
   const user = await prisma.user.findUnique({
     where: { passwordTokenHash: hash },
-    select: { id: true, email: true, name: true, role: true, passwordTokenExpiresAt: true, tokenVersion: true },
+    select: { id: true, email: true, name: true, role: true, passwordTokenExpiresAt: true, tokenVersion: true, archivedAt: true },
   })
   if (!user || user.role !== 'TRADER' || !user.passwordTokenExpiresAt || user.passwordTokenExpiresAt < new Date()) {
     return null
   }
+  if (user.archivedAt != null) return null
   // Conditional on the token hash so a link can only be redeemed once. Bumping
   // tokenVersion revokes every JWT that was issued before this password change.
   const { count } = await prisma.user.updateMany({

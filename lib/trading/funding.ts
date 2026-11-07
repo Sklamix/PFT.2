@@ -1,5 +1,7 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { randomUUID } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { countUnresolvedFxReconciliations, unresolvedFxGate } from '@/lib/finance/fx-gate'
 
 const PASSED_STATUSES = ['PASSED', 'PASSED_PHASE_2'] as const
 
@@ -20,6 +22,7 @@ export function fundingResetData(initialBalance: Prisma.Decimal | number) {
     equity: initial,
     startingBalance: initial,
     peakEquity: initial,
+    peakEquityDecimal: initial,
     dailyStartingBalance: initial,
     dailyStartingEquity: initial,
     dailyStartedAt: new Date(),
@@ -50,8 +53,15 @@ export type FundingResult = {
 export async function fundPassedAccount(
   accountId: string,
   options: { trigger: FundingTrigger; actorId?: string | null; reason?: string },
+  existingTx?: Prisma.TransactionClient,
 ): Promise<FundingResult | null> {
-  return prisma.$transaction(async (tx) => {
+  const run = async (tx: Prisma.TransactionClient): Promise<FundingResult | null> => {
+    const operationId = randomUUID()
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM "TradingAccount" WHERE "id" = ${accountId} FOR UPDATE
+    `
+    if (locked.length === 0) return null
+
     const account = await tx.tradingAccount.findUnique({
       where: { id: accountId },
       select: {
@@ -60,12 +70,24 @@ export async function fundPassedAccount(
         phase: true,
         status: true,
         initialBalance: true,
+        currentBalance: true,
         user: { select: { kycStatus: true } },
       },
     })
     if (!account || account.phase !== 'FUNDED') return null
     if (!PASSED_STATUSES.includes(account.status as (typeof PASSED_STATUSES)[number])) return null
     if (account.user.kycStatus !== 'APPROVED') return null
+
+    const fxGate = unresolvedFxGate(
+      'ACCOUNT_FUNDING',
+      await countUnresolvedFxReconciliations(tx, account.id),
+    )
+    if (!fxGate.ok) return null
+
+    const openPositions = await tx.position.count({
+      where: { tradingAccountId: account.id, status: 'OPEN' },
+    })
+    if (openPositions > 0) return null
 
     const cancelled = await tx.pendingTradeOrder.updateMany({
       where: { tradingAccountId: account.id, status: 'PENDING' },
@@ -82,6 +104,23 @@ export async function fundPassedAccount(
       data: fundingResetData(initial),
     })
     if (changed.count !== 1) return null
+
+    const resetDelta = new Prisma.Decimal(initial).minus(account.currentBalance)
+    if (!resetDelta.isZero()) {
+      await tx.accountLedgerEntry.create({
+        data: {
+          accountId: account.id,
+          type: 'ADJUSTMENT',
+          amount: resetDelta,
+          currency: 'USD',
+          balanceAfter: new Prisma.Decimal(initial),
+          refType: 'ACCOUNT_FUNDING',
+          refId: account.id,
+          idempotencyKey: `funding-reset:${account.id}:${account.status}:${operationId}`,
+          metadata: { trigger: options.trigger, previousBalance: account.currentBalance.toString(), operationId },
+        },
+      })
+    }
 
     await tx.auditLog.create({
       data: {
@@ -105,7 +144,8 @@ export async function fundPassedAccount(
       initialBalance: initial,
       cancelledOrders: cancelled.count,
     }
-  })
+  }
+  return existingTx ? run(existingTx) : prisma.$transaction(run)
 }
 
 /** Funds every passed evaluation account of a user whose KYC is approved. */

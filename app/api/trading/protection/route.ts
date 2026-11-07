@@ -22,7 +22,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: 'Position not found' }, { status: 404 })
     }
 
-    const quote = (await getFreshMarketQuotes())[position.symbol]
+    const quotes = await getFreshMarketQuotes()
+    const quote = quotes[position.symbol]
     if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
 
     return respond(
@@ -30,6 +31,7 @@ export async function PATCH(request: Request) {
         ...input,
         accountId: position.tradingAccountId,
         quote,
+        fxQuotes: quotes,
       }),
     )
   } catch (error) {

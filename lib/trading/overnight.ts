@@ -32,8 +32,30 @@ export async function enforceSessionCutoff(quotes: Quotes, now = new Date()): Pr
         .map((position) => position.symbol),
     )
     if (due.size === 0) continue
-    const result = await closePositionsBySymbols(account.id, due, quotes)
+    const provenance = Object.fromEntries(
+      [...due]
+        .filter((symbol) => quotes[symbol] != null)
+        .map((symbol) => [symbol, { source: 'SESSION_CUTOFF', timestamp: now, stale: false }]),
+    )
+    const result = await closePositionsBySymbols(
+      account.id,
+      due,
+      quotes,
+      `session-cutoff:${account.id}:${now.toISOString().slice(0, 16)}`,
+      provenance,
+      { now, enforceMarketHours: false },
+    )
     if (!result.ok || !result.book) continue
+    if (result.failed.length > 0) {
+      await prisma.auditLog.create({
+        data: {
+          accountId: account.id,
+          action: 'SESSION_CUTOFF_PRICE_UNAVAILABLE',
+          reason: 'Session cutoff could not close every due position at a defensible price',
+          metadata: { failed: result.failed, due: [...due] },
+        },
+      })
+    }
 
     // Positions closed by the cut-off itself are the overnight/weekend violation;
     // protective stops that happened to trigger at the same tick are not.
@@ -44,6 +66,9 @@ export async function enforceSessionCutoff(quotes: Quotes, now = new Date()): Pr
         accountId: account.id,
         reason: `Positions held through the session cutoff: ${[...due].join(', ')}`,
         closedTrades: heldThroughCutoff.map((trade) => ({ id: trade.id, pnl: trade.pnl })),
+        // Exact per-symbol session boundary is not persisted here (FX and each index
+        // exchange differ). Do not substitute the cron run time; mark for manual review.
+        occurredAt: null,
       })
       violation = applied?.kind ?? null
     }

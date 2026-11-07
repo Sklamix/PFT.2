@@ -40,6 +40,11 @@ export type AccountRow = {
   maxDdRemaining: number
   isBreached: boolean
   breachReason: string | null
+  /** Persisted conservative risk-review state (unresolved/stale/unverified valuation). */
+  riskReview: boolean
+  riskReviewReason: string | null
+  unresolvedFx: number
+  openValuationRisk: boolean
 }
 
 export type AccountTrade = {
@@ -48,6 +53,11 @@ export type AccountTrade = {
   side: string
   sizeLots: number
   pnl: number
+  pnlBasis?: string | null
+  valuationStatus?: string | null
+  fxStale?: boolean
+  fxUnresolved?: boolean
+  priceStale?: boolean | null
   closedAt: number
 }
 
@@ -65,6 +75,7 @@ function toNumber(value: unknown): number {
 function phaseLabel(phase: string, status: string): string {
   if (status.startsWith('BREACHED')) return 'Breached'
   if (status === 'EXPIRED') return 'Expired'
+  if (status === 'ARCHIVED') return 'Archived'
   if (phase === 'FUNDED') return 'Funded'
   if (phase === 'PHASE_2') return 'Phase 2'
   return 'Phase 1'
@@ -75,6 +86,7 @@ function statusLabel(status: string): string {
   if (status === 'FROZEN_STANDBY') return 'Standby'
   if (status === 'FUNDED') return 'Live'
   if (status === 'EXPIRED') return 'Expired'
+  if (status === 'ARCHIVED') return 'Archived'
   if (status.startsWith('BREACHED')) return 'Breached'
   if (status.startsWith('PASSED')) return 'Passed'
   return status
@@ -107,6 +119,12 @@ export async function getTraderAccounts(userId: string): Promise<AccountsData> {
       maxDrawdownLimitPct: true,
       profitTarget: true,
       breachReason: true,
+      riskReviewAt: true,
+      riskReviewReason: true,
+      positions: {
+        where: { status: 'OPEN' },
+        select: { valuationStatus: true },
+      },
     },
     orderBy: { createdAt: 'desc' },
   })
@@ -122,20 +140,45 @@ export async function getTraderAccounts(userId: string): Promise<AccountsData> {
       side: true,
       sizeLots: true,
       pnl: true,
+      netPnl: true,
+      grossPnl: true,
+      pnlBasis: true,
+      valuationStatus: true,
+      fxStale: true,
+      fxUnresolved: true,
+      priceStale: true,
       closedAt: true,
     },
   })
+
+  const unresolvedFxGroups = await prisma.fxReconciliation.groupBy({
+    by: ['accountId'],
+    where: {
+      accountId: { in: accounts.map((account) => account.id) },
+      status: 'UNRESOLVED',
+    },
+    _count: { _all: true },
+  })
+  const unresolvedFxByAccount = new Map(
+    unresolvedFxGroups.map((group) => [group.accountId, group._count._all]),
+  )
 
   const tradesByAccount = new Map<string, AccountTrade[]>()
   for (const row of history) {
     const list = tradesByAccount.get(row.tradingAccountId) ?? []
     if (list.length < 30) {
+      const pnl = row.netPnl != null ? Number(row.netPnl) : row.pnl
       list.push({
         id: row.id,
         symbol: row.symbol,
         side: row.side,
         sizeLots: row.sizeLots,
-        pnl: Math.round(row.pnl * 100) / 100,
+        pnl: Math.round(pnl * 100) / 100,
+        pnlBasis: row.pnlBasis,
+        valuationStatus: row.valuationStatus,
+        fxStale: row.fxStale ?? false,
+        fxUnresolved: row.fxUnresolved ?? false,
+        priceStale: row.priceStale,
         closedAt: row.closedAt.getTime(),
       })
     }
@@ -145,9 +188,8 @@ export async function getTraderAccounts(userId: string): Promise<AccountsData> {
   const rows: AccountRow[] = accounts.map((account) => {
     const startingBalance =
       account.startingBalance > 0 ? account.startingBalance : toNumber(account.initialBalance)
-    const balance =
-      account.startingBalance > 0 ? account.balance : toNumber(account.currentBalance) || toNumber(account.initialBalance)
-    const equity = account.startingBalance > 0 ? account.equity : toNumber(account.currentEquity) || balance
+    const balance = toNumber(account.currentBalance)
+    const equity = toNumber(account.currentEquity)
 
     const netPnl = round2(equity - startingBalance)
     const netPnlPct = startingBalance > 0 ? round2((netPnl / startingBalance) * 100) : 0
@@ -168,7 +210,7 @@ export async function getTraderAccounts(userId: string): Promise<AccountsData> {
     const maxUsed = maxDdLimitPct > 0 ? Math.max(0, Math.min(1, maxDrawdownPct / maxDdLimitPct)) : 0
 
     const isBreached = account.status.startsWith('BREACHED') || account.status === 'EXPIRED'
-    const category: AccountCategory = isBreached
+    const category: AccountCategory = isBreached || account.status === 'ARCHIVED'
       ? 'archived'
       : account.status === 'FUNDED' || account.phase === 'FUNDED'
         ? 'funded'
@@ -209,6 +251,12 @@ export async function getTraderAccounts(userId: string): Promise<AccountsData> {
       maxDdRemaining: round2(1 - maxUsed),
       isBreached,
       breachReason: account.breachReason,
+      riskReview: account.riskReviewAt != null,
+      riskReviewReason: account.riskReviewReason,
+      unresolvedFx: unresolvedFxByAccount.get(account.id) ?? 0,
+      openValuationRisk: account.positions.some(
+        (position) => position.valuationStatus != null && position.valuationStatus !== 'RESOLVED_CURRENT',
+      ),
     }
   })
 

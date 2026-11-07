@@ -8,6 +8,7 @@ import { authorizeAccount } from '@/lib/trader/guard'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
 import { isIndexMarketOpen } from '@/lib/market/index-sessions'
 import { recordActivity } from '@/lib/admin/activity'
+import { idempotencyKeyFromRequest, scopedIdempotencyKey } from '@/lib/finance/idempotency'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,9 +32,16 @@ export async function POST(request: Request) {
     if (!isIndexMarketOpen(input.symbol)) {
       return NextResponse.json({ error: 'This index market is closed' }, { status: 422 })
     }
-    const quote = (await getFreshMarketQuotes())[input.symbol]
+    const quotes = await getFreshMarketQuotes()
+    const quote = quotes[input.symbol]
     if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
-    const result = await placeMarketOrder({ ...input, quote })
+    const rawKey = idempotencyKeyFromRequest(request)
+    const result = await placeMarketOrder({
+      ...input,
+      quote,
+      fxQuotes: quotes,
+      idempotencyKey: rawKey ? scopedIdempotencyKey('ORDER', input.accountId, rawKey) : null,
+    })
     if (result.ok) {
       void recordActivity({
         actorId: session?.sub ?? null,
