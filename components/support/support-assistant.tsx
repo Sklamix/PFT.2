@@ -113,7 +113,7 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
     const pending = nextIdempotencyKey(pendingKey.current, message)
     pendingKey.current = pending
     try {
-      const data = await requestAssistant({ message, forceHandoff: true, history: [], idempotencyKey: pending.key })
+      const data = await requestAssistant({ message, forceHandoff: true, handoffSource: 'user', history: [], idempotencyKey: pending.key })
       if (!data.handoff) {
         setError('The assistant did not confirm a support ticket. Please try again.')
         return
@@ -147,6 +147,7 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
         forceHandoff: true,
         suggestedCategory: suggestedHandoff.category,
         suggestedReason: suggestedHandoff.reason ?? undefined,
+        handoffSource: 'agent',
         idempotencyKey: crypto.randomUUID(),
       })
       if (!data.handoff) {

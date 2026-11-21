@@ -85,6 +85,7 @@ type RequestInput = {
   forceHandoff?: boolean
   suggestedCategory?: string
   suggestedReason?: string
+  handoffSource?: 'agent' | 'user' | 'system'
   idempotencyKey?: string | null
 }
 
@@ -121,6 +122,7 @@ export async function requestAssistant(input: RequestInput, deps: RequestDeps = 
         ...(input.forceHandoff ? { forceHandoff: true } : {}),
         ...(input.forceHandoff && input.suggestedCategory ? { suggestedCategory: input.suggestedCategory } : {}),
         ...(input.forceHandoff && input.suggestedReason ? { suggestedReason: input.suggestedReason } : {}),
+        ...(input.forceHandoff && input.handoffSource ? { handoffSource: input.handoffSource } : {}),
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       }),
       signal: controller.signal,

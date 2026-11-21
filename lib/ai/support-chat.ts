@@ -233,7 +233,13 @@ const DEFAULT_DEPENDENCIES: SupportChatDependencies = {
  * is appended to the trader's recent assistant handoff ticket, or a new ticket
  * is created. The response never claims a transfer that was not stored.
  */
-export async function handleSupportChat(input: {
+export type HandoffSource = 'agent' | 'user' | 'system'
+
+/**
+ * Handoff input. `handoffSource` is stored on the ticket's first message so
+ * staff can tell an agent-suggested transfer from a user-requested one.
+ */
+export type HandoffInput = {
   userId: string
   message: string
   history: ChatTurn[]
@@ -243,9 +249,12 @@ export async function handleSupportChat(input: {
   suggestedCategory?: SupportCategory
   /** Why the model could not answer; used only with a confirmed handoff. */
   suggestedReason?: string
+  handoffSource?: HandoffSource
   request: Request
   generate?: AssistantGenerator
-}, overrides: Partial<SupportChatDependencies> = {}): Promise<SupportChatResult> {
+}
+
+export async function handleSupportChat(input: HandoffInput, overrides: Partial<SupportChatDependencies> = {}): Promise<SupportChatResult> {
   const dependencies = { ...DEFAULT_DEPENDENCIES, ...overrides }
   const operation = () => handleSupportChatOnce(input, dependencies)
 
@@ -259,6 +268,7 @@ export async function handleSupportChat(input: {
       forceHandoff: input.forceHandoff,
       suggestedCategory: input.suggestedCategory ?? null,
       suggestedReason: input.forceHandoff ? (input.suggestedReason ?? null) : null,
+      handoffSource: input.handoffSource ?? null,
     }),
     operation,
     readSupportChatResult,
@@ -266,17 +276,7 @@ export async function handleSupportChat(input: {
 }
 
 async function handleSupportChatOnce(
-  input: {
-    userId: string
-    message: string
-    history: ChatTurn[]
-    forceHandoff: boolean
-    idempotencyKey: string
-    suggestedCategory?: SupportCategory
-    suggestedReason?: string
-    request: Request
-    generate?: AssistantGenerator
-  },
+  input: HandoffInput,
   dependencies: SupportChatDependencies,
 ): Promise<SupportChatResult> {
   const pricing = await dependencies.loadPricing()
@@ -322,6 +322,7 @@ async function handleSupportChatOnce(
       ref: existing.publicId,
       body,
       idempotencyKey: input.idempotencyKey,
+      messageMetadata: { source: input.handoffSource ?? 'user' },
       request: input.request,
     }).catch(() => null)
     if (appended && !('error' in appended)) {
@@ -347,6 +348,7 @@ async function handleSupportChatOnce(
       body,
       request: input.request,
       idempotencyKey: input.idempotencyKey,
+      messageMetadata: { source: input.handoffSource ?? 'user' },
     })
     return {
       answer: null,

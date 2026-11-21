@@ -52,6 +52,7 @@ export function supportChatFingerprint(input: {
   forceHandoff: boolean
   suggestedCategory?: SupportCategory | null
   suggestedReason?: string | null
+  handoffSource?: string | null
 }) {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex')
 }

@@ -111,6 +111,8 @@ export async function createTicket(input: {
   request: Request
   /** Optional client key; stored on the first message so a retried request cannot duplicate it. */
   idempotencyKey?: string | null
+  /** Stored on the first message (handoff source tag: agent | user | system). */
+  messageMetadata?: Prisma.InputJsonValue
 }) {
   const subject = cleanText(input.subject, {
     min: SUPPORT_LIMITS.subjectMin,
@@ -142,6 +144,7 @@ export async function createTicket(input: {
               senderType: 'TRADER',
               senderUserId: input.userId,
               body,
+              ...(input.messageMetadata ? { metadata: input.messageMetadata } : {}),
               idempotencyKey: scopedIdempotencyKey('TRADER', input.userId, input.idempotencyKey ?? null),
             },
           },
@@ -242,6 +245,8 @@ export async function addTraderMessage(input: {
   body: string
   idempotencyKey: string | null
   request: Request
+  /** Stored on the message (handoff source tag: agent | user | system). */
+  messageMetadata?: Prisma.InputJsonValue
 }) {
   const found = await resolveTicket(input.ref)
   if (!found || found.userId !== input.userId) return { error: 'Ticket not found.' as const, status: 404 }
@@ -287,6 +292,7 @@ export async function addTraderMessage(input: {
           senderType: 'TRADER',
           senderUserId: input.userId,
           body,
+          ...(input.messageMetadata ? { metadata: input.messageMetadata } : {}),
           idempotencyKey: storedKey,
         },
         select: { id: true, senderType: true, body: true, createdAt: true },

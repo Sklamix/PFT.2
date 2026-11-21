@@ -73,6 +73,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Invalid suggested reason.' }, { status: 400, headers: NO_STORE })
       } else suggestedReason = body.suggestedReason.trim().slice(0, 300)
     }
+    // Who initiated the handoff: an agent suggestion, the user's own button or
+    // a system fallback. Stored on the ticket's first message.
+    let handoffSource: 'agent' | 'user' | 'system' | undefined
+    if (body.handoffSource !== undefined) {
+      if (body.handoffSource !== 'agent' && body.handoffSource !== 'user' && body.handoffSource !== 'system') {
+        return NextResponse.json({ error: 'Unsupported handoff source.' }, { status: 400, headers: NO_STORE })
+      }
+      handoffSource = body.handoffSource
+    }
     const history = parseHistory(body.history)
     if (!Array.isArray(history)) {
       return NextResponse.json({ error: history.error }, { status: 400, headers: NO_STORE })
@@ -89,6 +98,7 @@ export async function POST(request: Request) {
       forceHandoff: body.forceHandoff === true,
       ...(suggestedCategory ? { suggestedCategory } : {}),
       ...(suggestedReason ? { suggestedReason } : {}),
+      ...(handoffSource ? { handoffSource } : {}),
       idempotencyKey,
       request,
     })
