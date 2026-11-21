@@ -11,6 +11,7 @@
   --color-highlight-foreground: var(--highlight-foreground);
   --color-nebula-violet: var(--nebula-violet);
   --color-surface: var(--surface);
+  --color-deck: var(--deck);
   --color-danger: var(--danger);
   --color-warning: var(--warning);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -57,6 +58,7 @@
   color-scheme: dark;
   /* PFT cosmic palette — Deep Space × Premium Trading Terminal */
   --background: #070b16;
+  --deck: #090d16;
   --foreground: #e7edff;
   --surface: #0b1122;
   --card: #111a2d;

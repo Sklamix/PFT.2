@@ -34,8 +34,8 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-dvh items-center justify-center bg-[#090D16] px-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm rounded-xl border border-border bg-[#0F172A] p-6 shadow-[0_0_40px_-20px] shadow-primary/40">
+    <div className="flex min-h-dvh items-center justify-center bg-deck px-4">
+      <form onSubmit={onSubmit} className="w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-[0_0_40px_-20px] shadow-primary/40">
         <BrandLogo href="/" />
         <h1 className="mt-5 text-lg font-semibold tracking-tight">Operations Desk</h1>
         <p className="mt-1 text-sm text-muted-foreground">Staff access only. Trader portal remains at /dashboard.</p>

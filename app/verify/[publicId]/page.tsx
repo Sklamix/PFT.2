@@ -83,13 +83,13 @@ export default async function VerifyPage({ params }: { params: Promise<{ publicI
 
 function Shell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   return (
-    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-[#04060e] px-4 py-12 text-foreground">
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4 py-12 text-foreground">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-10%,rgba(37,99,235,0.16),transparent_55%)]" />
       <div className="pointer-events-none absolute inset-0 cosmic-stars opacity-50" />
-      <div className={wide ? 'relative z-10 w-full max-w-3xl' : 'relative z-10 flex w-full max-w-md flex-col items-center rounded-2xl border border-white/10 bg-[#0b0f19]/80 p-8 text-center backdrop-blur-md'}>
+      <div className={wide ? 'relative z-10 w-full max-w-3xl' : 'relative z-10 flex w-full max-w-md flex-col items-center rounded-2xl border border-white/10 bg-card/80 p-8 text-center backdrop-blur-md'}>
         <div className="mb-6 flex items-center justify-center gap-2.5">
           <span className="flex h-8 items-center rounded-md bg-linear-to-br from-primary to-highlight p-px">
-            <span className="flex h-full items-center rounded-[5px] bg-[#04060e] px-2 font-mono text-xs font-bold tracking-widest text-white">PFT</span>
+            <span className="flex h-full items-center rounded-[5px] bg-background px-2 font-mono text-xs font-bold tracking-widest text-white">PFT</span>
           </span>
           <span className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">Professional Funded Trader</span>
         </div>

@@ -12,8 +12,8 @@ export function AdminDeskFrame({
   children: ReactNode
 }) {
   return (
-    <div className="min-h-dvh bg-[#090D16]">
-      <header className="sticky top-0 z-30 border-b border-border/80 bg-[#090D16]/90 backdrop-blur-xl">
+    <div className="min-h-dvh bg-deck">
+      <header className="sticky top-0 z-30 border-b border-border/80 bg-deck/90 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-[1600px] items-center justify-between gap-4 px-4 lg:px-6">
           <div className="flex items-center gap-4">
             <BrandLogo href="/" />

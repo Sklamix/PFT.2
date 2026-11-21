@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-21T17:10:00Z",
+  "title": "Design System: PFT",
+  "extensions": {
+    "colorMeta": {
+      "deep-space-navy": { "role": "neutral", "displayName": "Deep Space Navy", "canonical": "#070b16" },
+      "instrument-ink": { "role": "neutral", "displayName": "Instrument Ink", "canonical": "#0b1122" },
+      "console-slate": { "role": "neutral", "displayName": "Console Slate", "canonical": "#111a2d" },
+      "cosmo-indigo": { "role": "neutral", "displayName": "Cosmo Indigo", "canonical": "#172239" },
+      "deep-grid": { "role": "neutral", "displayName": "Deep Grid", "canonical": "#223052" },
+      "starlight": { "role": "neutral", "displayName": "Starlight", "canonical": "#e7edff" },
+      "gauge-white": { "role": "neutral", "displayName": "Gauge White", "canonical": "#f4f7ff" },
+      "moon-mist": { "role": "neutral", "displayName": "Moon Mist", "canonical": "#8fa3c4" },
+      "signal-blue": { "role": "primary", "displayName": "Signal Blue", "canonical": "#4388ff" },
+      "aurora-cyan": { "role": "secondary", "displayName": "Aurora Cyan", "canonical": "#55d6e8" },
+      "nebula-violet": { "role": "tertiary", "displayName": "Nebula Violet", "canonical": "#9466ff" },
+      "alert-rose": { "role": "danger", "displayName": "Alert Rose", "canonical": "#f43f5e" },
+      "caution-amber": { "role": "warning", "displayName": "Caution Amber", "canonical": "#f59e0b" },
+      "void-black": { "role": "neutral", "displayName": "Void Black", "canonical": "#02040a" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Hero statements on landing and marketing surfaces." },
+      "body": { "displayName": "Body", "purpose": "Dashboard text at 14px; marketing pages scale up." },
+      "label": { "displayName": "Mono Label", "purpose": "Any measured value: prices, amounts, timestamps, limits, IDs." }
+    },
+    "shadows": [
+      { "name": "accent-glow", "value": "0 0 40px -20px #4388ff", "purpose": "Signature hero surfaces only; never a resting card state." }
+    ],
+    "motion": [
+      { "name": "ease-step-in", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Step transitions, 320ms, opacity/transform only." },
+      { "name": "reduce-motion", "value": "prefers-reduced-motion: reduce -> animation: none", "purpose": "Every animation ships with a reduced-motion off-switch." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one inviting action on any screen: Signal Blue fill, Void Black text.",
+      "html": "<button class=\"ds-btn-primary\">Start challenge</button>",
+      "css": ".ds-btn-primary { font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; background: var(--primary, #4388ff); color: var(--primary-foreground, #02040a); border: none; border-radius: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.15s, transform 0.1s; } .ds-btn-primary:hover { background: rgba(67,136,255,0.8); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(67,136,255,0.5); }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Secondary action: transparent, hairline border, quiet hover fill.",
+      "html": "<button class=\"ds-btn-outline\">View terms</button>",
+      "css": ".ds-btn-outline { font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; font-weight: 500; background: transparent; color: var(--foreground, #e7edff); border: 1px solid var(--border, #223052); border-radius: 10px; padding: 8px 16px; cursor: pointer; transition: background 0.15s, border-color 0.15s; } .ds-btn-outline:hover { background: var(--muted, #172239); } .ds-btn-outline:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(67,136,255,0.5); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Instrument surface: Console Slate, hairline border, xl radius.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">Account balance</div><div class=\"ds-card-value\">$12,480.20</div></div>",
+      "css": ".ds-card { background: var(--card, #111a2d); color: var(--card-foreground, #f4f7ff); border: 1px solid var(--border, #223052); border-radius: 14px; padding: 20px; } .ds-card-title { font-size: 0.75rem; font-weight: 500; color: var(--muted-foreground, #8fa3c4); } .ds-card-value { font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 1.25rem; margin-top: 6px; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Field: transparent on dark, Deep Grid stroke, Signal Blue focus ring.",
+      "html": "<input class=\"ds-input\" placeholder=\"you@example.com\" />",
+      "css": ".ds-input { font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif; font-size: 0.875rem; background: transparent; color: var(--foreground, #e7edff); border: 1px solid var(--input, #223052); border-radius: 10px; padding: 8px 12px; } .ds-input:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(67,136,255,0.4); border-color: var(--ring, #4388ff); } .ds-input::placeholder { color: var(--muted-foreground, #8fa3c4); }"
+    },
+    {
+      "name": "Cosmic Card",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Signature panel: gradient edge light on a bordered card, used on branding surfaces.",
+      "html": "<div class=\"ds-cosmic-card\">Funded in 2 days</div>",
+      "css": ".ds-cosmic-card { position: relative; background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(3,7,18,0.5)), var(--card, #111a2d); color: var(--card-foreground, #f4f7ff); border: 1px solid var(--border, #223052); border-radius: 14px; padding: 20px; overflow: hidden; } .ds-cosmic-card::after { content: \"\"; position: absolute; inset-inline: 0; top: 0; height: 1px; background: linear-gradient(90deg, transparent, rgba(96,165,250,0.55), transparent); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Night Planetarium",
+    "overview": "The product is a dome at night: the universe (stars, nebulae, comet trails) is decoration that lives far away on established background layers, while everything the visitor reads is a calm, precise instrument. Density is functional: trading dashboards reward numbers that sit still. Interfaces are dark-only; depth comes from surface tone, almost never from shadow.",
+    "keyCharacteristics": [
+      "Dark-only palette of navy decks with a single blue accent and cool cyan highlight",
+      "Tonal elevation: #070b16 page, #0b1122 shell, #111a2d card; borders carry separation",
+      "Geist sans for reading, Geist Mono for anything that measures a value",
+      "Motion is rare, short (200-320ms), and always reduced-motion-capped"
+    ],
+    "rules": [
+      { "name": "The One Light Rule", "body": "Signal Blue is the only accent that acts. Aurora Cyan lights, Nebula Violet decorates — neither may invite a click.", "section": "colors" },
+      { "name": "The Star Budget Rule", "body": "Star fields, nebulae, and grid backgrounds belong to atmosphere utilities (.cosmic-stars, .nebula-atmosphere, .bg-grid); raw fills per screen stay inside those utilities.", "section": "colors" },
+      { "name": "The Mono Measures Rule", "body": "Anything measured — balances, drawdowns, payout amounts, dates in tables — renders in Geist Mono, never in the sans.", "section": "typography" },
+      { "name": "The Tone-Not-Shadow Rule", "body": "At rest, surfaces separate by tone and border. Shadows appear on interaction or on the few signature hero surfaces.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do resolve every surface color through tokens (bg-background, bg-card, border-border); new shades go into :root first.",
+      "Do render numeric values in Geist Mono with tabular alignment.",
+      "Do wrap any wide table (min-w-[...]) in overflow-x-auto."
+    ],
+    "donts": [
+      "Don't hardcode hex against the token set (known offenders are being migrated to tokens; do not add new ones).",
+      "Don't introduce a light theme or per-component color-scheme exceptions.",
+      "Don't animate layout properties or leave motion without a prefers-reduced-motion off-switch."
+    ]
+  }
+}
