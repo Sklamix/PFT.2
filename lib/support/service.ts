@@ -2,6 +2,7 @@ import { Prisma, type SupportCategory, type SupportPriority, type SupportStatus 
 import { createHash, randomBytes } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { recordActivity } from '@/lib/admin/activity'
+import { notifySupport } from './push'
 import {
   canTransition,
   cleanText,
@@ -155,6 +156,13 @@ export async function createTicket(input: {
         metadata: { publicId: ticket.publicId, category: ticket.category },
       })
 
+      // Best-effort staff push; never affects the response.
+      void notifySupport({
+        publicId: ticket.publicId,
+        kind: 'ticket.created',
+        subject,
+      })
+
       return { ...toSummary(ticket), reused: false as const }
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -298,6 +306,13 @@ export async function addTraderMessage(input: {
       action: 'TRADER_SUPPORT_MESSAGE_SENT',
       request: input.request,
       metadata: { publicId: found.publicId, length: body.length },
+    })
+
+    // Best-effort staff push for a new trader message. The duplicate fast
+    // paths above return before reaching this line, so retries never re-push.
+    void notifySupport({
+      publicId: found.publicId,
+      kind: 'message.from_trader',
     })
 
     return {
