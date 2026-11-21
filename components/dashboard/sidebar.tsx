@@ -8,9 +8,20 @@ import { DASHBOARD_VIEWS, TERMINAL_NAV, type DashboardView, type DeskNavId } fro
 type SidebarContentProps = {
   view: DeskNavId
   onNavigate: (view: DashboardView) => void
+  /** Signed-in trader; still renders the card shell while loading (null). */
+  user?: { name: string; email: string; badge?: string } | null
 }
 
-export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
+/** The stored name may just be the email prefix; fall back to the full email then. */
+function userLabel(name: string, email: string) {
+  return name && name !== email.split('@')[0].toLowerCase() ? name : email
+}
+
+function userInitials(name: string, email: string) {
+  return userLabel(name, email).slice(0, 2).toUpperCase()
+}
+
+export function SidebarContent({ view, onNavigate, user }: SidebarContentProps) {
   return (
     <div className="flex h-full flex-col">
       <div className="nebula-atmosphere relative flex flex-col gap-3 border-b border-border px-5 py-5">
@@ -118,13 +129,19 @@ export function SidebarContent({ view, onNavigate }: SidebarContentProps) {
       <div className="border-t border-border p-3">
         <div className="flex items-center gap-3 rounded-lg border border-border bg-background/60 p-2.5">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-primary to-highlight p-px">
-            <span className="flex size-full items-center justify-center rounded-full bg-card font-mono text-xs font-semibold text-foreground">MR</span>
+            <span className="flex size-full items-center justify-center rounded-full bg-card font-mono text-xs font-semibold text-foreground">
+              {user ? userInitials(user.name, user.email) : '··'}
+            </span>
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium text-foreground">Marcus Reyes</p>
-            <span className="mt-0.5 inline-flex rounded border border-highlight/30 bg-highlight/10 px-1.5 py-px font-mono text-[10px] font-medium text-highlight">
-              Pro Trader
-            </span>
+            <p className="truncate text-sm font-medium text-foreground">{user ? userLabel(user.name, user.email) : '···'}</p>
+            {user?.badge ? (
+              <span className="mt-0.5 inline-flex truncate rounded border border-highlight/30 bg-highlight/10 px-1.5 py-px font-mono text-[10px] font-medium text-highlight">
+                {user.badge}
+              </span>
+            ) : user ? (
+              <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground">{user.email}</span>
+            ) : null}
           </div>
           <Link
             href="/"

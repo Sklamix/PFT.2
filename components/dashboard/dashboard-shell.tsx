@@ -12,6 +12,7 @@ import { PayoutCard } from './payout-card'
 import { PayoutRequestDialog } from './payout-request-dialog'
 import { AccountsView, BillingView, JournalView, PayoutsView, SettingsView, ViewHeading } from './secondary-views'
 import { SidebarContent } from './sidebar'
+import { useTraderMe } from '@/hooks/use-trader-me'
 import { StatusBanner } from './status-banner'
 import { TopBar } from './top-bar'
 import { TradesLedger } from './trades-ledger'
@@ -28,6 +29,7 @@ const VIEW_DESCRIPTIONS: Record<DashboardView, string> = {
 }
 
 export function DashboardShell() {
+  const trader = useTraderMe()
   const [accountId, setAccountId] = useState('PFT-100K-98214')
   const [view, setView] = useState<DashboardView>('overview')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -44,14 +46,14 @@ export function DashboardShell() {
   return (
     <div className="min-h-dvh bg-background lg:pl-64">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border bg-sidebar lg:block">
-        <SidebarContent view={view} onNavigate={navigate} />
+        <SidebarContent view={view} onNavigate={navigate} user={trader} />
       </aside>
 
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="left" className="w-72 border-border bg-sidebar p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <SheetDescription className="sr-only">Dashboard sections</SheetDescription>
-          <SidebarContent view={view} onNavigate={navigate} />
+          <SidebarContent view={view} onNavigate={navigate} user={trader} />
         </SheetContent>
       </Sheet>
 

@@ -4,18 +4,20 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { SidebarContent } from '@/components/dashboard/sidebar'
+import { useTraderMe } from '@/hooks/use-trader-me'
 import { Button } from '@/components/ui/button'
 import { Menu } from 'lucide-react'
 import { PayoutsView } from './payouts-view'
 
 export function PayoutsShell() {
+  const trader = useTraderMe()
   const router = useRouter()
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
     <div className="flex min-h-dvh bg-transparent lg:pl-64">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-border bg-sidebar lg:block">
-        <SidebarContent view="payouts" onNavigate={() => router.push('/dashboard/terminal')} />
+        <SidebarContent view="payouts" onNavigate={() => router.push('/dashboard/terminal')} user={trader} />
       </aside>
 
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
@@ -23,6 +25,7 @@ export function PayoutsShell() {
           <SheetTitle className="sr-only">Navigation</SheetTitle>
           <SheetDescription className="sr-only">Dashboard sections</SheetDescription>
           <SidebarContent
+            user={trader}
             view="payouts"
             onNavigate={() => {
               setMenuOpen(false)
