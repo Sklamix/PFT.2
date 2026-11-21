@@ -239,6 +239,29 @@ Cron застосовує `lib/rules/breach-matrix.ts` до акаунтів, я
 3. Якщо трейдер подає appeal — рішення приймає адмін, який не виконував закриття.
 4. Повторний cron не має створювати дублікат; якщо створює — перевірити `frozenAt`.
 
+#### 5.1.1. Payout policy (MANUAL_V1)
+
+- Кожен новий payout створюється з `executionPolicy = MANUAL_V1`.
+- PFT не робить провайдерський переказ для нових payout. Власник переказує кошти
+  поза платформою і підтверджує їх в Admin Panel (`manual-confirm`).
+- Підтверджувати/відхиляти може лише власник: `requirePayoutOwner()` перевіряє
+  `ADMIN` + `User.canConfirmPayouts`, яка перечитується з БД. З cookie ця властивість
+  не береться.
+- `POST /api/admin/payouts/execute` та `/api/admin/payouts/[id]/sync` відхиляють
+  `MANUAL_V1` (409). Не намагайтеся обходити це через прямі API-виклики.
+- Провайдерське **створення** payout вимкнене для всіх policy. `execute` може лише
+  верифікувати вже наявний batch (`EXECUTION_V1` + `SUBMITTED` + provider IDs);
+  legacy-рядки без batch заморожені й не перевідправляються. Відсутні provider
+  credentials не залишають payout у `CLAIMED` — claim блокується до будь-якого запису.
+- Призначення власника — ручна, аудована процедура: `docs/payout-owner-assignment.md`.
+  `npm run doctor` має показувати рівно одного owner; нуль — blocker, більше одного —
+  warning.
+- `EXECUTION_V1` payout-и — це legacy wind-down. Вони можуть завершуватися через
+  provider flow, але нові payout так не створюються; історичні `executionPolicy` не
+  переписуються.
+- `executionPolicy IS NULL` не трактується як `MANUAL_V1`; такі записи fail-closed і
+  потребують окремого reconciliation.
+
 ### 5.2. User risk flag
 
 Flag ставиться автоматично: ≥2 акаунти або ≥3 news-порушення за 30 днів. Поки flag

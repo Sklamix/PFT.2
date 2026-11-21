@@ -176,6 +176,10 @@ npx vercel rollback <deployment-url-or-id> --yes
 - [ ] Перевірити `/api/cron/trading` логи щогодини (Vercel Hobby зберігає 12 год запитів).
 - [ ] Перевірити, що automated breach enforcement не створює дублікатів review.
 - [ ] Перевірити payout queue: нові payout-и проходять eligibility gate.
+- [ ] Перевірити, що нові payout-и мають `executionPolicy = MANUAL_V1`, а `POST /api/admin/payouts/execute` повертає 409 `manual_policy` для них.
+- [ ] Перевірити, що legacy `EXECUTION_V1` без існуючого provider batch повертає 409 `provider_create_disabled` і не створює переказ.
+- [ ] Перевірити, що `execute` для `EXECUTION_V1 + SUBMITTED + providerBatchId` виконує лише verify і не створює новий withdrawal.
+- [ ] `npm run doctor` → рівно один `Manual payout owner` (`[ok]`); за потреби призначити власника за `docs/payout-owner-assignment.md`.
 - [ ] Перевірити, що жоден трейдер не отримав повторний rules notice.
 - [ ] Зафіксувати всі інциденти в ops log.
 
