@@ -50,7 +50,7 @@ async function request(path, init = {}, cookie) {
   if (cookie) headers.cookie = cookie
   const response = await fetch(`${BASE}${path}`, { ...init, headers })
   const text = await response.text()
-  let json = null
+  let json
   try {
     json = text ? JSON.parse(text) : null
   } catch {

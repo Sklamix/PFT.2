@@ -3,6 +3,53 @@ const SEND_TIMEOUT_MS = 8_000
 const DEFAULT_FROM = 'PFT Challenges <onboarding@resend.dev>'
 
 /**
+ * Production-like runtimes (deployed build or Vercel production scope). In these
+ * environments the Resend sandbox sender is NOT acceptable: Resend restricts it
+ * to the account owner's own address and rejects every other recipient with
+ * HTTP 422, so real users would silently lose their email.
+ */
+function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production'
+}
+
+/**
+ * Sender resolution:
+ *  - DEV (and tests): RESEND_FROM_EMAIL, or the Resend sandbox sender as a
+ *    local-development fallback (fine for Mailpit and sandbox accounts).
+ *  - Production-like runtimes: RESEND_FROM_EMAIL must be configured and
+ *    non-empty. Otherwise sending FAILS CLOSED instead of silently using the
+ *    sandbox sender that cannot reach real recipients.
+ */
+function resolveSender(): { ok: true; from: string } | { ok: false; error: string } {
+  const configured = (process.env.RESEND_FROM_EMAIL ?? '').trim()
+  if (configured) return { ok: true, from: configured }
+  if (isProductionRuntime()) {
+    return {
+      ok: false,
+      error:
+        'RESEND_FROM_EMAIL is not configured for a production runtime: refusing to send from the Resend sandbox sender (onboarding@resend.dev), which cannot deliver to real recipients',
+    }
+  }
+  return { ok: true, from: DEFAULT_FROM }
+}
+
+/**
+ * Human-readable classification for Resend API failures. Server-side detail is
+ * kept (it never contains message bodies or recipients), plus an actionable
+ * hint for the most common configuration causes.
+ */
+function classifyResendFailure(status: number, message: string | undefined): string {
+  const detail = message ?? 'unknown error'
+  if (status === 422) {
+    return `${detail} (resend ${status}: sandbox/testing restriction — verify a sending domain in Resend and configure RESEND_FROM_EMAIL with a sender on that domain using a non-sandbox API key)`
+  }
+  if (status === 401 || status === 403) {
+    return `${detail} (resend ${status}: API key rejected — check that RESEND_API_KEY is valid for this environment)`
+  }
+  return `Resend ${status}: ${detail}`
+}
+
+/**
  * DEV-only Mailpit transport.
  *
  * Active ONLY when ALL of the following hold:
@@ -133,6 +180,12 @@ export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return { status: 'SKIPPED', error: 'RESEND_API_KEY is not configured' }
 
+  const sender = resolveSender()
+  if (!sender.ok) {
+    console.error(`[pft email] send refused: ${sender.error}`)
+    return { status: 'FAILED', error: sender.error }
+  }
+
   try {
     const response = await fetch(RESEND_ENDPOINT, {
       method: 'POST',
@@ -142,7 +195,7 @@ export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
         ...(message.idempotencyKey ? { 'Idempotency-Key': message.idempotencyKey } : {}),
       },
       body: JSON.stringify({
-        from: process.env.RESEND_FROM_EMAIL || DEFAULT_FROM,
+        from: sender.from,
         to: [message.to],
         subject: message.subject,
         html: message.html,
@@ -153,7 +206,7 @@ export async function sendEmail(message: EmailMessage): Promise<EmailResult> {
 
     const data = (await response.json().catch(() => null)) as { id?: string; message?: string } | null
     if (!response.ok || !data?.id) {
-      return { status: 'FAILED', error: `Resend ${response.status}: ${data?.message ?? 'unknown error'}` }
+      return { status: 'FAILED', error: classifyResendFailure(response.status, data?.message) }
     }
     return { status: 'SENT', id: data.id }
   } catch (error) {

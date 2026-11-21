@@ -2,9 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { PrismaClient } from '@prisma/client'
 import { buildStatsRecalculateSummary, statsRecalculateExecutionState } from '../lib/ops/stats-recalculate-summary'
+import { cleanupThenDisconnect } from './test-cleanup'
 
 // ---------------------------------------------------------------------------
-// Pure unit tests (no database) — always run.
+// Pure unit tests (no database) вЂ” always run.
 // ---------------------------------------------------------------------------
 
 test('summary: positive addedRewards is passed through', () => {
@@ -32,23 +33,24 @@ test('state: null summary without throw is FAILED (fail-safe)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Integration tests — real PostgreSQL against the isolated test database.
+// Integration tests вЂ” real PostgreSQL against the isolated test database.
 // ---------------------------------------------------------------------------
 
-const FORBIDDEN_TEST_DATABASE_URLS = [/ep-jolly-resonance/i]
+import { assertGateAllowsExecution, resolveObservabilityTestDb, assertClientIsTestDb, embeddedObservabilitySkipReason } from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
 
-function resolveTestUrl(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.OBSERVABILITY_TEST_DB !== '1') return null
-  const url = env.OBSERVABILITY_TEST_DB_URL?.trim()
-  if (!url || !/^postgres(ql)?:\/\//i.test(url)) return null
-  if (FORBIDDEN_TEST_DATABASE_URLS.some((p) => p.test(url))) return null
-  if (!/\/pft_dbtest(\?|$)/.test(url)) return null
-  return url
+// Shared fail-closed identity gate (scripts/observability-db-gate.ts): exact
+// owner-approved hostname allowlist, production denylist, /pft_dbtest URL path,
+// sslmode=verify-full enforcement and the canonical/legacy env policy.
+const GATE = resolveObservabilityTestDb(process.env)
+assertGateAllowsExecution(GATE)
+const TEST_URL = GATE.action === 'use' ? GATE.url : null
+const skip = embeddedObservabilitySkipReason(GATE)
+
+/** Client on the gated URL; asserts live DB identity BEFORE any business op. */
+async function gatedDb(): Promise<PrismaClient> {
+  return assertClientIsTestDb(createTestPrismaClient(TEST_URL!).prisma)
 }
-
-const TEST_URL = resolveTestUrl()
-const DB_OK = TEST_URL !== null
-const skip = DB_OK ? false : 'requires OBSERVABILITY_TEST_DB=1 and OBSERVABILITY_TEST_DB_URL (isolated pft_dbtest)'
 
 const COMPONENT = { key: 'vercel:cron:stats-recalculate', group: 'VERCEL', kind: 'JOB', label: 'Stats recalculate cron', expectedMs: 120_000 } as const
 const SLOT = 'vercel:cron:stats-recalculate:2026-11-06'
@@ -59,9 +61,9 @@ async function cleanup(client: PrismaClient): Promise<void> {
   await client.systemComponent.deleteMany({ where: { key: COMPONENT.key } })
 }
 
-test('integration: register → claim → finish with summary and state', { skip }, async () => {
+test('integration: register в†’ claim в†’ finish with summary and state', { skip }, async () => {
   const { registerComponent, claimExecution, finishExecution } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
 
@@ -95,13 +97,18 @@ test('integration: register → claim → finish with summary and state', { skip
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'stats-recalculate-observability',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: repeated claim of the same slot is CONCURRENT (no takeover)', { skip }, async () => {
   const { registerComponent, claimExecution } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     await registerComponent(COMPONENT, client)
@@ -121,13 +128,18 @@ test('integration: repeated claim of the same slot is CONCURRENT (no takeover)',
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'stats-recalculate-observability',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: claim without registration fails on FK', { skip }, async () => {
   const { claimExecution } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     await assert.rejects(
@@ -136,13 +148,18 @@ test('integration: claim without registration fails on FK', { skip }, async () =
       'claim must fail when the component is not registered (FK)',
     )
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'stats-recalculate-observability',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: heartbeat stays HEALTHY independent of a FAILED execution', { skip }, async () => {
   const { registerComponent, claimExecution, finishExecution, writeHeartbeat } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
 
@@ -167,6 +184,11 @@ test('integration: heartbeat stays HEALTHY independent of a FAILED execution', {
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'stats-recalculate-observability',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })

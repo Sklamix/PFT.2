@@ -203,8 +203,37 @@ export type HeartbeatInput = ComponentIdentity & {
 }
 
 /**
+ * Builds the heartbeat update payload (Phase 1.10.34 hardening).
+ *
+ * Nullable fields follow Prisma semantics strictly:
+ *  - `undefined` (field omitted) → not touched (e.g. a failed attempt must not
+ *    move `lastSuccessfulAt` forward);
+ *  - explicit `null` → CLEARED. Callers pass `lastError: null` on success, so
+ *    the previous implementation (`?? undefined`) that silently swallowed `null`
+ *    kept the stale error forever — a recovered component stayed red.
+ */
+export function buildHeartbeatUpdate(
+  input: HeartbeatInput,
+  now: Date,
+): Prisma.SystemHeartbeatUpdateInput {
+  const data: Prisma.SystemHeartbeatUpdateInput = {
+    liveness: input.liveness,
+    lastAttemptAt: now,
+    lastSuccessfulAt: input.lastSuccessfulAt,
+    lastFailedAt: input.lastFailedAt,
+    lastError: input.lastError,
+    lastMeta: input.lastMeta,
+    runId: input.runId,
+    leaseExpiresAt: input.leaseExpiresAt,
+  }
+  if (input.started) data.lastStartedAt = now
+  return data
+}
+
+/**
  * Upserts the component and its heartbeat in one call. `lastSuccessfulAt` is only
- * set when the caller passes it (a failed attempt must not move it forward).
+ * set when the caller passes it (a failed attempt must not move it forward);
+ * explicit `null` clears a nullable field (e.g. `lastError` on recovery).
  */
 export async function writeHeartbeat(input: HeartbeatInput, db: Db = prisma): Promise<void> {
   await db.$transaction(async (tx) => {
@@ -221,17 +250,7 @@ export async function writeHeartbeat(input: HeartbeatInput, db: Db = prisma): Pr
     })
 
     const now = new Date()
-    const data: Prisma.SystemHeartbeatUpdateInput = {
-      liveness: input.liveness,
-      lastAttemptAt: now,
-      lastSuccessfulAt: input.lastSuccessfulAt ?? undefined,
-      lastFailedAt: input.lastFailedAt ?? undefined,
-      lastError: input.lastError ?? undefined,
-      lastMeta: input.lastMeta ?? undefined,
-      runId: input.runId ?? undefined,
-      leaseExpiresAt: input.leaseExpiresAt ?? undefined,
-    }
-    if (input.started) data.lastStartedAt = now
+    const data = buildHeartbeatUpdate(input, now)
 
     await tx.systemHeartbeat.upsert({
       where: { componentKey: input.key },

@@ -10,6 +10,7 @@ import {
 } from '../lib/ops/observability'
 import { reconcileExecutionComponent } from '../lib/ops/incident-integration'
 import type { HealthComponentSpec } from '../lib/ops/health-evaluator'
+import { cleanupThenDisconnect } from './test-cleanup'
 
 // ---------------------------------------------------------------------------
 // Unit-level contract tests (no database) — always run.
@@ -37,20 +38,22 @@ test('conditional resolve contract: orderKey presence switches composite upsert'
 // gates in the phase report, never as PASS.
 // ---------------------------------------------------------------------------
 
-const FORBIDDEN_TEST_DATABASE_URLS = [/ep-jolly-resonance/i]
+import { assertGateAllowsExecution, resolveObservabilityTestDb, assertClientIsTestDb, embeddedObservabilitySkipReason } from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
 
-function resolveTestUrl(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.OBSERVABILITY_TEST_DB !== '1') return null
-  const url = env.OBSERVABILITY_TEST_DB_URL?.trim()
-  if (!url || !/^postgres(ql)?:\/\//i.test(url)) return null
-  if (FORBIDDEN_TEST_DATABASE_URLS.some((p) => p.test(url))) return null
-  if (!/\/pft_dbtest(\?|$)/.test(url)) return null
-  return url
-}
-
-const TEST_URL = resolveTestUrl()
+// Shared fail-closed identity gate (scripts/observability-db-gate.ts): exact
+// owner-approved hostname allowlist, production denylist, /pft_dbtest URL path,
+// sslmode=verify-full enforcement and the canonical/legacy env policy.
+const GATE = resolveObservabilityTestDb(process.env)
+assertGateAllowsExecution(GATE)
+const TEST_URL = GATE.action === 'use' ? GATE.url : null
 const DB_OK = TEST_URL !== null
-const skip = DB_OK ? false : 'requires OBSERVABILITY_TEST_DB=1 and OBSERVABILITY_TEST_DB_URL (isolated pft_dbtest)'
+const skip = embeddedObservabilitySkipReason(GATE)
+
+/** Client on the gated URL; asserts live DB identity BEFORE any business op. */
+async function gatedDb(): Promise<PrismaClient> {
+  return assertClientIsTestDb(createTestPrismaClient(TEST_URL!).prisma)
+}
 
 type DbClient = PrismaClient
 
@@ -71,12 +74,16 @@ async function cleanup(client: DbClient, componentKey: string): Promise<void> {
 
 async function withDb(fn: (client: DbClient) => Promise<void>): Promise<void> {
   if (!DB_OK || !TEST_URL) return
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL } } })
+  const client = await gatedDb()
   try {
     await fn(client)
   } finally {
-    await cleanup(client, COMPONENT.key)
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'incident-integration',
+      cleanup: () => cleanup(client, COMPONENT.key),
+      residual: () => client.systemComponent.count({ where: { key: COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 }
 
@@ -219,7 +226,7 @@ test('integration: legacy NULL watermark — T-1 resolve is a no-op, never regre
 
     // Legacy transition: resolve with an OLDER timestamp must be a full no-op
     // (strategy B — no backward watermark movement, no conversion).
-    const resolveOld = await resolveIncident(
+    await resolveIncident(
       {
         componentKey: COMPONENT.key,
         incidentType: 'PROCESS_FAILED',

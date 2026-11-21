@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { scanInactiveAccounts } from '@/lib/accounts/inactivity'
 import { reconcileAccountLimits, reconcileRelatedAccounts } from '@/lib/accounts/reconciliation'
 import { snapshotAbuseScores } from '@/lib/admin/abuse-score'
+import { pruneExpiredAiSupportRequests } from '@/lib/ai/request-idempotency'
 import { notifyBookEvents } from '@/lib/email/trade-events'
 import { safeSecretEqual } from '@/lib/security/secret-compare'
 import { pruneRateLimitBuckets } from '@/lib/security/rate-limit-store'
@@ -19,6 +20,7 @@ import { evaluateActiveAccountsPassing } from '@/lib/trading/passing'
 import { claimExecution, finishExecution, registerComponent, writeHeartbeat } from '@/lib/ops/observability'
 import type { ClaimExecutionResult } from '@/lib/ops/observability'
 import { buildTradingCronSummary, tradingCronExecutionState, type TradingCronSummary } from '@/lib/ops/trading-cron-summary'
+import { runPaymentRecoveryBatch } from '@/lib/payments/recovery'
 
 export const dynamic = 'force-dynamic'
 
@@ -54,6 +56,19 @@ async function run() {
   const riskFlags = await refreshUserRiskFlags()
   await pruneAccessEvents()
   await pruneRateLimitBuckets()
+  await pruneExpiredAiSupportRequests()
+  // D5: bounded automatic retry of paid orders whose provisioning failed. Never
+  // affects the trading result; permanent cases stay in manual review.
+  try {
+    const recovery = await runPaymentRecoveryBatch(prisma, { limit: 10 })
+    if (recovery.scanned > 0) {
+      console.info(
+        `[pft trading cron] payment recovery scanned=${recovery.scanned} recovered=${recovery.recovered} failed=${recovery.failed} skipped=${recovery.skipped}`,
+      )
+    }
+  } catch (error) {
+    console.error('[pft trading cron] payment recovery failed', error)
+  }
   const rules = await announceRuleChanges()
   const abuseScores = await snapshotAbuseScores()
 
@@ -105,6 +120,7 @@ async function run() {
   const accounts = await prisma.tradingAccount.findMany({
     where: {
       status: { in: ['ACTIVE', 'FUNDED'] },
+      archivedAt: null,
       OR: [
         { positions: { some: { status: 'OPEN' } } },
         { pendingTradeOrders: { some: { status: 'PENDING' } } },

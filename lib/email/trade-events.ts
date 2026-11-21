@@ -50,7 +50,7 @@ function tradeEmail(trade: TradeHistory, accountId: string) {
     ],
     'This notification was sent because you have an active PFT trading account.',
   )
-  return { subject, html, text }
+  return { subject, html, text, idempotencyKey: `trade-close-${trade.id}` }
 }
 
 function orderEmail(message: string, accountId: string) {
@@ -90,7 +90,9 @@ function newsViolationEmail(event: NewsViolationEvent, accountId: string) {
       ? 'Only the profit from the specific violating trade was annulled. Other trades and your account balance are unaffected.'
       : 'The position was opened well before the event; this is a risk warning, not a rule violation.',
   )
-  return { subject, html, text }
+  // One warning/violation record per position; the optional violation number disambiguates repeats.
+  const idempotencyKey = `news-${event.kind}-${event.positionId}${event.violationNumber != null ? `-${event.violationNumber}` : ''}`
+  return { subject, html, text, idempotencyKey }
 }
 
 /**

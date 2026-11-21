@@ -71,12 +71,24 @@ describe('email transport routing', () => {
     })
   })
 
-  test('3. production without DEV variables uses Resend', async () => {
+  test('3. production without DEV variables uses Resend (requires a configured sender)', async () => {
     const { sendEmail } = await import('../lib/email/resend')
-    await withEnv({ NODE_ENV: 'production', DEV_EMAIL_API_URL: undefined, RESEND_API_KEY: 'k' }, async () => {
+    await withEnv({ NODE_ENV: 'production', DEV_EMAIL_API_URL: undefined, RESEND_API_KEY: 'k', RESEND_FROM_EMAIL: 'PFT Challenges <noreply@pft.example.com>' }, async () => {
       const result = await sendEmail(MSG)
       assert.equal(result.status, 'SENT')
       assert.equal(calls[0].url, 'https://api.resend.com/emails')
+      const body = JSON.parse(String(calls[0].init.body)) as Record<string, unknown>
+      assert.equal(body.from, 'PFT Challenges <noreply@pft.example.com>')
+    })
+  })
+
+  test('3b. production without RESEND_FROM_EMAIL fails closed instead of using the sandbox sender', async () => {
+    const { sendEmail } = await import('../lib/email/resend')
+    await withEnv({ NODE_ENV: 'production', DEV_EMAIL_API_URL: undefined, RESEND_API_KEY: 'k', RESEND_FROM_EMAIL: undefined }, async () => {
+      const result = await sendEmail(MSG)
+      assert.equal(result.status, 'FAILED')
+      assert.match(result.error, /RESEND_FROM_EMAIL/)
+      assert.equal(calls.length, 0)
     })
   })
 

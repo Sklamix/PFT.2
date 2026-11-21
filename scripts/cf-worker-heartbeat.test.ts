@@ -9,6 +9,7 @@ import {
   type CfHeartbeatMeta,
   type CfSql,
 } from '../lib/ops/cf-worker-heartbeat'
+import { cleanupThenDisconnect } from './test-cleanup'
 
 const NOW = new Date('2026-11-06T14:47:00.000Z')
 const NOW_ISO = NOW.toISOString()
@@ -138,20 +139,21 @@ test('writeCfHeartbeat: SQL failure propagates a controlled error', async () => 
 // Integration tests — real PostgreSQL against the isolated test database.
 // ---------------------------------------------------------------------------
 
-const FORBIDDEN_TEST_DATABASE_URLS = [/ep-jolly-resonance/i]
+import { assertGateAllowsExecution, resolveObservabilityTestDb, assertClientIsTestDb, embeddedObservabilitySkipReason } from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
 
-function resolveTestUrl(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.OBSERVABILITY_TEST_DB !== '1') return null
-  const url = env.OBSERVABILITY_TEST_DB_URL?.trim()
-  if (!url || !/^postgres(ql)?:\/\//i.test(url)) return null
-  if (FORBIDDEN_TEST_DATABASE_URLS.some((p) => p.test(url))) return null
-  if (!/\/pft_dbtest(\?|$)/.test(url)) return null
-  return url
+// Shared fail-closed identity gate (scripts/observability-db-gate.ts): exact
+// owner-approved hostname allowlist, production denylist, /pft_dbtest URL path,
+// sslmode=verify-full enforcement and the canonical/legacy env policy.
+const GATE = resolveObservabilityTestDb(process.env)
+assertGateAllowsExecution(GATE)
+const TEST_URL = GATE.action === 'use' ? GATE.url : null
+const skip = embeddedObservabilitySkipReason(GATE)
+
+/** Client on the gated URL; asserts live DB identity BEFORE any business op. */
+async function gatedDb(): Promise<PrismaClient> {
+  return assertClientIsTestDb(createTestPrismaClient(TEST_URL!).prisma)
 }
-
-const TEST_URL = resolveTestUrl()
-const DB_OK = TEST_URL !== null
-const skip = DB_OK ? false : 'requires OBSERVABILITY_TEST_DB=1 and OBSERVABILITY_TEST_DB_URL (isolated pft_dbtest)'
 
 /** Adapts the Neon `sql` tagged template to a Prisma client (test only). */
 function prismaSql(prisma: PrismaClient): CfSql {
@@ -173,7 +175,7 @@ async function cleanup(client: PrismaClient): Promise<void> {
 const META: CfHeartbeatMeta = { collectedTicks: 40, storedTicks: 40, candlesOk: true, lastTickAt: NOW_ISO, fanOutOk: 2, fanOutFailed: 1, fanOutSkipped: 0 }
 
 test('integration: writeCfHeartbeat creates component + heartbeat with accurate meta', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     await writeCfHeartbeat(prismaSql(client), META, NOW)
@@ -197,12 +199,17 @@ test('integration: writeCfHeartbeat creates component + heartbeat with accurate 
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'cf-worker-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: CF_MARKET_WORKER_COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: repeated heartbeat updates the same row in place', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     await writeCfHeartbeat(prismaSql(client), META)
@@ -218,12 +225,17 @@ test('integration: repeated heartbeat updates the same row in place', { skip }, 
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'cf-worker-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: CF_MARKET_WORKER_COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: enabled=false is not overwritten by heartbeat', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     await client.systemComponent.create({
@@ -244,6 +256,11 @@ test('integration: enabled=false is not overwritten by heartbeat', { skip }, asy
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'cf-worker-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: CF_MARKET_WORKER_COMPONENT.key } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })

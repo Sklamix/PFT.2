@@ -1,6 +1,7 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { PrismaClient } from '@prisma/client'
+import { createTestPrismaClient } from './test-prisma-adapter'
 import {
   incidentKey,
   deriveEventId,
@@ -91,28 +92,99 @@ test('claim decision: TIMED_OUT and orphaned STARTED take over', () => {
   assert.equal(executionClaimDecision({ state: 'STARTED', leaseExpiresAt: null }, now).action, 'TAKE_OVER')
 })
 
+// --- PHASE 1.10.34: heartbeat update payload ---------------------------------
+
+test('heartbeat update: explicit null clears lastError (recovery must not keep a stale error)', async () => {
+  const { buildHeartbeatUpdate } = await import('../lib/ops/observability')
+  const now = new Date(50_000)
+  const base = {
+    key: 'c',
+    group: 'WORKER' as const,
+    kind: 'WORKER' as const,
+    label: 'c',
+    expectedMs: 30_000,
+    liveness: 'HEALTHY' as const,
+  }
+  const data = buildHeartbeatUpdate({ ...base, lastSuccessfulAt: new Date(), lastError: null }, now)
+  // null must reach Prisma as null (clear), never as undefined (skip).
+  assert.equal('lastError' in data, true)
+  assert.equal(data.lastError, null)
+  assert.equal(data.lastAttemptAt, now)
+  // lastSuccessfulAt is passed through, so a failed attempt cannot move it.
+  const noSuccess = buildHeartbeatUpdate({ ...base, lastError: null }, now)
+  assert.equal(noSuccess.lastSuccessfulAt, undefined)
+})
+
+test('heartbeat update: omitted fields are untouched, provided ones pass through', async () => {
+  const { buildHeartbeatUpdate } = await import('../lib/ops/observability')
+  const now = new Date(50_000)
+  const data = buildHeartbeatUpdate(
+    {
+      key: 'c',
+      group: 'WORKER' as const,
+      kind: 'WORKER' as const,
+      label: 'c',
+      expectedMs: 30_000,
+      liveness: 'FAILED' as const,
+      lastFailedAt: new Date(49_000),
+      lastError: 'boom',
+      lastMeta: { lastExecutionState: 'FAILED' },
+      started: true,
+    },
+    now,
+  )
+  assert.equal(data.lastError, 'boom')
+  assert.equal(data.lastFailedAt instanceof Date ? (data.lastFailedAt as Date).getTime() : data.lastFailedAt, 49_000)
+  assert.deepEqual(data.lastMeta, { lastExecutionState: 'FAILED' })
+  assert.equal(data.lastSuccessfulAt, undefined)
+  assert.equal(data.runId, undefined)
+  assert.equal(data.leaseExpiresAt, undefined)
+  assert.equal(data.lastStartedAt, now)
+})
+
 // ---------------------------------------------------------------------------
 // Integration tests — real PostgreSQL against an isolated test database.
 //
-// Opted in with OBSERVABILITY_TEST_DB=1 + OBSERVABILITY_TEST_DB_URL. These tests
-// require the Phase 1.7.0 tables to exist, so they skip until the migration is
-// applied to the isolated database (no migration is run here).
+// Require BOTH the shared DB gate (OBSERVABILITY_TEST_DB=1 + URL) AND an explicit
+// OBSERVABILITY_DB_TESTS=1 opt-in. The second flag prevents ordinary DB-free
+// `npm run test:observability` from opening a connection merely because the TEST
+// environment happens to be configured in the process.
 // ---------------------------------------------------------------------------
 
-const FORBIDDEN_TEST_DATABASE_URLS = [/ep-jolly-resonance/i]
+import { assertGateAllowsExecution, resolveObservabilityTestDb, assertClientIsTestDb } from './observability-db-gate'
 
-function resolveTestUrl(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.OBSERVABILITY_TEST_DB !== '1') return null
-  const url = env.OBSERVABILITY_TEST_DB_URL?.trim()
-  if (!url || !/^postgres(ql)?:\/\//i.test(url)) return null
-  if (FORBIDDEN_TEST_DATABASE_URLS.some((p) => p.test(url))) return null
-  if (!/\/pft_dbtest(\?|$)/.test(url)) return null
-  return url
+// Shared fail-closed identity gate (scripts/observability-db-gate.ts): exact
+// owner-approved hostname allowlist, production denylist, /pft_dbtest URL path,
+// sslmode=verify-full enforcement and the canonical/legacy env policy.
+const GATE = resolveObservabilityTestDb(process.env)
+assertGateAllowsExecution(GATE)
+const TEST_URL = GATE.action === 'use' ? GATE.url : null
+const DB_TESTS_EXPLICIT = process.env.OBSERVABILITY_DB_TESTS === '1'
+const skip =
+  GATE.action === 'use'
+    ? DB_TESTS_EXPLICIT
+      ? false
+      : 'DB integration tests require OBSERVABILITY_DB_TESTS=1 (prevents accidental DB execution during DB-free runs)'
+    : GATE.reason
+
+/** Client on the gated URL; asserts live DB identity BEFORE any business op. */
+async function gatedDb(): Promise<PrismaClient> {
+  // PHASE 1.90: adapter-backed client; every pool socket is TLS-verified in onConnect
+  // before Prisma can issue SQL. No DATABASE_URL fallback.
+  const diagnostics = process.env.PFT_TEST_ADAPTER_DIAGNOSTICS === '1'
+  const prisma = await assertClientIsTestDb(
+    createTestPrismaClient(TEST_URL!, { diagnostics }).prisma,
+  )
+  if (diagnostics) {
+    const rows = await prisma.$queryRaw<
+      Array<{ db: string; usr: string; port: number }>
+    >`SELECT current_database()::text AS db, current_user::text AS usr, inet_server_port() AS port`
+    const row = rows[0]
+    const ok = row?.db === 'pft_dbtest' && row?.usr === 'pft_test_runtime' && Number(row?.port) === 5432
+    console.log(`TEST_DB_IDENTITY=${ok ? 'PASS' : 'FAIL'} port=${row?.port ?? 'unknown'}`)
+  }
+  return prisma
 }
-
-const TEST_URL = resolveTestUrl()
-const DB_OK = TEST_URL !== null
-const skip = DB_OK ? false : 'requires OBSERVABILITY_TEST_DB=1 and OBSERVABILITY_TEST_DB_URL (isolated pft_dbtest)'
 
 type DbClient = PrismaClient
 
@@ -125,7 +197,11 @@ async function cleanup(client: DbClient, componentKey: string): Promise<void> {
   await client.systemComponent.deleteMany({ where: { key: componentKey } })
 }
 
+/** Every key created by an integration test; the after-hook guarantees cleanup on failure. */
+const activeTestKeys = new Set<string>()
+
 async function seedComponent(client: DbClient, key: string, group: 'WORKER' | 'DATABASE' | 'MARKET_DATA' | 'EMAIL' | 'RISK_ENGINE'): Promise<void> {
+  activeTestKeys.add(key)
   await client.systemComponent.upsert({
     where: { key },
     update: {},
@@ -133,9 +209,26 @@ async function seedComponent(client: DbClient, key: string, group: 'WORKER' | 'D
   })
 }
 
+after(async () => {
+  if (skip || activeTestKeys.size === 0) return
+  const bundle = createTestPrismaClient(TEST_URL!)
+  try {
+    for (const key of activeTestKeys) {
+      await cleanup(bundle.prisma, key)
+      const residual = await bundle.prisma.systemComponent.count({ where: { key } })
+      if (residual !== 0) {
+        throw new Error(`observability integration cleanup residual is not zero for one test key: ${residual}`)
+      }
+    }
+    activeTestKeys.clear()
+  } finally {
+    await bundle.dispose()
+  }
+})
+
 test('integration: recovery TYPE_A does not change watermark TYPE_B', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:wm-iso'
     await seedComponent(client, compKey, 'WORKER')
@@ -161,7 +254,7 @@ test('integration: recovery TYPE_A does not change watermark TYPE_B', { skip }, 
 
 test('integration: failure TYPE_B is not rejected by recovery TYPE_A', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:wm-iso2'
     await cleanup(client, compKey)
@@ -183,7 +276,7 @@ test('integration: failure TYPE_B is not rejected by recovery TYPE_A', { skip },
 
 test('integration: A → B → repeat A is a no-op for the repeated A', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:dedup-nonconsec'
     await cleanup(client, compKey)
@@ -209,7 +302,7 @@ test('integration: A → B → repeat A is a no-op for the repeated A', { skip }
 
 test('integration: two concurrent deliveries of one eventId yield one result', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:dedup-concurrent'
     await cleanup(client, compKey)
@@ -234,7 +327,7 @@ test('integration: two concurrent deliveries of one eventId yield one result', {
 
 test('integration: two different events with identical timestamp stay distinct', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:sametime'
     await cleanup(client, compKey)
@@ -255,7 +348,7 @@ test('integration: two different events with identical timestamp stay distinct',
 
 test('integration: stale failure after newer recovery is ignored; newer failure opens new incident', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:ordering'
     const type = 'PROCESS_FAILED' as const
@@ -286,7 +379,7 @@ test('integration: stale failure after newer recovery is ignored; newer failure 
 
 test('integration: SUPPRESSED is not auto-resolved by recovery', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:suppressed'
     const type = 'EMAIL_DOWN' as const
@@ -310,7 +403,7 @@ test('integration: SUPPRESSED is not auto-resolved by recovery', { skip }, async
 
 test('integration: claim → finish → re-claim is already-done', { skip }, async () => {
   const { claimExecution, finishExecution } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:exec'
     await cleanup(client, compKey)
@@ -335,7 +428,7 @@ test('integration: claim → finish → re-claim is already-done', { skip }, asy
 
 test('integration: stale runId finish is rejected after takeover', { skip }, async () => {
   const { claimExecution, finishExecution } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:takeover'
     await cleanup(client, compKey)
@@ -363,7 +456,7 @@ test('integration: stale runId finish is rejected after takeover', { skip }, asy
 
 test('integration: PARTIAL_SUCCESS is terminal', { skip }, async () => {
   const { claimExecution, finishExecution } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:partial'
     await cleanup(client, compKey)
@@ -386,7 +479,7 @@ test('integration: PARTIAL_SUCCESS is terminal', { skip }, async () => {
 
 test('integration: parallel different incident keys do not block each other', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const comps = ['it:par-a', 'it:par-b']
     for (const c of comps) {
@@ -408,7 +501,7 @@ test('integration: parallel different incident keys do not block each other', { 
 
 test('integration: watermark is monotonic (late recovery never regresses)', { skip }, async () => {
   const { resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:wm-mono'
     const type = 'PROCESS_FAILED' as const
@@ -429,7 +522,7 @@ test('integration: watermark is monotonic (late recovery never regresses)', { sk
 
 test('integration: concurrent recoveries converge to the maximum watermark', { skip }, async () => {
   const { resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:wm-concurrent'
     const type = 'PROCESS_FAILED' as const
@@ -451,30 +544,76 @@ test('integration: concurrent recoveries converge to the maximum watermark', { s
 })
 
 test('integration: repeated recovery with same eventId is a no-op', { skip }, async () => {
-  const { resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
+  const client = await gatedDb()
+  const compKey = 'it:recovery-dedup'
   try {
-    const compKey = 'it:recovery-dedup'
     const type = 'PROCESS_FAILED' as const
     await cleanup(client, compKey)
     await seedComponent(client, compKey, 'WORKER')
 
-    await resolveIncident({ componentKey: compKey, incidentType: type, occurredAt: new Date('2026-11-05T10:00:00Z'), eventId: 'r1' }, client)
-    const again = await resolveIncident({ componentKey: compKey, incidentType: type, occurredAt: new Date('2026-11-05T10:01:00Z'), eventId: 'r1' }, client)
+    // Durable recovery dedup is only claimed while an incident is active. Create one
+    // whose failure is NEWER than the recovery, so the first recovery is stale and
+    // leaves the incident OPEN for the duplicate-delivery path.
+    await reportIncidentFailure(
+      {
+        componentKey: compKey,
+        incidentType: type,
+        severity: 'MEDIUM',
+        occurredAt: new Date('2026-11-05T10:05:00Z'),
+        eventId: 'failure-1',
+        title: 'recovery dedup setup',
+      },
+      client,
+    )
+
+    const first = await resolveIncident(
+      { componentKey: compKey, incidentType: type, occurredAt: new Date('2026-11-05T10:00:00Z'), eventId: 'r1' },
+      client,
+    )
+    assert.equal(first.stale, true, 'recovery older than the failure is stale')
+    const again = await resolveIncident(
+      { componentKey: compKey, incidentType: type, occurredAt: new Date('2026-11-05T10:01:00Z'), eventId: 'r1' },
+      client,
+    )
 
     assert.equal(again.duplicate, true, 're-delivered recovery must be a duplicate no-op')
+    const recoveryEvents = await client.systemIncidentEvent.count({
+      where: { componentKey: compKey, incidentType: type, eventKind: 'RECOVERY' },
+    })
+    assert.equal(recoveryEvents, 1, 'duplicate delivery must not create a second durable dedup event')
+    const incident = await client.systemHealthIncident.findFirst({
+      where: { componentKey: compKey, incidentType: type },
+      select: { status: true },
+    })
+    assert.equal(incident?.status, 'OPEN', 'a stale recovery must not close a newer incident')
     const wm = await client.systemIncidentWatermark.findUnique({ where: { componentKey_incidentType: { componentKey: compKey, incidentType: type } } })
     assert.equal(wm?.lastResolvedOccurredAt.getTime(), new Date('2026-11-05T10:00:00Z').getTime(), 'duplicate recovery must not advance the watermark')
 
     await cleanup(client, compKey)
+    const residual = {
+      component: await client.systemComponent.count({ where: { key: compKey } }),
+      watermark: await client.systemIncidentWatermark.count({ where: { componentKey: compKey } }),
+      event: await client.systemIncidentEvent.count({ where: { componentKey: compKey } }),
+      incident: await client.systemHealthIncident.count({ where: { componentKey: compKey } }),
+      execution: await client.systemExecution.count({ where: { componentKey: compKey } }),
+      heartbeat: await client.systemHeartbeat.count({ where: { componentKey: compKey } }),
+    }
+    assert.deepEqual(residual, { component: 0, watermark: 0, event: 0, incident: 0, execution: 0, heartbeat: 0 }, 'cleanup must leave zero residual rows')
   } finally {
+    // Guarantee exact-key cleanup even if an assertion fails before the normal cleanup.
+    try {
+      await cleanup(client, compKey)
+    } catch (cleanupError) {
+      console.error('recovery dedup test cleanup failed: ' + String((cleanupError as Error)?.message ?? cleanupError))
+    }
     await client.$disconnect()
   }
 })
 
 test('integration: stale recovery does not close a newer incident', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:stale-recovery'
     const type = 'PROCESS_FAILED' as const
@@ -501,7 +640,7 @@ test('integration: stale recovery does not close a newer incident', { skip }, as
 
 test('integration: failure with timestamp equal to watermark is stale', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:eq-watermark'
     const type = 'PROCESS_FAILED' as const
@@ -521,7 +660,7 @@ test('integration: failure with timestamp equal to watermark is stale', { skip }
 
 test('integration: newer failure after watermark opens a new incident', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:new-after-wm'
     const type = 'PROCESS_FAILED' as const
@@ -540,7 +679,7 @@ test('integration: newer failure after watermark opens a new incident', { skip }
 
 test('integration: stale recovery (older than failure) leaves incident OPEN', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:stale-guard'
     const type = 'PROCESS_FAILED' as const
@@ -567,7 +706,7 @@ test('integration: stale recovery (older than failure) leaves incident OPEN', { 
 
 test('integration: recovery with equal timestamp resolves the incident', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:eq-resolve'
     const type = 'PROCESS_FAILED' as const
@@ -591,7 +730,7 @@ test('integration: recovery with equal timestamp resolves the incident', { skip 
 
 test('integration: repeated stale recovery leaves incident unchanged', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:stale-repeat'
     const type = 'PROCESS_FAILED' as const
@@ -617,7 +756,7 @@ test('integration: repeated stale recovery leaves incident unchanged', { skip },
 
 test('integration: stale recovery then newer failure keeps a single coherent incident', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:stale-then-new'
     const type = 'PROCESS_FAILED' as const
@@ -644,7 +783,7 @@ test('integration: stale recovery then newer failure keeps a single coherent inc
 
 test('integration: guard compares against latest failure (lastOccurredAt), not first', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:last-vs-first'
     const type = 'PROCESS_FAILED' as const
@@ -671,7 +810,7 @@ test('integration: guard compares against latest failure (lastOccurredAt), not f
 
 test('integration: late failure does not regress lastOccurredAt', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:mono-regress'
     const type = 'PROCESS_FAILED' as const
@@ -693,7 +832,7 @@ test('integration: late failure does not regress lastOccurredAt', { skip }, asyn
 
 test('integration: monotonic lastOccurredAt protects the stale-recovery guard', { skip }, async () => {
   const { reportIncidentFailure, resolveIncident } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:mono-guard'
     const type = 'PROCESS_FAILED' as const
@@ -717,7 +856,7 @@ test('integration: monotonic lastOccurredAt protects the stale-recovery guard', 
 
 test('integration: later failure advances lastOccurredAt', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:mono-advance'
     const type = 'PROCESS_FAILED' as const
@@ -738,7 +877,7 @@ test('integration: later failure advances lastOccurredAt', { skip }, async () =>
 
 test('integration: concurrent failures converge lastOccurredAt to the maximum', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:mono-concurrent'
     const type = 'PROCESS_FAILED' as const
@@ -762,7 +901,7 @@ test('integration: concurrent failures converge lastOccurredAt to the maximum', 
 
 test('integration: repeated failure with same eventId does not increment occurrenceCount', { skip }, async () => {
   const { reportIncidentFailure } = await import('../lib/ops/observability')
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     const compKey = 'it:mono-dedup'
     const type = 'PROCESS_FAILED' as const
