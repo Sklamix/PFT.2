@@ -17,7 +17,7 @@
     "db:seed-instruments": "tsx scripts/seed-instrument-registry.ts",
     "db:migrate:test": "tsx scripts/run-test-migrations.ts",
     "qa:smoke": "node scripts/qa-smoke.cjs",
-    "test:ai-support": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/ai-support.test.ts scripts/ai-support-route.test.ts scripts/ai-support-kyc-handoff.test.ts scripts/ai-support-escalation.test.ts scripts/ai-concurrent-idempotency.test.ts scripts/ai-provider-fallback.test.ts scripts/ai-reliability-hardening.test.ts",
+    "test:ai-support": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/ai-support.test.ts scripts/ai-support-route.test.ts scripts/ai-support-kyc-handoff.test.ts scripts/ai-support-escalation.test.ts scripts/ai-support-agent-tools.test.ts scripts/ai-concurrent-idempotency.test.ts scripts/ai-provider-fallback.test.ts scripts/ai-reliability-hardening.test.ts",
     "test:diagnostics": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/diagnostics.test.ts scripts/ai-support-diagnostics.test.ts",
     "test:instruments": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/instruments.test.ts scripts/instrument-seed-policy.test.ts",
     "test:finance": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/finance-core.test.ts scripts/breach-event.test.ts scripts/payout-integrity.test.ts scripts/f0-payout-trailing-regression.test.ts",
