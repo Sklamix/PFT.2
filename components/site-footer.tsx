@@ -1,4 +1,5 @@
 import { BrandLogo } from '@/components/brand-logo'
+import { SystemStatusBadge } from '@/components/system-status-badge'
 
 const COLUMNS = [
   {
@@ -15,7 +16,7 @@ const COLUMNS = [
     links: [
       { label: 'Evaluation Rules', href: '#rules' },
       { label: 'Why PFT', href: '#payouts' },
-      { label: 'Trader Portal', href: '#dashboard' },
+      { label: 'Trader Portal', href: '/dashboard' },
       { label: 'FAQ', href: '#faq' },
     ],
   },
@@ -31,10 +32,11 @@ const COLUMNS = [
   {
     title: 'Legal',
     links: [
-      { label: 'Terms of Service', href: '#top' },
-      { label: 'Privacy Policy', href: '#top' },
-      { label: 'Risk Disclosure', href: '#disclaimer' },
-      { label: 'AML / KYC Policy', href: '#top' },
+      { label: 'Terms of Service', href: '/legal/terms' },
+      { label: 'Privacy Policy', href: '/legal/privacy' },
+      { label: 'Risk Disclosure', href: '/legal/risk-disclosure' },
+      { label: 'AML / KYC Policy', href: '/legal/aml-kyc' },
+      { label: 'Refund Policy', href: '/legal/refund-policy' },
     ],
   },
 ]
@@ -115,10 +117,7 @@ export function SiteFooter() {
 
         <div className="mt-10 flex flex-col gap-3 border-t border-white/[0.06] pt-6 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
           <p>&copy; 2026 Professional Funded Trader Ltd. All rights reserved.</p>
-          <p className="flex items-center gap-2 font-mono">
-            <span className="size-1.5 rounded-full bg-highlight shadow-[0_0_8px_2px_rgba(6,182,212,0.45)]" />
-            All systems operational
-          </p>
+          <SystemStatusBadge />
         </div>
       </div>
     </footer>
