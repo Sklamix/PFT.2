@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 import { prisma } from '@/lib/prisma'
-import { provisionChallengeAccounts, type ChallengePlan } from '@/lib/provisioning/challenge-account'
+import { provisionChallengeAccounts, AccountProvisioningUserError, type ChallengePlan } from '@/lib/provisioning/challenge-account'
 import { fundingResetData } from '@/lib/trading/funding'
 import { CHALLENGES } from '@/lib/challenges'
 import { AccountLimitError } from '@/lib/accounts/limits'
@@ -109,6 +109,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       standby: result.standby?.displayId ?? null,
     }, { status: 201 })
   } catch (err) {
+    if (err instanceof AccountProvisioningUserError) {
+      return jsonError(err.message, err.code === 'user_not_found' ? 404 : 409)
+    }
     if (err instanceof AccountLimitError) {
       return jsonError(err.message, 400)
     }

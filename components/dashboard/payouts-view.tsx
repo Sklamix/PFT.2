@@ -9,6 +9,7 @@ import { SpaceBackground } from './space-background'
 import { CertificatesView } from './certificates-view'
 import { cn } from '@/lib/utils'
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept as canvas background reference
 const BG = '#080C14'
 const CARD = '#0C1220'
 const LABEL = '#94A3B8'
@@ -23,6 +24,7 @@ const STATUS_TONE: Record<PayoutRow['status'], { color: string; label: string }>
   APPROVED: { color: LABEL, label: 'Processing' },
   DISBURSED: { color: GREEN, label: 'Paid' },
   REJECTED: { color: RED, label: 'Rejected' },
+  MANUALLY_PAID: { color: GREEN, label: 'Paid' },
 }
 
 const dateFmt = (t: number) =>
@@ -268,7 +270,7 @@ export function PayoutsView() {
     ? allPayouts.filter((payout) => payout.accountId === selectedAccount.id)
     : []
   const withdrawn = accountPayouts
-    .filter((payout) => payout.status === 'DISBURSED')
+    .filter((payout) => payout.status === 'DISBURSED' || payout.status === 'MANUALLY_PAID')
     .reduce((sum, payout) => sum + payout.amount, 0)
   const fundedSummary = data?.fundedAccounts.find((account) => account.id === selectedAccount?.id) ?? null
   const nextEligible = fundedSummary?.eligibleAt ?? null

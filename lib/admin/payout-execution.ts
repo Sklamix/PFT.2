@@ -1455,6 +1455,11 @@ export async function confirmManualPaymentInTx(
   const ref = input.transactionRef.trim()
   if (!ref) return { ok: false, reason: 'missing_transaction_ref' }
 
+  // Lock order stays Payout -> TradingAccount (same as approve/reject). Without this
+  // lock the reservedPayoutAmount recompute below can race a concurrent payout request
+  // that holds the account lock and overwrite its freshly added reservation.
+  if (!(await lockAccount(tx, payout.accountId))) return { ok: false, reason: 'not_found' }
+
   const duplicates = await tx.payout.findMany({
     where: { transactionRef: ref },
     select: { id: true },
@@ -1541,132 +1546,198 @@ async function recomputeReservedPayoutAmount(tx: Prisma.TransactionClient, accou
 }
 
 /**
- * Manual rejection (MANUAL_V1): APPROVED -> REJECTED. Restores the original reserve
- * exactly once (credit balance + PAYOUT_RELEASE ledger entry) and recalculates
- * reservedPayoutAmount. It never debits and never touches provider execution.
+ * Unified payout rejection service (D10).
+ *
+ * Both rejection entry points call this and differ only in explicit policy:
+ * - OWNER_MANUAL: MANUAL_V1, APPROVED only; terminal accounts forfeit the reserve.
+ * - LEGACY_ADMIN: PENDING only; reserve is released (historical behaviour preserved).
+ *
+ * Shared guarantees: Payout lock then Account lock (same order everywhere), a
+ * conditional status transition, reserve release exactly once (`payout-release:<id>`),
+ * stable idempotency, and a complete audit trail. It never moves money externally.
  */
-export async function rejectManualPayoutInTx(
+export type RejectPayoutMode = 'OWNER_MANUAL' | 'LEGACY_ADMIN'
+
+export type UnifiedRejectResult =
+  | { ok: true; payoutId: string; status: 'REJECTED'; alreadyRejected: boolean; forfeited: boolean }
+  | { ok: false; reason: 'not_found' | 'wrong_policy' | 'wrong_status' | 'state_changed' | 'execution_active' }
+
+export async function rejectPayoutInTx(
   tx: Prisma.TransactionClient,
-  input: { id: string; actorId: string; reason: string },
-): Promise<RejectManualPayoutResult> {
+  input: { id: string; actorId: string; reason: string; mode: RejectPayoutMode; now?: Date },
+): Promise<UnifiedRejectResult> {
+  const manual = input.mode === 'OWNER_MANUAL'
   if (!(await lockPayout(tx, input.id))) return { ok: false, reason: 'not_found' }
   const [payout] = await loadPayouts(tx, [input.id])
   if (!payout) return { ok: false, reason: 'not_found' }
-  if (payout.executionPolicy !== PAYOUT_EXECUTION_POLICIES.MANUAL_V1) {
+  if (manual && payout.executionPolicy !== PAYOUT_EXECUTION_POLICIES.MANUAL_V1) {
     return { ok: false, reason: 'wrong_policy' }
   }
   if (payout.status === 'REJECTED') {
-    return { ok: true, payoutId: payout.id, status: 'REJECTED', alreadyRejected: true }
+    // A repeat is a no-op: the reserve was already settled by the first transition.
+    return { ok: true, payoutId: payout.id, status: 'REJECTED', alreadyRejected: true, forfeited: false }
   }
-  if (payout.status !== 'APPROVED') return { ok: false, reason: 'not_approved' }
+  if (manual ? payout.status !== 'APPROVED' : payout.status !== 'PENDING') {
+    return { ok: false, reason: 'wrong_status' }
+  }
+  if (isActiveExecutionState(payout.executionState)) {
+    return { ok: false, reason: 'execution_active' }
+  }
 
   if (!(await lockAccount(tx, payout.accountId))) return { ok: false, reason: 'not_found' }
   const before = (await loadAccounts(tx, [payout.accountId])).get(payout.accountId)
   if (!before) return { ok: false, reason: 'not_found' }
 
-  // Approved policy: forfeiture applies only to terminal accounts. BREACHED* is NOT
-  // terminal (an appeal can restore it), so it takes the release path below.
+  // Forfeiture applies only to the owner-manual path on terminal accounts. BREACHED* is
+  // NOT terminal (an appeal can restore it), so it takes the release path.
   const terminal =
-    before.archivedAt != null ||
-    (before.status as string) === 'ARCHIVED' ||
-    (before.status as string) === 'EXPIRED'
+    manual &&
+    (before.archivedAt != null ||
+      (before.status as string) === 'ARCHIVED' ||
+      (before.status as string) === 'EXPIRED')
 
-  const now = new Date()
+  const now = input.now ?? new Date()
   const changed = await tx.payout.updateMany({
-    where: {
-      id: payout.id,
-      status: 'APPROVED',
-      executionPolicy: PAYOUT_EXECUTION_POLICIES.MANUAL_V1,
-    },
-    data: {
-      status: 'REJECTED',
-      rejectReason: input.reason,
-      reviewedAt: now,
-      reviewedById: input.actorId,
-      executionSnapshotHash: null,
-      ...(terminal
-        ? { forfeitedAt: now, cancelSource: 'ACCOUNT_CLOSED_FORFEITURE' }
-        : {}),
-    },
+    where: manual
+      ? {
+          id: payout.id,
+          status: 'APPROVED',
+          executionPolicy: PAYOUT_EXECUTION_POLICIES.MANUAL_V1,
+        }
+      : {
+          id: payout.id,
+          status: 'PENDING',
+          providerBatchId: null,
+          providerPayoutId: null,
+          providerStatus: null,
+          executionState: payout.executionState,
+        },
+    data: manual
+      ? {
+          status: 'REJECTED',
+          rejectReason: input.reason,
+          reviewedAt: now,
+          reviewedById: input.actorId,
+          executionSnapshotHash: null,
+          ...(terminal ? { forfeitedAt: now, cancelSource: 'ACCOUNT_CLOSED_FORFEITURE' } : {}),
+        }
+      : {
+          status: 'REJECTED',
+          rejectReason: input.reason,
+          reviewedAt: now,
+          reviewedById: input.actorId,
+          executionState: null,
+          executionKey: null,
+          providerStatus: null,
+        },
   })
-  if (changed.count !== 1) throw new PayoutExecutionConflictError('state_changed')
+  if (changed.count !== 1) return { ok: false, reason: 'state_changed' }
 
   if (terminal) {
-    // Forfeiture: the reserve is not returned to the balance and no PAYOUT_RELEASE
-    // (and no zero ledger entry) is created. Only the reserved-amount aggregate is
-    // recomputed from the remaining open payouts.
+    // Forfeiture: the reserve is not returned to the balance and no PAYOUT_RELEASE is
+    // written. Only the reserved-amount aggregate is recomputed.
     const reservedAfter = await recomputeReservedPayoutAmount(tx, payout.accountId)
     await tx.tradingAccount.update({
       where: { id: payout.accountId },
       data: { reservedPayoutAmount: reservedAfter },
     })
-    await tx.auditLog.create({
-      data: {
-        actorId: input.actorId,
-        accountId: payout.accountId,
-        action: MANUAL_PAYOUT_AUDIT_ACTIONS.REJECTED,
-        reason: input.reason,
-        metadata: {
-          payoutId: payout.id,
-          manual: true,
-          cancelSource: 'ACCOUNT_CLOSED_FORFEITURE',
-          forfeitedAt: now.toISOString(),
-          forfeitedAmount: payout.amount.toFixed(2),
+  } else {
+    const amount = payout.amount
+    const newBalance = before.currentBalance.plus(amount)
+    const newEquity = before.currentEquity.plus(amount)
+    const newDailyStartingEquity = before.dailyStartingEquity.plus(amount)
+    let account = before
+    if (payout.balanceReserved) {
+      account = await tx.tradingAccount.update({
+        where: { id: payout.accountId },
+        data: {
+          currentBalance: newBalance,
+          currentEquity: newEquity,
+          balance: before.balance + Number(amount),
+          equity: before.equity + Number(amount),
+          dailyStartingBalance: before.dailyStartingBalance.plus(amount),
+          dailyStartingEquity: newDailyStartingEquity,
         },
-      },
+      })
+    }
+    const metrics = payout.balanceReserved
+      ? recomputeMetrics({
+          initialBalance: Number(account.initialBalance),
+          dailyStartingEquity: Number(newDailyStartingEquity),
+          currentEquity: Number(newEquity),
+        })
+      : {}
+    const reserved = await recomputeReservedPayoutAmount(tx, payout.accountId)
+    await tx.tradingAccount.update({
+      where: { id: payout.accountId },
+      data: { ...metrics, reservedPayoutAmount: reserved },
     })
-    return { ok: true, payoutId: payout.id, status: 'REJECTED', alreadyRejected: false }
+    if (payout.balanceReserved) {
+      await tx.accountLedgerEntry.create({
+        data: {
+          accountId: payout.accountId,
+          type: 'PAYOUT_RELEASE',
+          amount,
+          currency: 'USD',
+          balanceAfter: account.currentBalance,
+          refType: 'PAYOUT',
+          refId: payout.id,
+          idempotencyKey: `payout-release:${payout.id}`,
+          metadata: { reason: input.reason, ...(manual ? { manual: true } : {}) },
+        },
+      })
+    }
   }
 
-  // Restore the reserve exactly once. The account row is locked, so read-modify-write
-  // under the lock is atomic. balanceReserved is always true for MANUAL_V1 requests.
-  const amount = payout.amount
-  const currentEquity = before.currentEquity.plus(amount)
-  const dailyStartingEquity = before.dailyStartingEquity.plus(amount)
-  await tx.tradingAccount.update({
-    where: { id: payout.accountId },
-    data: {
-      currentBalance: before.currentBalance.plus(amount),
-      currentEquity,
-      balance: before.balance + Number(amount),
-      equity: before.equity + Number(amount),
-      dailyStartingBalance: before.dailyStartingBalance.plus(amount),
-      dailyStartingEquity,
-    },
-  })
-  const metrics = recomputeMetrics({
-    initialBalance: Number(before.initialBalance),
-    dailyStartingEquity: Number(dailyStartingEquity),
-    currentEquity: Number(currentEquity),
-  })
-  const reserved = await recomputeReservedPayoutAmount(tx, payout.accountId)
-  await tx.tradingAccount.update({
-    where: { id: payout.accountId },
-    data: { ...metrics, reservedPayoutAmount: reserved },
-  })
-
-  await tx.accountLedgerEntry.create({
-    data: {
-      accountId: payout.accountId,
-      type: 'PAYOUT_RELEASE',
-      amount,
-      currency: 'USD',
-      balanceAfter: before.currentBalance.plus(amount),
-      refType: 'PAYOUT',
-      refId: payout.id,
-      idempotencyKey: `payout-release:${payout.id}`,
-      metadata: { reason: input.reason, manual: true },
-    },
-  })
+  if (!manual) {
+    const activeExecutions = await tx.payout.count({
+      where: { accountId: payout.accountId, executionState: { in: [...ACTIVE_EXECUTION_STATES] } },
+    })
+    if (activeExecutions === 0) {
+      await tx.tradingAccount.update({ where: { id: payout.accountId }, data: { payoutExecutionAt: null } })
+    }
+  }
 
   await tx.auditLog.create({
     data: {
       actorId: input.actorId,
       accountId: payout.accountId,
-      action: MANUAL_PAYOUT_AUDIT_ACTIONS.REJECTED,
+      action: manual ? MANUAL_PAYOUT_AUDIT_ACTIONS.REJECTED : 'PAYOUT_REJECTED',
       reason: input.reason,
-      metadata: { payoutId: payout.id, manual: true },
+      metadata: {
+        payoutId: payout.id,
+        previousStatus: payout.status,
+        newStatus: 'REJECTED',
+        mode: input.mode,
+        manual,
+        forfeited: terminal,
+        ...(terminal
+          ? {
+              cancelSource: 'ACCOUNT_CLOSED_FORFEITURE',
+              forfeitedAt: now.toISOString(),
+              forfeitedAmount: payout.amount.toFixed(2),
+            }
+          : {}),
+      },
     },
   })
-  return { ok: true, payoutId: payout.id, status: 'REJECTED', alreadyRejected: false }
+  return { ok: true, payoutId: payout.id, status: 'REJECTED', alreadyRejected: false, forfeited: terminal }
+}
+
+/**
+ * Manual rejection (MANUAL_V1): APPROVED -> REJECTED. Thin wrapper over the unified
+ * service; keeps the owner-only API contract and result shape.
+ */
+export async function rejectManualPayoutInTx(
+  tx: Prisma.TransactionClient,
+  input: { id: string; actorId: string; reason: string },
+): Promise<RejectManualPayoutResult> {
+  const result = await rejectPayoutInTx(tx, { ...input, mode: 'OWNER_MANUAL' })
+  if (!result.ok) {
+    if (result.reason === 'wrong_status') return { ok: false, reason: 'not_approved' }
+    if (result.reason === 'not_found') return { ok: false, reason: 'not_found' }
+    if (result.reason === 'wrong_policy') return { ok: false, reason: 'wrong_policy' }
+    return { ok: false, reason: 'state_changed' }
+  }
+  return { ok: true, payoutId: result.payoutId, status: 'REJECTED', alreadyRejected: result.alreadyRejected }
 }

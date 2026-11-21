@@ -50,7 +50,7 @@ export async function POST(request: Request) {
         email,
         name,
         role: role as 'ADMIN' | 'RISK_MANAGER' | 'SUPPORT',
-        passwordHash: hashPassword(password),
+        passwordHash: await hashPassword(password),
         kycStatus: 'APPROVED',
         emailVerifiedAt: new Date(),
         profileCompletedAt: new Date(),

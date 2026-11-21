@@ -38,6 +38,13 @@ type StaffTicketDetail = {
   }
 }
 
+type SupportMetrics = {
+  openTickets: number
+  waitingForStaff: number
+  supportChatTickets24h: number
+  asOf: string
+}
+
 const STATUS_LABEL: Record<Status, string> = {
   OPEN: 'Open',
   IN_PROGRESS: 'In progress',
@@ -99,6 +106,8 @@ function errorText(status: number, payload: { error?: string }) {
 export function SupportDesk({ role, userId }: { role: string; userId: string }) {
   const canWrite = role === 'ADMIN' || role === 'SUPPORT'
 
+  const [metrics, setMetrics] = useState<SupportMetrics | null>(null)
+  const [metricsError, setMetricsError] = useState<string | null>(null)
   const [tickets, setTickets] = useState<StaffTicket[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -155,6 +164,31 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
   useEffect(() => {
     void loadList(1)
   }, [loadList])
+
+  useEffect(() => {
+    if (role !== 'ADMIN') return
+    let cancelled = false
+    const loadMetrics = async () => {
+      try {
+        const { status: code, data } = await api<SupportMetrics>('/api/admin/support/metrics')
+        if (code !== 200 || !('openTickets' in data)) {
+          throw new Error(errorText(code, data as { error?: string }))
+        }
+        if (!cancelled) {
+          setMetrics(data)
+          setMetricsError(null)
+        }
+      } catch (error) {
+        if (!cancelled) setMetricsError(error instanceof Error ? error.message : 'Unable to load support metrics.')
+      }
+    }
+    void loadMetrics()
+    const timer = window.setInterval(() => void loadMetrics(), 20_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [role])
 
   const loadDetail = useCallback(async (publicId: string, messagePage = 1) => {
     setDetailLoading(true)
@@ -236,6 +270,24 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
 
   return (
     <div className="flex flex-col gap-3">
+      {role === 'ADMIN' ? (
+        metrics ? (
+          <div className="grid gap-2 sm:grid-cols-3" aria-label="Support queue metrics">
+            {[
+              { label: 'Open tickets', value: metrics.openTickets },
+              { label: 'Waiting for staff', value: metrics.waitingForStaff },
+              { label: 'Support chat tickets · 24h', value: metrics.supportChatTickets24h },
+            ].map((item) => (
+              <div key={item.label} className="rounded-xl border border-border bg-card px-3 py-2">
+                <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{item.label}</p>
+                <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        ) : metricsError ? (
+          <p role="status" className="text-xs text-muted-foreground">{metricsError}</p>
+        ) : null
+      ) : null}
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-card p-3">
         <Filter label="Status" value={status} onChange={(value) => setStatus(value as '' | Status)} options={STATUSES} labels={STATUS_LABEL} />
         <Filter label="Priority" value={priority} onChange={(value) => setPriority(value as '' | Priority)} options={PRIORITIES} />

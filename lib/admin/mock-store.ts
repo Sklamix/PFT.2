@@ -1,4 +1,3 @@
-import { hashPassword } from '@/lib/admin/auth'
 import { AccountOverrideError } from '@/lib/admin/account-override-error'
 import { PayoutApprovalError } from '@/lib/admin/payout-error'
 import { drawdownPressure, isBreached, isPassing, matchesTraderFilter, recomputeMetrics, riskBadge } from '@/lib/admin/risk'
@@ -21,7 +20,6 @@ import type {
 type MockUser = {
   id: string
   email: string
-  passwordHash: string
   name: string
   role: Role
   kycStatus: KycStatus
@@ -69,7 +67,6 @@ const users: MockUser[] = [
   {
     id: 'usr_admin',
     email: 'ops@pft.local',
-    passwordHash: hashPassword(process.env.ADMIN_BOOTSTRAP_PASSWORD || 'PFT-Admin-Desk!'),
     name: 'Operations Desk',
     role: 'ADMIN',
     kycStatus: 'APPROVED',
@@ -79,7 +76,6 @@ const users: MockUser[] = [
   {
     id: 'usr_risk',
     email: 'risk@pft.local',
-    passwordHash: hashPassword(process.env.RISK_BOOTSTRAP_PASSWORD || 'PFT-Risk-Desk!'),
     name: 'Risk Manager',
     role: 'RISK_MANAGER',
     kycStatus: 'APPROVED',
@@ -89,7 +85,6 @@ const users: MockUser[] = [
   {
     id: 'usr_marcus',
     email: 'marcus.vale@example.com',
-    passwordHash: hashPassword('trader-demo'),
     name: 'Marcus Vale',
     role: 'TRADER',
     kycStatus: 'APPROVED',
@@ -99,7 +94,6 @@ const users: MockUser[] = [
   {
     id: 'usr_nina',
     email: 'nina.okoye@example.com',
-    passwordHash: hashPassword('trader-demo'),
     name: 'Nina Okoye',
     role: 'TRADER',
     kycStatus: 'APPROVED',
@@ -109,7 +103,6 @@ const users: MockUser[] = [
   {
     id: 'usr_erik',
     email: 'erik.sund@example.com',
-    passwordHash: hashPassword('trader-demo'),
     name: 'Erik Sund',
     role: 'TRADER',
     kycStatus: 'PENDING',
@@ -119,7 +112,6 @@ const users: MockUser[] = [
   {
     id: 'usr_lana',
     email: 'lana.cho@example.com',
-    passwordHash: hashPassword('trader-demo'),
     name: 'Lana Cho',
     role: 'TRADER',
     kycStatus: 'APPROVED',
@@ -129,7 +121,6 @@ const users: MockUser[] = [
   {
     id: 'usr_theo',
     email: 'theo.raines@example.com',
-    passwordHash: hashPassword('trader-demo'),
     name: 'Theo Raines',
     role: 'TRADER',
     kycStatus: 'APPROVED',
@@ -509,7 +500,7 @@ const payouts: MockPayout[] = [
   },
 ]
 
-let telemetry: TelemetryState = {
+const telemetry: TelemetryState = {
   lastSyncedAt: minutesAgo(2),
   lastStatus: 'ok',
   lastError: null,
@@ -581,12 +572,6 @@ function toPayoutRow(payout: MockPayout): PayoutRow {
 
 export const mockStore = {
   source: 'mock' as const,
-
-  findStaffByEmail(email: string) {
-    return users.find(
-      (user) => user.email.toLowerCase() === email.toLowerCase() && user.role !== 'TRADER',
-    )
-  },
 
   listTraders(params: { q?: string; filter?: TraderFilter; page?: number; pageSize?: number }): PaginatedTraders {
     const q = params.q?.trim().toLowerCase() ?? ''

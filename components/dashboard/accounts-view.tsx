@@ -8,6 +8,7 @@ import { ResetAccountDialog } from '@/components/terminal/ResetAccountDialog'
 import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept as canvas background reference
 const BG = '#080C14'
 const CARD = '#0C1220'
 const LABEL = '#94A3B8'
@@ -15,7 +16,7 @@ const GREEN = '#22C55E'
 const RED = '#EF4444'
 
 const FILTERS = [
-  { id: 'all', label: 'All' },
+  { id: 'all', label: 'Current' },
   { id: 'active', label: 'Active' },
   { id: 'funded', label: 'Funded' },
   { id: 'archived', label: 'Archived / Breached' },
@@ -353,14 +354,29 @@ function AccountCard({
         </p>
       ) : null}
 
+      {account.riskReview || account.unresolvedFx > 0 || account.openValuationRisk ? (
+        <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+          {account.unresolvedFx > 0
+            ? `${account.unresolvedFx} unresolved FX close(s). `
+            : ''}
+          {account.riskReviewReason ?? 'Valuation is under conservative review; new exposure is disabled.'}
+        </p>
+      ) : null}
+
       {/* Actions */}
       <div className="mt-4 flex flex-wrap items-center gap-2">
-        <Link
-          href={`/dashboard/terminal?account=${encodeURIComponent(account.id)}`}
-          className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-800 px-3 text-xs text-slate-300 transition-colors hover:border-slate-600 hover:text-slate-100"
-        >
-          Open in Terminal <ArrowUpRight className="size-3.5" />
-        </Link>
+        {account.status === 'ARCHIVED' ? (
+          <span className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-800 px-3 text-xs text-slate-500">
+            Archived — trading disabled
+          </span>
+        ) : (
+          <Link
+            href={`/dashboard/terminal?account=${encodeURIComponent(account.id)}`}
+            className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-800 px-3 text-xs text-slate-300 transition-colors hover:border-slate-600 hover:text-slate-100"
+          >
+            Open in Terminal <ArrowUpRight className="size-3.5" />
+          </Link>
+        )}
         <button
           type="button"
           onClick={onShowCredentials}
@@ -404,6 +420,25 @@ function AccountCard({
                   </span>
                   <span className="font-mono tabular-nums" style={{ color: pnlColor(trade.pnl) }}>
                     {signedUsd(trade.pnl)}
+                    {trade.pnlBasis && trade.pnlBasis !== 'NET' ? (
+                      <span className="ml-1 text-[9px] uppercase text-slate-600">
+                        {trade.pnlBasis === 'GROSS_LEGACY' ? 'gross' : trade.pnlBasis.toLowerCase()}
+                      </span>
+                    ) : null}
+                    {trade.valuationStatus && trade.valuationStatus !== 'RESOLVED_CURRENT' ? (
+                      <span className="ml-1 text-[9px] uppercase text-amber-500">
+                        {trade.valuationStatus.toLowerCase()}
+                      </span>
+                    ) : null}
+                    {trade.fxStale ? (
+                      <span className="ml-1 text-[9px] uppercase text-amber-500">fx stale</span>
+                    ) : null}
+                    {trade.fxUnresolved ? (
+                      <span className="ml-1 text-[9px] uppercase text-amber-500">fx unresolved</span>
+                    ) : null}
+                    {trade.priceStale ? (
+                      <span className="ml-1 text-[9px] uppercase text-amber-500">stale price</span>
+                    ) : null}
                   </span>
                   <span className="font-mono text-[10px] text-slate-600">
                     {new Date(trade.closedAt).toLocaleString('en-GB', {
@@ -443,9 +478,12 @@ export function AccountsView() {
 
   const accounts = data?.accounts ?? []
   const trades = data?.trades ?? {}
-  const visible = filter === 'all' ? accounts : accounts.filter((account) => account.category === filter)
+  // Archived accounts are history, not part of the trader's current working set.
+  // They remain reachable only through the explicit "Archived / Breached" tab.
+  const current = accounts.filter((account) => account.category !== 'archived')
+  const visible = filter === 'all' ? current : accounts.filter((account) => account.category === filter)
   const counts = {
-    all: accounts.length,
+    all: current.length,
     active: accounts.filter((account) => account.category === 'active').length,
     funded: accounts.filter((account) => account.category === 'funded').length,
     archived: accounts.filter((account) => account.category === 'archived').length,

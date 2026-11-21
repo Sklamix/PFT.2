@@ -12,7 +12,7 @@ type OverviewState = {
   select: (id: string) => void
 }
 
-export const useOverview = create<OverviewState>((set, get) => ({
+export const useOverview = create<OverviewState>((set) => ({
   data: null,
   loadState: 'idle',
   error: null,

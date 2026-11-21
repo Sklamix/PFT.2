@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/admin/auth'
-import { jsonError, safeError } from '@/lib/admin/http'
+import { jsonError } from '@/lib/admin/http'
 
 export const dynamic = 'force-dynamic'
 

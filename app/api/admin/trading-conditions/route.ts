@@ -22,7 +22,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const { error } = await requireAdmin()
+  const { session, error } = await requireAdmin()
   if (error) return error
 
   const body = await request.json().catch(() => null) as Record<string, unknown> | null
@@ -47,7 +47,16 @@ export async function PATCH(request: Request) {
     if (avgSpread == null) return jsonError('Average spread must be a positive number or zero')
     if (commissionPerLot == null) return jsonError('Commission must be a positive number or zero')
     if (typeof row.isActive !== 'boolean') return jsonError('Instrument active flag must be a boolean')
-    instruments.push({ id, avgSpread, commissionPerLot, isActive: row.isActive })
+    if (typeof row.commissionConfigured !== 'boolean') {
+      return jsonError('Commission configured flag must be a boolean')
+    }
+    instruments.push({
+      id,
+      avgSpread,
+      commissionPerLot,
+      commissionConfigured: row.commissionConfigured,
+      isActive: row.isActive,
+    })
   }
 
   if (avgExecutionSpeedMs == null && instruments.length === 0) {
@@ -55,7 +64,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const payload = await updateTradingConditions({ avgExecutionSpeedMs, instruments })
+    const payload = await updateTradingConditions({ avgExecutionSpeedMs, instruments, actorId: session?.sub ?? null })
     return NextResponse.json(payload)
   } catch (err) {
     return safeError(err)

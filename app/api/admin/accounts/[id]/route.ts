@@ -2,26 +2,21 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/admin/auth'
 import { jsonError, safeError } from '@/lib/admin/http'
+import { archiveAccount } from '@/lib/finance/archive'
 
 export const dynamic = 'force-dynamic'
 
-const OPEN_PAYOUT_STATUSES = ['PENDING', 'APPROVED'] as const
-
 /**
- * Deletes a single trading account and everything that cascades from it
- * (trades, positions, history, journal entries, payouts).
+ * Archives a single trading account under an account row lock.
  *
- * Guardrails:
- *  - ADMIN role only.
- *  - A written reason is mandatory and stored in the audit log.
- *  - Accounts with unsettled payouts (PENDING/APPROVED) cannot be deleted;
- *    settle or reject those first so money cannot disappear mid-flight.
- *  - Certificates referencing the account are kept and detached (schema SET NULL).
+ * Open positions and pending payouts block the archive. Pending orders are
+ * cancelled atomically. Financial history is never hard-deleted: the ledger
+ * append-only trigger and RESTRICT FKs make deletion impossible by design.
  */
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   const { session, error } = await requireAdmin()
   if (error) return error
-  if (session.role !== 'ADMIN') return jsonError('Only an admin can delete an account.', 403)
+  if (session.role !== 'ADMIN') return jsonError('Only an admin can archive an account.', 403)
 
   try {
     const { id } = await context.params
@@ -30,55 +25,30 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     if (reason.length < 4) return jsonError('A reason of at least 4 characters is required.', 400)
     if (reason.length > 500) return jsonError('Reason is too long (max 500 characters).', 400)
 
-    const account = await prisma.tradingAccount.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        displayId: true,
-        userId: true,
-        planSize: true,
-        _count: { select: { trades: true, payouts: true } },
-      },
-    })
-    if (!account) return jsonError('Account not found.', 404)
-
-    const openPayouts = await prisma.payout.count({
-      where: { accountId: account.id, status: { in: [...OPEN_PAYOUT_STATUSES] } },
-    })
-    if (openPayouts > 0) {
+    const result = await prisma.$transaction((tx) =>
+      archiveAccount(tx, { accountId: id, reason, actorId: session.sub }),
+    )
+    if (!result.ok) {
+      if (result.reason === 'blocked') {
+        return NextResponse.json(
+          {
+            error: 'Account cannot be archived while it has open exposure, unresolved FX or unsettled payouts.',
+            blockers: result.blockers,
+          },
+          { status: 409 },
+        )
+      }
       return jsonError(
-        `This account has ${openPayouts} unsettled payout(s). Approve or reject them before deleting the account.`,
-        409,
+        result.reason === 'not_found' ? 'Account not found.' : 'Account is already archived.',
+        result.reason === 'not_found' ? 404 : 409,
       )
     }
 
-    const deletedPayouts = account._count.payouts
-
-    await prisma.$transaction([
-      prisma.auditLog.create({
-        data: {
-          actorId: session.sub,
-          accountId: null,
-          action: 'ACCOUNT_DELETED',
-          reason,
-          metadata: {
-            accountId: account.id,
-            displayId: account.displayId,
-            userId: account.userId,
-            planSize: account.planSize,
-            tradesDeleted: account._count.trades,
-            payoutsDeleted: deletedPayouts,
-          },
-        },
-      }),
-      prisma.tradingAccount.delete({ where: { id: account.id } }),
-    ])
-
     return NextResponse.json({
       ok: true,
-      deletedAccount: account.displayId,
-      tradesDeleted: account._count.trades,
-      payoutsDeleted: deletedPayouts,
+      archivedAccount: result.displayId,
+      cancelledOrders: result.cancelledOrders,
+      retention: 'Financial history is retained immutably; the account is archived, not deleted.',
     })
   } catch (cause) {
     return safeError(cause)

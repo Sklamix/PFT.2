@@ -1,20 +1,17 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Camera, ChevronDown, ExternalLink, StickyNote, Tag, X } from 'lucide-react'
+import { Camera, ExternalLink, StickyNote, Tag, X } from 'lucide-react'
 import { useJournal, type JournalTrade } from '@/lib/stores/useJournal'
 import { useSelectedAccount } from '@/lib/stores/useSelectedAccount'
 import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
 
-const LABEL = '#94A3B8'
 const GREEN = '#22C55E'
 const RED = '#EF4444'
 
 const TAG_SUGGESTIONS = ['SMC FVG', 'Breakout', 'Trend continuation', 'Reversal', 'News trade', 'Revenge trade', 'Overleveraged', 'A+ setup']
 
-const usd = (n: number) =>
-  `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const signedUsd = (n: number) =>
   `${n >= 0 ? '+' : '-'}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
@@ -317,6 +314,25 @@ function TradeCard({ trade, onOpen }: { trade: JournalTrade; onOpen: () => void 
           ({trade.pnlPct >= 0 ? '+' : ''}
           {trade.pnlPct.toFixed(2)}%)
         </span>
+        {trade.pnlBasis && trade.pnlBasis !== 'NET' ? (
+          <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-600">
+            {trade.pnlBasis === 'GROSS_LEGACY' ? 'gross' : trade.pnlBasis.toLowerCase()}
+          </span>
+        ) : null}
+        {trade.valuationStatus && trade.valuationStatus !== 'RESOLVED_CURRENT' ? (
+          <span className="ml-2 text-[10px] uppercase tracking-wide text-amber-500">
+            {trade.valuationStatus.toLowerCase()}
+          </span>
+        ) : null}
+        {trade.fxStale ? (
+          <span className="ml-2 text-[10px] uppercase tracking-wide text-amber-500">fx stale</span>
+        ) : null}
+        {trade.fxUnresolved ? (
+          <span className="ml-2 text-[10px] uppercase tracking-wide text-amber-500">fx unresolved</span>
+        ) : null}
+        {trade.priceStale ? (
+          <span className="ml-2 text-[10px] uppercase tracking-wide text-amber-500">stale price</span>
+        ) : null}
       </p>
 
       {/* Footer */}
@@ -379,19 +395,35 @@ export function JournalView() {
   }, [trades, filters, globalAccountId])
 
   const kpis = useMemo(() => {
-    const total = filtered.length
-    const wins = filtered.filter((trade) => trade.pnl > 0)
-    const losses = filtered.filter((trade) => trade.pnl < 0)
+    const active = filtered.filter((trade) => trade.pnlBasis !== 'VOID')
+    const total = active.length
+    const wins = active.filter((trade) => trade.pnl > 0)
+    const losses = active.filter((trade) => trade.pnl < 0)
     const grossWin = wins.reduce((sum, trade) => sum + trade.pnl, 0)
     const grossLoss = Math.abs(losses.reduce((sum, trade) => sum + trade.pnl, 0))
     const avgWin = wins.length ? grossWin / wins.length : 0
     const avgLoss = losses.length ? grossLoss / losses.length : 0
+    // A KPI called "Net PnL" must contain only confirmed NET rows.
+    const basis = (trade: (typeof filtered)[number]) => trade.pnlBasis ?? 'UNCLASSIFIED'
+    const netPnl = filtered.filter((trade) => basis(trade) === 'NET').reduce((sum, trade) => sum + trade.pnl, 0)
+    const grossLegacyPnl = filtered
+      .filter((trade) => basis(trade) === 'GROSS_LEGACY' || basis(trade) === 'UNCLASSIFIED')
+      .reduce((sum, trade) => sum + trade.pnl, 0)
+    const unresolvedPnl = filtered
+      .filter((trade) => basis(trade) === 'UNRESOLVED' || basis(trade) === 'STALE')
+      .reduce((sum, trade) => sum + trade.pnl, 0)
+    const hasGrossLegacy = filtered.some((trade) => basis(trade) === 'GROSS_LEGACY' || basis(trade) === 'UNCLASSIFIED')
+    const hasUnresolved = filtered.some((trade) => basis(trade) === 'UNRESOLVED' || basis(trade) === 'STALE')
     return {
       winRate: total ? (wins.length / total) * 100 : 0,
       profitFactor: grossLoss > 0 ? grossWin / grossLoss : grossWin > 0 ? Infinity : 0,
       avgRR: avgLoss > 0 ? avgWin / avgLoss : 0,
       total,
-      netPnl: filtered.reduce((sum, trade) => sum + trade.pnl, 0),
+      netPnl,
+      grossLegacyPnl,
+      unresolvedPnl,
+      hasGrossLegacy,
+      hasUnresolved,
     }
   }, [filtered])
 
@@ -470,7 +502,7 @@ export function JournalView() {
         </header>
 
         {/* KPI row */}
-        <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <div className="mt-6 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           <Kpi label="Win Rate" value={`${kpis.winRate.toFixed(1)}%`} tone={kpis.winRate >= 50 ? GREEN : '#F1F5F9'} />
           <Kpi
             label="Profit Factor"
@@ -480,6 +512,12 @@ export function JournalView() {
           <Kpi label="Avg Risk:Reward" value={kpis.avgRR > 0 ? `1 : ${kpis.avgRR.toFixed(2)}` : '—'} />
           <Kpi label="Total Trades" value={String(kpis.total)} />
           <Kpi label="Net PnL" value={signedUsd(kpis.netPnl)} tone={kpis.netPnl >= 0 ? GREEN : RED} />
+          {kpis.hasGrossLegacy ? (
+            <Kpi label="Gross (legacy)" value={signedUsd(kpis.grossLegacyPnl)} tone="#F59E0B" />
+          ) : null}
+          {kpis.hasUnresolved ? (
+            <Kpi label="Stale / unresolved" value={signedUsd(kpis.unresolvedPnl)} tone="#F59E0B" />
+          ) : null}
         </div>
 
         {/* Cards grid */}

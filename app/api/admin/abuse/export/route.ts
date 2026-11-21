@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server'
 import { ABUSE_CATEGORIES, exportAbuseEvents } from '@/lib/admin/abuse'
 import { requireAdmin } from '@/lib/admin/auth'
 import { safeError } from '@/lib/admin/http'

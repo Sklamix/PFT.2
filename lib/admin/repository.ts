@@ -8,6 +8,7 @@ import { countUnresolvedFxReconciliations, unresolvedFxGate } from '@/lib/financ
 import { AccountOverrideError } from '@/lib/admin/account-override-error'
 import { PayoutApprovalError } from '@/lib/admin/payout-error'
 import { payoutApprovalBlocker } from '@/lib/admin/payout-policy'
+import { AdminStoreUnavailableError, adminMockAllowed, decideAdminStore } from '@/lib/admin/store-policy'
 import {
   ACTIVE_EXECUTION_STATES,
   PAYOUT_EXECUTION_POLICIES,
@@ -18,6 +19,7 @@ import {
   isActiveExecutionState,
   payoutExecutionSnapshotMatches,
   rejectManualPayoutInTx,
+  rejectPayoutInTx,
   resolvePayoutApprovalGate,
 } from '@/lib/admin/payout-execution'
 import type {
@@ -41,25 +43,41 @@ import type {
 } from '@/lib/admin/types'
 
 function hasDatabase() {
-  return Boolean(process.env.DATABASE_URL)
+  return Boolean(process.env.DATABASE_URL?.trim())
 }
 
 let prismaReady: Promise<import('@prisma/client').PrismaClient | null> | null = null
 let retryAfter = 0
 
+/**
+ * PHASE 1.96a: fail closed. The mock store is only returned when the explicit
+ * non-production opt-in is set; otherwise any unavailable path throws so auth and
+ * authorization can never succeed on mock data.
+ */
+function unavailable(): null {
+  const mode = decideAdminStore({
+    hasDatabase: hasDatabase(),
+    mockAllowed: adminMockAllowed(),
+    probeOk: false,
+  })
+  if (mode === 'mock') return null
+  throw new AdminStoreUnavailableError()
+}
+
 async function db() {
-  if (!hasDatabase() || Date.now() < retryAfter) return null
+  if (!hasDatabase() || Date.now() < retryAfter) return unavailable()
   if (!prismaReady) {
     prismaReady = (async () => {
       try {
         const { prisma } = await import('@/lib/prisma')
         await prisma.$queryRaw`SELECT 1`
         return prisma
-      } catch (error) {
-        console.warn('[pft] Database unavailable, using mock store', error)
+      } catch {
+        // Never log the underlying error: it may contain connection details.
+        console.warn('[pft] admin database unavailable')
         prismaReady = null
         retryAfter = Date.now() + 30_000
-        return null
+        return unavailable()
       }
     })()
   }
@@ -391,7 +409,9 @@ export async function applyAccountOverrideInTransaction(
 export const adminRepo = {
   async findStaffByEmail(email: string) {
     const prisma = await db()
-    if (!prisma) return mockStore.findStaffByEmail(email)
+    // PHASE 1.96a: authentication never falls back to the mock store, even when the
+    // mock backend is explicitly enabled for local admin UI browsing.
+    if (!prisma) return null
     return prisma.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' }, role: { in: ['ADMIN', 'RISK_MANAGER', 'SUPPORT'] } },
     })
@@ -791,92 +811,14 @@ export const adminRepo = {
       )
     }
 
-    return prisma.$transaction(async (tx) => {
-      const changed = await tx.payout.updateMany({
-        where: {
-          id,
-          status: 'PENDING',
-          providerBatchId: null,
-          providerPayoutId: null,
-          providerStatus: null,
-          executionState: payout.executionState,
-        },
-        data: {
-          status: 'REJECTED',
-          rejectReason: reason,
-          reviewedAt: new Date(),
-          reviewedById: actorId,
-          executionState: null,
-          executionKey: null,
-          providerStatus: null,
-        },
-      })
-      const row = await tx.payout.findUnique({ where: { id }, include: { user: true, account: true } })
-      if (changed.count !== 1 || !row) return row ? mapPayout(row) : null
-
-      await tx.$queryRaw`SELECT "id" FROM "TradingAccount" WHERE "id" = ${payout.accountId} FOR UPDATE`
-      const before = await tx.tradingAccount.findUniqueOrThrow({ where: { id: payout.accountId } })
-      const amount = num(payout.amount)
-      const account = payout.balanceReserved
-        ? await tx.tradingAccount.update({
-            where: { id: payout.accountId },
-            data: {
-              currentBalance: { increment: new Prisma.Decimal(amount) },
-              currentEquity: { increment: new Prisma.Decimal(amount) },
-              balance: { increment: amount },
-              equity: { increment: amount },
-              dailyStartingBalance: { increment: new Prisma.Decimal(amount) },
-              dailyStartingEquity: { increment: new Prisma.Decimal(amount) },
-            },
-          })
-        : before
-      const metrics = payout.balanceReserved
-        ? recomputeMetrics({
-            initialBalance: num(account.initialBalance),
-            dailyStartingEquity: num(account.dailyStartingEquity),
-            currentEquity: num(account.currentEquity),
-          })
-        : {}
-      const reserved = await tx.payout.aggregate({
-        where: { accountId: payout.accountId, status: { in: ['PENDING', 'APPROVED'] } },
-        _sum: { amount: true },
-      })
-      await tx.tradingAccount.update({
-        where: { id: payout.accountId },
-        data: { ...metrics, reservedPayoutAmount: reserved._sum.amount ?? 0 },
-      })
-      const activeExecutions = await tx.payout.count({
-        where: { accountId: payout.accountId, executionState: { in: [...ACTIVE_EXECUTION_STATES] } },
-      })
-      if (activeExecutions === 0) {
-        await tx.tradingAccount.update({ where: { id: payout.accountId }, data: { payoutExecutionAt: null } })
-      }
-      await tx.auditLog.create({
-        data: {
-          actorId,
-          accountId: payout.accountId,
-          action: 'PAYOUT_REJECTED',
-          reason,
-          metadata: { payoutId: id },
-        },
-      })
-      if (payout.balanceReserved) {
-        await tx.accountLedgerEntry.create({
-          data: {
-            accountId: payout.accountId,
-            type: 'PAYOUT_RELEASE',
-            amount: new Prisma.Decimal(amount),
-            currency: 'USD',
-            balanceAfter: account.currentBalance,
-            refType: 'PAYOUT',
-            refId: id,
-            idempotencyKey: `payout-release:${id}`,
-            metadata: { reason },
-          },
-        })
-      }
-      return mapPayout(row)
-    })
+    // Unified rejection service (D10): the legacy admin route keeps PENDING-only
+    // semantics and reserve-release behaviour, but shares locking, ledger idempotency
+    // and audit with the owner-manual path.
+    await prisma.$transaction((tx) =>
+      rejectPayoutInTx(tx, { id, actorId, reason, mode: 'LEGACY_ADMIN' }),
+    )
+    const row = await prisma.payout.findUnique({ where: { id }, include: { user: true, account: true } })
+    return row ? mapPayout(row) : null
   },
 
   async updateProviderPayoutStatus(

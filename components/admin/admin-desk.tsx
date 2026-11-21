@@ -19,6 +19,7 @@ import { PayoutsManagement } from '@/components/admin/payouts-management'
 import { RiskTable } from '@/components/admin/risk-table'
 import { StaffMessages } from '@/components/admin/staff-messages'
 import { SupportDesk } from '@/components/admin/support-desk'
+import { DiagnosticsPanel } from '@/components/admin/diagnostics-panel'
 import { ActivityLog } from '@/components/admin/activity-log'
 import { TradingConditionsManagement } from '@/components/admin/trading-conditions-management'
 import { TelemetryController } from '@/components/admin/telemetry-controller'
@@ -57,6 +58,7 @@ const SECTIONS = [
   { id: 'support', label: 'Support' },
   { id: 'messages', label: 'Messages' },
   { id: 'activity', label: 'Activity log' },
+  { id: 'diagnostics', label: 'Diagnostics' },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]['id']
@@ -113,43 +115,65 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [section, setSection] = useState<SectionId>('monitor')
 
   const load = useCallback(async () => {
-    try {
-      const [overview, traders, queue, orderRows, pulse, approvals, reviews, readinessReport, appealItems, abuseReport] = await Promise.all([
-        api<OverviewMetrics>('/api/admin/metrics/overview'),
-        api<{ items: TraderRow[] }>(`/api/admin/traders?q=${encodeURIComponent(query)}&filter=${filter}`),
-        api<{ items: PayoutRow[] }>('/api/admin/payouts'),
-        api<{ items: OrderRow[] }>('/api/admin/orders'),
-        api<TelemetryState>('/api/admin/telemetry'),
-        user.role === 'ADMIN'
-          ? api<{ items: PendingAccountOverride[] }>('/api/admin/funding-approvals')
-          : Promise.resolve({ items: [] as PendingAccountOverride[] }),
-        user.role === 'ADMIN'
-          ? api<{ items: PendingActionReview[] }>('/api/admin/action-reviews')
-          : Promise.resolve({ items: [] as PendingActionReview[] }),
-        user.role === 'ADMIN'
-          ? api<ReadinessSummary>('/api/admin/readiness')
-          : Promise.resolve(null),
-        user.role === 'ADMIN'
-          ? api<{ items: AppealItem[] }>('/api/admin/appeals')
-          : Promise.resolve({ items: [] as AppealItem[] }),
-        user.role === 'ADMIN'
-          ? api<AbuseOverview>('/api/admin/abuse')
-          : Promise.resolve(null),
-      ])
-      setMetrics(overview)
-      setRows(traders.items)
-      setPayouts(queue.items)
-      setOrders(orderRows.items)
-      setTelemetry(pulse)
-      setOverrideApprovals(approvals.items)
-      setActionReviews(reviews.items)
-      setReadiness(readinessReport)
-      setAppeals(appealItems.items)
-      setAbuse(abuseReport)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load operations desk')
+    // One optional panel (abuse, readiness, appeals) must never blank the whole
+    // desk. Each request settles independently; successful data is kept and the
+    // failed section is named in a non-blocking warning.
+    const [
+      overviewResult,
+      tradersResult,
+      queueResult,
+      orderRowsResult,
+      pulseResult,
+      approvalsResult,
+      reviewsResult,
+      readinessResult,
+      appealItemsResult,
+      abuseResult,
+    ] = await Promise.allSettled([
+      api<OverviewMetrics>('/api/admin/metrics/overview'),
+      api<{ items: TraderRow[] }>(`/api/admin/traders?q=${encodeURIComponent(query)}&filter=${filter}`),
+      api<{ items: PayoutRow[] }>('/api/admin/payouts'),
+      api<{ items: OrderRow[] }>('/api/admin/orders'),
+      api<TelemetryState>('/api/admin/telemetry'),
+      user.role === 'ADMIN'
+        ? api<{ items: PendingAccountOverride[] }>('/api/admin/funding-approvals')
+        : Promise.resolve({ items: [] as PendingAccountOverride[] }),
+      user.role === 'ADMIN'
+        ? api<{ items: PendingActionReview[] }>('/api/admin/action-reviews')
+        : Promise.resolve({ items: [] as PendingActionReview[] }),
+      user.role === 'ADMIN'
+        ? api<ReadinessSummary>('/api/admin/readiness')
+        : Promise.resolve(null),
+      user.role === 'ADMIN'
+        ? api<{ items: AppealItem[] }>('/api/admin/appeals')
+        : Promise.resolve({ items: [] as AppealItem[] }),
+      user.role === 'ADMIN'
+        ? api<AbuseOverview>('/api/admin/abuse')
+        : Promise.resolve(null),
+    ])
+
+    const failed: string[] = []
+    const apply = <T,>(result: PromiseSettledResult<T>, label: string, setter: (value: T) => void) => {
+      if (result.status === 'fulfilled') setter(result.value)
+      else failed.push(label)
     }
+
+    apply(overviewResult, 'overview', setMetrics)
+    apply(tradersResult, 'traders', (value) => setRows(value.items))
+    apply(queueResult, 'payouts', (value) => setPayouts(value.items))
+    apply(orderRowsResult, 'orders', (value) => setOrders(value.items))
+    apply(pulseResult, 'telemetry', setTelemetry)
+    apply(approvalsResult, 'funding approvals', (value) => setOverrideApprovals(value.items))
+    apply(reviewsResult, 'action reviews', (value) => setActionReviews(value.items))
+    apply(readinessResult, 'readiness', setReadiness)
+    apply(appealItemsResult, 'appeals', (value) => setAppeals(value.items))
+    apply(abuseResult, 'abuse monitor', setAbuse)
+
+    setError(
+      failed.length === 0
+        ? null
+        : `Some panels could not refresh: ${failed.join(', ')}. The rest of the desk is still available.`,
+    )
   }, [filter, query, user.role])
 
   useEffect(() => {
@@ -352,7 +376,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
       {/* Section tabs */}
       <nav className="flex flex-wrap items-center gap-1 border-b border-border pb-2" aria-label="Admin sections">
-        {SECTIONS.map((item) => (
+        {SECTIONS.filter((item) => item.id !== 'diagnostics' || user.role === 'ADMIN').map((item) => (
           <Button
             key={item.id}
             size="sm"
@@ -506,6 +530,7 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       {section === 'messages' ? <StaffMessages /> : null}
       {section === 'support' ? <SupportDesk role={user.role} userId={user.sub} /> : null}
       {section === 'activity' ? <ActivityLog role={user.role} /> : null}
+      {section === 'diagnostics' && user.role === 'ADMIN' ? <DiagnosticsPanel /> : null}
 
       <PayoutQueue
         open={queueOpen}
@@ -695,11 +720,13 @@ export function AdminDesk({ user }: { user: AdminSession }) {
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent className="border-border bg-card sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete {deleteMode === 'account' ? `account ${selected?.displayId ?? ''}` : `trader ${selected?.traderEmail ?? ''}`}</DialogTitle>
+            <DialogTitle>Archive {deleteMode === 'account' ? `account ${selected?.displayId ?? ''}` : `trader ${selected?.traderEmail ?? ''}`}</DialogTitle>
             <DialogDescription>
-              Deletion is permanent. Trades, positions, orders and payouts belonging to the
-              {deleteMode === 'account' ? ' account' : ' trader'} are removed with it. Certificates are detached from the
-              deleted account but stay verifiable.
+              Financial history is retained, not deleted. Open positions, unresolved FX and unsettled payouts must be
+              settled first.{' '}
+              {deleteMode === 'account'
+                ? 'The account becomes read-only.'
+                : 'The trader login and every account become read-only; sessions are revoked.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -723,8 +750,8 @@ export function AdminDesk({ user }: { user: AdminSession }) {
 
             {deleteMode === 'trader' ? (
               <div className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px] leading-relaxed text-destructive">
-                This removes the trader login and every account, order, payout and certificate on the account. The action
-                is recorded in the audit log and cannot be undone.
+                This archives the trader login and every account. Ledger history, orders, payouts and certificates are
+                retained, sessions are revoked, and the action is recorded in the audit log.
               </div>
             ) : null}
 
@@ -787,12 +814,12 @@ export function AdminDesk({ user }: { user: AdminSession }) {
                   setDeleteBusy(false)
                   await load()
                 } catch (err) {
-                  setNotice(err instanceof Error ? err.message : 'Delete failed')
+                  setNotice(err instanceof Error ? err.message : 'Archive failed')
                   setDeleteBusy(false)
                 }
               }}
             >
-              {deleteBusy ? 'Deleting…' : deleteMode === 'account' ? 'Delete account' : 'Delete trader'}
+              {deleteBusy ? 'Archiving…' : deleteMode === 'account' ? 'Archive account' : 'Archive trader'}
             </Button>
           </DialogFooter>
         </DialogContent>

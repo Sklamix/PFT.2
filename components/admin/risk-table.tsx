@@ -142,7 +142,7 @@ export function RiskTable({
                       Kill-switch / breach
                     </DropdownMenuItem>
                     <DropdownMenuItem variant="destructive" onClick={() => onDelete(row)}>
-                      Delete account / trader…
+                      Archive account / trader…
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

@@ -68,6 +68,7 @@ export function TradingConditionsManagement({ canManage }: { canManage: boolean 
             id: instrument.id,
             avgSpread: Number(instrument.avgSpread),
             commissionPerLot: Number(instrument.commissionPerLot),
+            commissionConfigured: instrument.commissionConfigured,
             isActive: instrument.isActive,
           })),
         }),
@@ -191,6 +192,24 @@ export function TradingConditionsManagement({ canManage }: { canManage: boolean 
                     aria-label={`${instrument.symbol} commission per lot`}
                     className={fieldClass}
                   />
+                  {!instrument.commissionConfigured && (
+                    <span className="mt-1 block text-[10px] font-medium text-amber-500">
+                      Not configured — not shown as $0
+                    </span>
+                  )}
+                  <label className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={instrument.commissionConfigured}
+                      onChange={(event) =>
+                        updateInstrument(instrument.id, { commissionConfigured: event.target.checked })
+                      }
+                      disabled={!canManage}
+                      aria-label={`${instrument.symbol} commission tariff configured`}
+                      className="size-3 accent-primary"
+                    />
+                    Tariff configured
+                  </label>
                 </td>
                 <td className="px-3 py-2.5 text-center">
                   <input

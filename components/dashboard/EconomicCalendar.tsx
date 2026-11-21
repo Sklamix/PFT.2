@@ -29,6 +29,8 @@ const TIMEZONES = [
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'CHF', 'NZD']
 
+// IMPACT_LABEL: kept for future calendar UI iterations.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const IMPACT_LABEL: Record<Impact, string> = { HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' }
 
 function localTimezone(): string {

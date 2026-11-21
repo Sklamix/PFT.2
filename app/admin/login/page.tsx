@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 
 export default function AdminLoginPage() {
   const router = useRouter()
-  const [email, setEmail] = useState('ops@pft.local')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -63,9 +63,6 @@ export default function AdminLoginPage() {
         <Button type="submit" className="mt-5 w-full" disabled={busy}>
           {busy ? 'Authenticating…' : 'Enter desk'}
         </Button>
-        <p className="mt-4 font-mono text-[11px] text-muted-foreground">
-          Mock desk: ops@pft.local / PFT-Admin-Desk!
-        </p>
       </form>
     </div>
   )

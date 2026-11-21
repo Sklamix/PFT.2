@@ -6,8 +6,6 @@ import { prisma } from '@/lib/prisma'
  * TradeHistory), so balances, equity and drawdown metrics are always live.
  */
 
-const ARCHIVED_STATUSES = new Set(['BREACHED', 'BREACHED_DAILY', 'BREACHED_MAX', 'EXPIRED'])
-
 export type AccountCategory = 'active' | 'funded' | 'archived'
 
 export type AccountRow = {
