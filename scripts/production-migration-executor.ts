@@ -377,6 +377,11 @@ export function resolveProductionPlan(
   if (ALLOWED_TEST_DB_HOSTS.includes(host)) {
     throw new ProductionRefusal(`refusing to run production migrations against the test endpoint '${host}'`)
   }
+  // A pooled endpoint may hand the session to another backend, which breaks the
+  // session-level advisory lock and the multi-statement transactions.
+  if (host.includes('-pooler')) {
+    throw new ProductionRefusal(`production URL must use the direct endpoint, not the pooled one ('${host}')`)
+  }
   const role = (env.MIGRATION_EXPECTED_ROLE ?? '').trim()
   if (!IDENTIFIER.test(role)) {
     throw new ProductionRefusal('MIGRATION_EXPECTED_ROLE must be the production migration role (lowercase identifier)')

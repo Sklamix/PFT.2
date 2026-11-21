@@ -161,6 +161,13 @@ test('the production gate refuses a weak TLS policy, a wrong port and forbidden 
   )
 })
 
+test('the production gate refuses a pooled endpoint (it breaks the session lock)', () => {
+  assert.throws(
+    () => resolveProductionPlan(env({ PRODUCTION_DATABASE_URL: 'postgresql://neondb_owner:pw@ep-jolly-resonance-pooler.aws.neon.tech:5432/neondb?sslmode=require' })),
+    /direct endpoint/,
+  )
+})
+
 test('the production gate requires the URL user to be the expected role', () => {
   assert.throws(
     () => resolveProductionPlan(env({ PRODUCTION_DATABASE_URL: `postgresql://other_role:pw@${PROD_HOST}:5432/neondb?sslmode=require` })),
