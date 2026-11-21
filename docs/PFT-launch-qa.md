@@ -11,29 +11,29 @@
 
 | Блок | Перевірка | Стан |
 |---|---|---|
-| Payout eligibility | KYC, 7 днів, flat book, 3 profitable days, consistency 20%, min amount, one pending, holds | ✅ |
-| Payout drawdown | `riskEquity = equity + withdrawnProfit`, fixed-dollar trailing, static floor | ✅ |
-| Passing | server-side target + min days + flat + KYC; target lock cancels existing pending orders; auto pass + auto-funding після KYC | ✅ |
-| Static / trailing | `drawdownMode` з checkout до engine і термінала | ✅ |
-| News | ±5 хв блокування, 5–60 хв exposure, 60+ warning, annulment, second closure, 7-day hold | ✅ |
-| Overnight / weekend | close-only вікно, auto-close, cancel pending | ✅ |
-| Account limits | 3 active / $200k, phone + IP/device, checkout/provisioning/standby/reconciliation guards | ✅ |
-| Cross-account hedging | net exposure detection + `CROSS_ACCOUNT_HEDGE` audit | ✅ detection |
-| Reset | 20% / 2 дні / fresh Phase 1 / 1 per 30 days / frozen blocked | ✅ admin flow |
-| Payout hold + void | hold/clear + trade void + abnormal profit flag + admin UI | ✅ |
-| Daily loss | 00:00 Europe/Berlin, higher-of(balance, equity) snapshot | ✅ |
-| Inactivity | 60-day warning, 90-day closure, 7-day grace, liquidation, audit | ✅ |
-| Funding approval | request + different-admin approval + reject + 24h TTL + admin UI | ✅ |
-| Single session | `activeSessionId`, new login invalidates old cookie, logout clears session | ✅ |
-| Session risk (P1-6) | login fingerprint, new device/country, concurrent country, impossible travel, VPS mismatch, shared access, 90-day retention | ✅ |
-| Risk flags (P1-5) | user-level flag at ≥2 accounts / ≥3 news violations in 30 days, purchase + payout pause, 30-day auto-clear, admin flag/clear | ✅ |
-| Rules versioning (P1-7) | `RULES_VERSION`, `Order.rulesVersion`, one-time cron notice, `RULES_NOTICE_SENT`, no-acquired-right text | ✅ |
-| Breach matrix (P1-8) | deterministic consequences per breach type, unpaid payouts cancelled, appeals decided by a non-acting admin | ✅ |
-| Negative balance (P1-9) | equity clamped at zero, platform absorbs loss beyond the fee | ✅ |
-| Frozen backups (P1-12) | linked to primary, only that backup activates, expires on primary pass | ✅ |
-| Abuse monitor (P2) | audit counts by category, trader score/level, recent evidence, related-account clusters | ✅ |
-| Related-account snapshot (P2) | union of phone and IP+device links, hourly cron scan, daily `RELATED_ACCOUNT_CLUSTER` audit | ✅ |
-| Public copy | 80%, weekly payouts, no refund, news windows, reset 2 days, CE(S)T, PFT terminal | ✅ |
+| Payout eligibility | KYC, 7 днів, flat book, 3 profitable days, consistency 20%, min amount, one pending, holds | так |
+| Payout drawdown | `riskEquity = equity + withdrawnProfit`, fixed-dollar trailing, static floor | так |
+| Passing | server-side target + min days + flat + KYC; target lock cancels existing pending orders; auto pass + auto-funding після KYC | так |
+| Static / trailing | `drawdownMode` з checkout до engine і термінала | так |
+| News | ±5 хв блокування, 5–60 хв exposure, 60+ warning, annulment, second closure, 7-day hold | так |
+| Overnight / weekend | close-only вікно, auto-close, cancel pending | так |
+| Account limits | 3 active / $200k, phone + IP/device, checkout/provisioning/standby/reconciliation guards | так |
+| Cross-account hedging | net exposure detection + `CROSS_ACCOUNT_HEDGE` audit | так (detection) |
+| Reset | 20% / 2 дні / fresh Phase 1 / 1 per 30 days / frozen blocked | так (admin flow) |
+| Payout hold + void | hold/clear + trade void + abnormal profit flag + admin UI | так |
+| Daily loss | 00:00 Europe/Berlin, higher-of(balance, equity) snapshot | так |
+| Inactivity | 60-day warning, 90-day closure, 7-day grace, liquidation, audit | так |
+| Funding approval | request + different-admin approval + reject + 24h TTL + admin UI | так |
+| Single session | `activeSessionId`, new login invalidates old cookie, logout clears session | так |
+| Session risk (P1-6) | login fingerprint, new device/country, concurrent country, impossible travel, VPS mismatch, shared access, 90-day retention | так |
+| Risk flags (P1-5) | user-level flag at ≥2 accounts / ≥3 news violations in 30 days, purchase + payout pause, 30-day auto-clear, admin flag/clear | так |
+| Rules versioning (P1-7) | `RULES_VERSION`, `Order.rulesVersion`, one-time cron notice, `RULES_NOTICE_SENT`, no-acquired-right text | так |
+| Breach matrix (P1-8) | deterministic consequences per breach type, unpaid payouts cancelled, appeals decided by a non-acting admin | так |
+| Negative balance (P1-9) | equity clamped at zero, platform absorbs loss beyond the fee | так |
+| Frozen backups (P1-12) | linked to primary, only that backup activates, expires on primary pass | так |
+| Abuse monitor (P2) | audit counts by category, trader score/level, recent evidence, related-account clusters | так |
+| Related-account snapshot (P2) | union of phone and IP+device links, hourly cron scan, daily `RELATED_ACCOUNT_CLUSTER` audit | так |
+| Public copy | 80%, weekly payouts, no refund, news windows, reset 2 days, CE(S)T, PFT terminal | так |
 
 **Команди:**
 
@@ -316,18 +316,18 @@ appeals, paid reset, frozen backups, risk flags, session risk, rules notices, п
 
 | Критерій | Стан |
 |---|---|
-| TypeScript + production build | ✅ |
-| Усі 6 базових SQL-міграцій застосовані на production | ✅ 27.10.2026 |
-| P1-міграції застосовані на production | ⏳ `account-appeals`, `risk-flags-and-backups`, `session-risk`, `rules-versioning` |
-| Manual QA §3 пройдено | ✅ 96/96 (локальний production build) |
-| Readiness self-check `npm run doctor` | ✅ локально; production — після міграцій |
-| Production deployment оновлено | ⏳ після P1-міграцій |
-| Legal pages опубліковані | ⏳ очікує counsel |
-| Legal counsel sign-off | ⏳ очікує counsel |
-| Cloudflare cron secret і розклад перевірені | ✅ `* * * * *`, `wrangler tail` → `trading cron processed` |
-| Backup / rollback plan | ✅ `docs/PFT-operations-runbook.md`, `npm run db:backup` |
-| Neon PITR retention підтверджено | ⏳ operator action |
-| Production env: `RESEND_FROM_EMAIL`, `NOWPAYMENTS_IPN_SECRET`, Didit keys | ⏳ operator action |
+| TypeScript + production build | так |
+| Усі 6 базових SQL-міграцій застосовані на production | так, 27.10.2026 |
+| P1-міграції застосовані на production | очікує: `account-appeals`, `risk-flags-and-backups`, `session-risk`, `rules-versioning` |
+| Manual QA §3 пройдено | так, 96/96 (локальний production build) |
+| Readiness self-check `npm run doctor` | так локально; production — після міграцій |
+| Production deployment оновлено | очікує: після P1-міграцій |
+| Legal pages опубліковані | очікує: очікує counsel |
+| Legal counsel sign-off | очікує: очікує counsel |
+| Cloudflare cron secret і розклад перевірені | так: `* * * * *`, `wrangler tail` → `trading cron processed` |
+| Backup / rollback plan | так: `docs/PFT-operations-runbook.md`, `npm run db:backup` |
+| Neon PITR retention підтверджено | очікує: operator action |
+| Production env: `RESEND_FROM_EMAIL`, `NOWPAYMENTS_IPN_SECRET`, Didit keys | очікує: operator action |
 
 **Рішення:** інженерно P0/P1 готово, локальний QA зелений. Публічний запуск блокується
 юридичними документами (counsel), застосуванням P1-міграцій на production,

@@ -63,16 +63,16 @@ WHERE table_name = 'Order' AND column_name = 'rulesVersion';
 
 | Variable | Стан | Дія |
 |---|---|---|
-| `DATABASE_URL` | ✅ Secret | не змінювати |
-| `CRON_SECRET` | ✅ Secret | не змінювати; той самий у Cloudflare |
-| `TRADER_SESSION_SECRET` | ❌ відсутній | додати (32+ байт); більше не фолбечиться на ADMIN_SESSION_SECRET |
-| `NOWPAYMENTS_API_KEY` | ✅ Secret | не змінювати |
-| `NOWPAYMENTS_IPN_KEY` | ✅ Secret | код приймає як fallback для IPN secret |
-| `RESEND_API_KEY` | ✅ Secret | не змінювати |
-| `RESEND_FROM_EMAIL` | ❌ відсутній | додати адресу на верифікованому домені |
-| `DIDIT_API_KEY` | ❌ відсутній | додати перед відкриттям KYC |
-| `DIDIT_WORKFLOW_ID` | ❌ відсутній | додати |
-| `DIDIT_WEBHOOK_SECRET` | ❌ відсутній | додати; без нього KYC webhook відхиляється |
+| `DATABASE_URL` | Secret (Vercel) | не змінювати |
+| `CRON_SECRET` | Secret (Vercel) | не змінювати; той самий у Cloudflare |
+| `TRADER_SESSION_SECRET` | відсутній | додати (32+ байт); більше не фолбечиться на ADMIN_SESSION_SECRET |
+| `NOWPAYMENTS_API_KEY` | Secret (Vercel) | не змінювати |
+| `NOWPAYMENTS_IPN_KEY` | Secret (Vercel) | код приймає як fallback для IPN secret |
+| `RESEND_API_KEY` | Secret (Vercel) | не змінювати |
+| `RESEND_FROM_EMAIL` | відсутній | додати адресу на верифікованому домені |
+| `DIDIT_API_KEY` | відсутній | додати перед відкриттям KYC |
+| `DIDIT_WORKFLOW_ID` | відсутній | додати |
+| `DIDIT_WEBHOOK_SECRET` | відсутній | додати; без нього KYC webhook відхиляється |
 
 ```powershell
 npx vercel env add TRADER_SESSION_SECRET production

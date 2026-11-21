@@ -63,17 +63,17 @@ Production не змінювався: жодного деплою, жодних 
 
 | Вимога | Статус | Як реалізовано |
 |---|---|---|
-| Soft archive, не видалення | ✅ | `archiveAccount` пише `status='ARCHIVED'` + `archivedAt` атомарно під row-lock; жодного delete у шляху; ledger — append-only trigger, FK RESTRICT |
-| Зникає зі списку активних | ✅ | Dashboard: category `archived`; UI-фільтр «Current» виключає архівовані з базового виду, окремий таб «Archived / Breached» залишає доступ до історії |
-| Не може відкривати нові угоди | ✅ | Engine `tradingAllowed(w)` = `archivedAt == null && (ACTIVE|FUNDED)` — перевіряється у placeMarketOrder/placePendingOrder/modify/processPendingOrders/sync/protective (13 точок) |
-| Серверне блокування навіть при застарілому статусі | ✅ | Подвійний захист: `status` + `archivedAt` (тест: «archivedAt alone blocks trading even when status still looks ACTIVE» PASS) |
-| Workers/crons не торгують архівованим | ✅ | `activeTradingTargets` (worker), cron-trading findMany, passing-оцінка, inactivity-сканер — всі з `archivedAt: null` |
-| Історія/ledger/payout/audit збережені | ✅ | Hard-delete неможливий (дизайн БД); admin-роут не містить delete-операцій (перевірено статично тестом) |
-| Інші акаунти трейдера не зачеплені | ✅ | Архівування точкове (по одному акаунту); sibling-логіка не змінена (тест: «archiving one account leaves the trader's other account tradable» PASS) |
-| Audit log | ✅ | `ACCOUNT_ARCHIVED` з `actorId`, `reason`, метаданими — один рядок на дію |
-| Повторне архівування безпечне | ✅ | `already_archived` ранній вихід ДО мутації (тест: друга спроба не пише update і не дублює audit PASS) |
-| ADMIN-only | ✅ | `DELETE /api/admin/accounts/[id]`: `requireAdmin()` + `session.role !== 'ADMIN' → 403`; трейдерського/self-service шляху архівування не існує (перевірено grep: виклики лише в 2 admin-роутах) |
-| Блокери перед архівуванням | ✅ | 409 з переліком: OPEN_POSITIONS / PENDING_PAYOUTS (PENDING+APPROVED) / UNRESOLVED_FX; pending orders скасовуються атомарно в тій же транзакції |
+| Soft archive, не видалення | так | `archiveAccount` пише `status='ARCHIVED'` + `archivedAt` атомарно під row-lock; жодного delete у шляху; ledger — append-only trigger, FK RESTRICT |
+| Зникає зі списку активних | так | Dashboard: category `archived`; UI-фільтр «Current» виключає архівовані з базового виду, окремий таб «Archived / Breached» залишає доступ до історії |
+| Не може відкривати нові угоди | так | Engine `tradingAllowed(w)` = `archivedAt == null && (ACTIVE|FUNDED)` — перевіряється у placeMarketOrder/placePendingOrder/modify/processPendingOrders/sync/protective (13 точок) |
+| Серверне блокування навіть при застарілому статусі | так | Подвійний захист: `status` + `archivedAt` (тест: «archivedAt alone blocks trading even when status still looks ACTIVE» PASS) |
+| Workers/crons не торгують архівованим | так | `activeTradingTargets` (worker), cron-trading findMany, passing-оцінка, inactivity-сканер — всі з `archivedAt: null` |
+| Історія/ledger/payout/audit збережені | так | Hard-delete неможливий (дизайн БД); admin-роут не містить delete-операцій (перевірено статично тестом) |
+| Інші акаунти трейдера не зачеплені | так | Архівування точкове (по одному акаунту); sibling-логіка не змінена (тест: «archiving one account leaves the trader's other account tradable» PASS) |
+| Audit log | так | `ACCOUNT_ARCHIVED` з `actorId`, `reason`, метаданими — один рядок на дію |
+| Повторне архівування безпечне | так | `already_archived` ранній вихід ДО мутації (тест: друга спроба не пише update і не дублює audit PASS) |
+| ADMIN-only | так | `DELETE /api/admin/accounts/[id]`: `requireAdmin()` + `session.role !== 'ADMIN' → 403`; трейдерського/self-service шляху архівування не існує (перевірено grep: виклики лише в 2 admin-роутах) |
+| Блокери перед архівуванням | так | 409 з переліком: OPEN_POSITIONS / PENDING_PAYOUTS (PENDING+APPROVED) / UNRESOLVED_FX; pending orders скасовуються атомарно в тій же транзакції |
 
 **Тести:** `npm run test:archive` — **5/5 PASS**. `test:auth-routes` (route-моки rate-limit) — **3/3 PASS**.
 
@@ -136,11 +136,11 @@ Preview: `https://pft-app-prod-fm29bhb4k-andripigij-5023.vercel.app` (dpl_9hF6Me
 
 | Область | Результат |
 |---|---|
-| `/` | рендериться (HTML 184 KB) ✅ |
-| `/login` | рендериться (HTML 15 KB) ✅ |
-| `POST /api/auth/email-code` (3× випадкові адреси) | не витікає існування; при фейлі відправки → 503 «Unable to send an email code right now», щойно створений код-рядок **видаляється** (без сміття в БД) ✅ |
-| `POST /api/auth/forgot-password` | generic `ok:true` незалежно від результату відправки (без витоку) ✅ |
-| `POST /api/webhooks/payment-success` (без підпису) | fail-closed: «IPN verification is not configured» (503) ✅ |
+| `/` | рендериться (HTML 184 KB) |
+| `/login` | рендериться (HTML 15 KB) |
+| `POST /api/auth/email-code` (3× випадкові адреси) | не витікає існування; при фейлі відправки → 503 «Unable to send an email code right now», щойно створений код-рядок **видаляється** (без сміття в БД) |
+| `POST /api/auth/forgot-password` | generic `ok:true` незалежно від результату відправки (без витоку) |
+| `POST /api/webhooks/payment-success` (без підпису) | fail-closed: «IPN verification is not configured» (503) |
 | OAuth | **NOT CONFIGURED** — `AUTH_GOOGLE_ID`/`AUTH_GOOGLE_SECRET` відсутні в усіх scopes Vercel; Google-провайдер вимкнений умовно в коді. Email-code — єдиний живий auth-шлях |
 
 **UNVERIFIED (чесно):**
@@ -172,7 +172,7 @@ Preview: `https://pft-app-prod-fm29bhb4k-andripigij-5023.vercel.app` (dpl_9hF6Me
 
 ## H. Dependency Audit — 7 записів npm audit (4 High + 3 Moderate → post-fix: 3 High)
 
-Фіксація: npm `overrides` у `package.json` (+ оновлений tracked `package-lock.json`, яким керуються поточні Vercel-деплої) + ті самі overrides у `pnpm-workspace.yaml`/`pnpm-lock.yaml`. Без `audit fix --force`, без majors, без видалень. Перевірено після змін: tsc ✅, ESLint ✅, build ✅, 600 тестів ✅.
+Фіксація: npm `overrides` у `package.json` (+ оновлений tracked `package-lock.json`, яким керуються поточні Vercel-деплої) + ті самі overrides у `pnpm-workspace.yaml`/`pnpm-lock.yaml`. Без `audit fix --force`, без majors, без видалень. Перевірено після змін: tsc, ESLint, build, 600 тестів.
 
 | # | Пакет | Встановлено | Severity | Advisory | Шлях | Deployment surface | Disposition |
 |---|---|---|---|---|---|---|---|
@@ -197,16 +197,16 @@ Preview: `https://pft-app-prod-fm29bhb4k-andripigij-5023.vercel.app` (dpl_9hF6Me
 | `DATABASE_URL` | Production, Preview (одне значення) | CONFIGURED | Ізоляція UNVERIFIED — CRITICAL BLOCKER (розділ D) |
 | `DIRECT_URL` | — | NOT REQUIRED | datasource без directUrl; спостереження: міграції йдуть через guard-скрипти, пулінг Neon — окремий пункт для власника |
 | `NEXT_PUBLIC_APP_URL` | Production | **MISSING у Preview** | fallback у коді = `https://pft-app-prod.vercel.app` → листи/сертифікати/KYC-callback з Preview вказують на prod-домен |
-| `TRADER_SESSION_SECRET` | Prod, Preview, Dev | CONFIGURED ✅ | |
-| `ADMIN_SESSION_SECRET` | Prod, Preview | CONFIGURED ✅ | Admin log-in на Preview забезпечений секретом |
+| `TRADER_SESSION_SECRET` | Prod, Preview, Dev | CONFIGURED | |
+| `ADMIN_SESSION_SECRET` | Prod, Preview | CONFIGURED | Admin log-in на Preview забезпечений секретом |
 | `ADMIN_BOOTSTRAP_PASSWORD`, `RISK_BOOTSTRAP_PASSWORD` | Production | NOT REQUIRED у Preview (build-guard) | |
 | `CRON_SECRET` | Production | NOT REQUIRED у Preview | Усі 5 cron-роутів fail-closed: без секрету → 401 усім (перевірено код 5/5) |
 | Resend (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`) | Prod, Preview | **CONFIGURED, але НЕПРАВИЛЬНИЙ РЕЖИМ** | Живий 422: ключ у **sandbox** — надсилає лише на «testing email» акаунта. **Реальні листи користувачам падатимуть і в Production** — owner-action |
-| NOWPayments (IPN/API/payout creds) | Production only | MISSING у Preview | Preview webhook fail-closed 503 (live ✅); секрет не вигадувався, Production-секрет не підставлявся. Додатково: SSO-protection Preview блокує provider-вебхуки фізично |
+| NOWPayments (IPN/API/payout creds) | Production only | MISSING у Preview | Preview webhook fail-closed 503 (live: так); секрет не вигадувався, Production-секрет не підставлявся. Додатково: SSO-protection Preview блокує provider-вебхуки фізично |
 | Google OAuth (`AUTH_GOOGLE_ID/SECRET`, `AUTH_SECRET`) | — | **MISSING у всіх scopes** | Провайдер вимкнений умовно; email-code — основний шлях. Додати = owner decision |
-| DIDIT (API key / workflow ID / webhook secret) | всі scopes | CONFIGURED ✅ | fail-safe при відсутності — в коді; live KYC не перевірявся (credentials) |
-| NVIDIA (`API_KEY/BASE_URL/MODEL`) | Preview | CONFIGURED ✅ | AI-support diagnostics на Preview |
-| GEMINI (`API_KEY/MODEL`) | Prod, Preview | CONFIGURED ✅ | |
+| DIDIT (API key / workflow ID / webhook secret) | всі scopes | CONFIGURED | fail-safe при відсутності — в коді; live KYC не перевірявся (credentials) |
+| NVIDIA (`API_KEY/BASE_URL/MODEL`) | Preview | CONFIGURED | AI-support diagnostics на Preview |
+| GEMINI (`API_KEY/MODEL`) | Prod, Preview | CONFIGURED | |
 | `NEXT_PUBLIC_APP_URL` fallback у коді | — | видно | див. вище |
 
 Інтеграційний висновок: жодна інтеграція не приймає дані без перевірки підпису/секрету; поведінка при відсутності credentials — безпечна (503/401/вимкнений провайдер), підтверджено живими запитами там, де було можливо.
@@ -221,11 +221,11 @@ Preview: `https://pft-app-prod-fm29bhb4k-andripigij-5023.vercel.app` (dpl_9hF6Me
 | `test:archive` (новий) | 5/5 PASS | — |
 | `test:auth-routes` (новий) | 3/3 PASS | — |
 | `test:db:gated` (19) | 19/19 SKIPPED — BLOCKED (розділ E) | без змін |
-| TypeScript (`tsc --noEmit`) | ✅ чисто | без змін |
-| ESLint | ✅ 0 errors, 63 warnings (попередні, у файлах цієї фази — 0 нових) | без змін |
-| `prisma validate` | ✅ «schema is valid» | без змін |
-| Production build (`npm run build`; prebuild-guard no-op) | ✅ успішно, Proxy (Middleware) зареєстрований | без змін |
-| `git diff --check` | ✅ clean (лише репозиторні CRLF-попередження autocrlf — не whitespace-помилки) | без змін |
+| TypeScript (`tsc --noEmit`) | чисто | без змін |
+| ESLint | 0 errors, 63 warnings (попередні, у файлах цієї фази — 0 нових) | без змін |
+| `prisma validate` | «schema is valid» | без змін |
+| Production build (`npm run build`; prebuild-guard no-op) | успішно, Proxy (Middleware) зареєстрований | без змін |
+| `git diff --check` | clean (лише репозиторні CRLF-попередження autocrlf — не whitespace-помилки) | без змін |
 | `npm audit --omit=dev` | 4H+3M → **3H** (лише prisma-мажорний ланцюг) | покращено |
 
 ---
