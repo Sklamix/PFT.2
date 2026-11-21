@@ -35,6 +35,25 @@ export function hasUsablePassword(passwordHash: string) {
   return passwordHash.includes(':')
 }
 
+/**
+ * Login method for the auth portal: 'password' only when a TRADER with a usable
+ * password exists, 'code' otherwise. The response never distinguishes a missing
+ * account from one without a password (anti-enumeration).
+ */
+export async function resolveLoginMethod(email: string): Promise<'password' | 'code'> {
+  const normalized = email.trim().toLowerCase()
+  if (!usingDatabase()) {
+    return normalized === DEMO_TRADER_EMAIL ? 'password' : 'code'
+  }
+  const user = await (await db()).user.findUnique({
+    where: { email: normalized },
+    select: { role: true, passwordHash: true, archivedAt: true },
+  })
+  return user && user.role === 'TRADER' && user.archivedAt == null && hasUsablePassword(user.passwordHash)
+    ? 'password'
+    : 'code'
+}
+
 export async function authenticateTrader(email: string, password: string): Promise<TraderSession | null> {
   const normalized = email.trim().toLowerCase()
   if (!usingDatabase()) {

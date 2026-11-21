@@ -14,7 +14,8 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
-  const [stage, setStage] = useState<'email' | 'code'>('email')
+  const [password, setPassword] = useState('')
+  const [stage, setStage] = useState<'email' | 'password' | 'code'>('email')
   const [busy, setBusy] = useState(false)
   const [resendIn, setResendIn] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -25,6 +26,58 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
     const timer = window.setTimeout(() => setResendIn((value) => Math.max(0, value - 1)), 1000)
     return () => window.clearTimeout(timer)
   }, [resendIn])
+
+  async function resolveMethod(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    setInfo(null)
+    try {
+      const response = await fetch('/api/auth/login-method', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to check the sign-in method.')
+      if (data.method === 'password') {
+        setStage('password')
+      } else {
+        await requestCode()
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to check the sign-in method.')
+      setBusy(false)
+    }
+  }
+
+  async function signInWithPassword(event: FormEvent) {
+    event.preventDefault()
+    setBusy(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
+      if (data.stepUp) {
+        // Suspicious sign-in (new IP or repeated failures): fall back to the code step.
+        setStage('code')
+        setResendIn(60)
+        setPassword('')
+        setInfo('For your safety we sent a six-digit code to your email. Enter it to finish signing in.')
+        return
+      }
+      router.replace('/dashboard')
+      router.refresh()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to sign in.')
+      setBusy(false)
+    }
+  }
 
   async function requestCode(event?: FormEvent) {
     event?.preventDefault()
@@ -79,17 +132,19 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
             <div className="mt-16">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">Trader access</p>
               <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-4xl">
-                {stage === 'email' ? 'Welcome to your edge.' : 'Check your inbox.'}
+                {stage === 'email' ? 'Welcome to your edge.' : stage === 'password' ? 'Enter your password.' : 'Check your inbox.'}
               </h1>
               <p className="mt-3 max-w-sm text-sm leading-6 text-muted-foreground">
                 {stage === 'email'
                   ? 'Sign in or create your PFT account with a secure email code.'
-                  : `Enter the six-digit code sent to ${email}. It expires in 10 minutes.`}
+                  : stage === 'password'
+                    ? `Enter the password for ${email}.`
+                    : `Enter the six-digit code sent to ${email}. It expires in 10 minutes.`}
               </p>
             </div>
 
             {stage === 'email' ? (
-              <form onSubmit={(event) => void requestCode(event)} className="mt-9">
+              <form onSubmit={(event) => void resolveMethod(event)} className="mt-9">
                 <label htmlFor="auth-email" className="text-sm font-medium text-foreground">Email address</label>
                 <input
                   id="auth-email"
@@ -110,6 +165,37 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
                   {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
                   Continue with email <ArrowRight className="size-4" />
                 </button>
+              </form>
+            ) : stage === 'password' ? (
+              <form onSubmit={(event) => void signInWithPassword(event)} className="mt-9">
+                <label htmlFor="auth-password" className="text-sm font-medium text-foreground">Password</label>
+                <input
+                  id="auth-password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  required
+                  maxLength={200}
+                  placeholder="Your password"
+                  className={INPUT_CLASS}
+                />
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-bold text-primary-foreground shadow-[0_0_45px_-14px_rgba(67,136,255,0.9)] transition hover:brightness-110 hover:shadow-[0_0_45px_-10px_rgba(67,136,255,0.9)] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {busy ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                  Sign in <ArrowRight className="size-4" />
+                </button>
+                <div className="mt-4 flex items-center justify-between text-xs">
+                  <button type="button" onClick={() => { setStage('email'); setPassword(''); setError(null); setInfo(null) }} className="text-muted-foreground hover:text-white">
+                    Change email
+                  </button>
+                  <button type="button" onClick={() => void requestCode()} disabled={busy || resendIn > 0} className="text-primary hover:text-highlight disabled:opacity-50">
+                    {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Sign in with an email code instead'}
+                  </button>
+                </div>
               </form>
             ) : (
               <form onSubmit={(event) => void verifyCode(event)} className="mt-9">
@@ -164,7 +250,7 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
             {!googleEnabled && <p className="mt-2 text-center text-xs text-muted-foreground/80">Google sign-in is not configured for this environment yet.</p>}
 
             <p className="mt-9 flex items-center justify-center gap-2 text-xs text-muted-foreground/80">
-              <ShieldCheck className="size-4 text-primary" /> Secure, passwordless access
+              <ShieldCheck className="size-4 text-primary" /> Secure access for traders
             </p>
           </div>
         </section>
