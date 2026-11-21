@@ -6,6 +6,10 @@ import { enforceRateLimit } from '@/lib/support/http'
 import { HandoffFailedError, handleSupportChat } from '@/lib/ai/support-chat'
 import { parseHistory } from '@/lib/ai/history'
 import { parseIdempotencyKey } from '@/lib/support/types'
+import {
+  IdempotencyConflictError,
+  IdempotencyInProgressError,
+} from '@/lib/ai/request-idempotency'
 
 export const dynamic = 'force-dynamic'
 /**
@@ -56,6 +60,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: history.error }, { status: 400, headers: NO_STORE })
     }
     const idempotencyKey = parseIdempotencyKey(body.idempotencyKey)
+    if (!idempotencyKey) {
+      return NextResponse.json({ error: 'idempotencyKey is required.' }, { status: 400, headers: NO_STORE })
+    }
 
     const result = await handleSupportChat({
       userId: session.sub,
@@ -71,6 +78,15 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: 'The assistant is unavailable and the operator request could not be saved. Please open a support ticket manually.' },
         { status: 503, headers: NO_STORE },
+      )
+    }
+    if (cause instanceof IdempotencyConflictError) {
+      return NextResponse.json({ error: 'This request key was already used for a different message.' }, { status: 409, headers: NO_STORE })
+    }
+    if (cause instanceof IdempotencyInProgressError) {
+      return NextResponse.json(
+        { error: 'This request is still being processed. Retry with the same request key shortly.' },
+        { status: 503, headers: { ...NO_STORE, 'Retry-After': '2' } },
       )
     }
     return handleSupportError(cause)

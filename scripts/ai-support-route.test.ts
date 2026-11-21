@@ -3,6 +3,14 @@ import assert from 'node:assert/strict'
 import { PrismaClient } from '@prisma/client'
 import { TRADER_COOKIE } from '../lib/trader/constants'
 import { resolveTestDatabaseUrl } from './test-db-guard'
+import {
+  ALLOWED_TEST_DB_HOSTS,
+  assertClientIsTestDb,
+  assertGateAllowsExecution,
+  resolveObservabilityTestDb,
+} from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
+import { beginTestPrismaInjection, endTestPrismaInjection } from './test-prisma-injection'
 
 /**
  * Route-level security tests for POST /api/support/ai/chat.
@@ -13,10 +21,12 @@ import { resolveTestDatabaseUrl } from './test-db-guard'
  * rate limiting and validation all run for real.
  *
  * Safety:
- * - the database URL comes ONLY from `AI_SUPPORT_TEST_DB_URL` (never from the
- *   application `DATABASE_URL`), so a Production shell cannot cause writes;
- * - without it (or on Node < 22) every DB test is skipped and no connection is
- *   opened;
+ * - the database URL comes ONLY from the gated `AI_SUPPORT_TEST_DB_URL` opt-in
+ *   (never from the application `DATABASE_URL`), and must pass the shared
+ *   production denylist, exact host allowlist, `pft_dbtest` name and TLS policy;
+ * - the live `current_database()` identity is asserted before any write;
+ * - without an authorized URL (or on Node < 22) every DB test is skipped with an
+ *   explicit reason and no connection is opened;
  * - created users are tracked and removed in `after()` even if a test fails;
  * - `mock.restoreAll()` keeps the module mock from leaking.
  *
@@ -26,14 +36,18 @@ import { resolveTestDatabaseUrl } from './test-db-guard'
 const [NODE_MAJOR = 0, NODE_MINOR = 0] = process.versions.node.split('.').map(Number)
 /** `mock.module` is available from Node 22.3. */
 const SUPPORTS_MODULE_MOCKS = NODE_MAJOR > 22 || (NODE_MAJOR === 22 && NODE_MINOR >= 3)
-const TEST_DB_URL = resolveTestDatabaseUrl()
-const CAN_RUN = Boolean(TEST_DB_URL) && SUPPORTS_MODULE_MOCKS
-const SKIP = !CAN_RUN
-
-if (TEST_DB_URL) {
-  // Every imported app module reads DATABASE_URL; point it at the test database.
-  process.env.DATABASE_URL = TEST_DB_URL
-}
+const GATE = resolveObservabilityTestDb(process.env, { legacyAiSupport: true })
+assertGateAllowsExecution(GATE)
+const TEST_DB_URL = GATE.action === 'use' ? GATE.url : null
+const EXPLICIT_DB_TESTS = process.env.AI_SUPPORT_DB_TESTS === '1'
+const CAN_RUN = Boolean(TEST_DB_URL) && SUPPORTS_MODULE_MOCKS && EXPLICIT_DB_TESTS
+const SKIP = !SUPPORTS_MODULE_MOCKS
+  ? 'requires Node >= 22.3 for module mocks'
+  : TEST_DB_URL
+    ? EXPLICIT_DB_TESTS
+      ? false
+      : 'DB route tests require AI_SUPPORT_DB_TESTS=1 (prevents accidental DB execution during DB-free runs)'
+    : `DB writes not authorized: ${GATE.action === 'use' ? 'unknown gate state' : GATE.reason}`
 
 const ENDPOINT = 'http://localhost:3100/api/support/ai/chat'
 
@@ -52,6 +66,11 @@ function database(): PrismaClient {
 
 before(async () => {
   if (!CAN_RUN) return
+
+  // Create + identity-check the TLS-verified adapter client BEFORE importing app
+  // modules, then route the application singleton to it for this suite only.
+  prisma = await assertClientIsTestDb(createTestPrismaClient(TEST_DB_URL!).prisma)
+  beginTestPrismaInjection(prisma)
 
   mock.module('next/headers', {
     exports: {
@@ -72,7 +91,6 @@ before(async () => {
   POST = route.POST
   signTraderSession = auth.signTraderSession
   incrementRateLimit = store.incrementRateLimit
-  prisma = new PrismaClient({ datasources: { db: { url: TEST_DB_URL! } } })
 })
 
 after(async () => {
@@ -84,7 +102,10 @@ after(async () => {
       // Best effort: the primary cleanup already ran in the test's finally block.
     }
   }
-  if (prisma) await prisma.$disconnect()
+  if (prisma) {
+    endTestPrismaInjection()
+    await prisma.$disconnect()
+  }
 })
 
 function postRequest(body: unknown, headers: Record<string, string> = {}) {
@@ -131,19 +152,16 @@ async function cleanup(userId: string) {
   if (index >= 0) createdUserIds.splice(index, 1)
 }
 
-test('test database guard ignores the application DATABASE_URL', () => {
-  const validUrl = 'postgresql://user:pass@ep-dev-branch.neon.tech/neondb'
+test('test database guard ignores DATABASE_URL and enforces the shared allowlist', () => {
+  const approved = `postgresql://user:pass@${ALLOWED_TEST_DB_HOSTS[0]}/pft_dbtest?sslmode=require&sslaccept=strict`
+  const devHost = 'postgresql://user:pass@ep-dev-branch.neon.tech/pft_dbtest?sslmode=require&sslaccept=strict'
+  const production = 'postgresql://user:pass@ep-jolly-resonance-b4oprbt2-pooler.neon.tech/pft_dbtest?sslmode=require&sslaccept=strict'
 
-  assert.equal(resolveTestDatabaseUrl({ DATABASE_URL: validUrl }), null)
-  assert.equal(resolveTestDatabaseUrl({ AI_SUPPORT_TEST_DB: '1', DATABASE_URL: validUrl }), null)
-  assert.equal(
-    resolveTestDatabaseUrl({
-      AI_SUPPORT_TEST_DB: '1',
-      AI_SUPPORT_TEST_DB_URL: 'postgresql://user:pass@ep-jolly-resonance-b4oprbt2-pooler.neon.tech/neondb',
-    }),
-    null,
-  )
-  assert.equal(resolveTestDatabaseUrl({ AI_SUPPORT_TEST_DB: '1', AI_SUPPORT_TEST_DB_URL: validUrl }), validUrl)
+  assert.equal(resolveTestDatabaseUrl({ DATABASE_URL: approved }), null)
+  assert.equal(resolveTestDatabaseUrl({ AI_SUPPORT_TEST_DB: '1', DATABASE_URL: approved }), null)
+  assert.equal(resolveTestDatabaseUrl({ AI_SUPPORT_TEST_DB: '1', AI_SUPPORT_TEST_DB_URL: production }), null)
+  assert.equal(resolveTestDatabaseUrl({ AI_SUPPORT_TEST_DB: '1', AI_SUPPORT_TEST_DB_URL: devHost }), null)
+  assert.equal(resolveTestDatabaseUrl({ AI_SUPPORT_TEST_DB: '1', AI_SUPPORT_TEST_DB_URL: approved }), `postgresql://user:pass@${ALLOWED_TEST_DB_HOSTS[0]}:5432/pft_dbtest?sslmode=require&sslaccept=strict`)
 })
 
 test('returns 401 without a trader session (auth runs before CSRF and validation)', { skip: SKIP }, async () => {

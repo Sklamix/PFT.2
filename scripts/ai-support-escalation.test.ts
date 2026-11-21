@@ -1,6 +1,7 @@
 import test, { after, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import type { AssistantGenerator } from '../lib/ai/gemini'
+import { createMemoryIdempotencyStore } from './ai-support-test-store'
 
 /**
  * Escalation boundaries for hostile messages, fully mocked.
@@ -33,6 +34,7 @@ const generatorCalls: string[] = []
 let ticketLookups = 0
 
 let existingTicket: { publicId: string; subject: string } | null = null
+const idempotencyStore = createMemoryIdempotencyStore()
 
 let handleSupportChat: typeof import('../lib/ai/support-chat').handleSupportChat
 
@@ -86,8 +88,8 @@ before(async () => {
     },
   })
 
-  const module = await import('../lib/ai/support-chat')
-  handleSupportChat = module.handleSupportChat
+  const mod = await import('../lib/ai/support-chat')
+  handleSupportChat = mod.handleSupportChat
 })
 
 after(() => {
@@ -131,7 +133,7 @@ async function chat(message: string, generate: AssistantGenerator) {
     idempotencyKey: `esc-${keyCounter}`,
     request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
     generate,
-  })
+  }, { idempotencyStore })
 }
 
 async function assertNoEscalation(message: string) {
@@ -245,7 +247,7 @@ test('an explicit human request still hands off for a provocative message', asyn
     forceHandoff: true,
     idempotencyKey: 'esc-force-human',
     request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
-  })
+  }, { idempotencyStore })
 
   assert.equal(result.answer, null)
   assert.equal(result.handoffReason, 'user_requested_human')

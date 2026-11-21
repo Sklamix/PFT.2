@@ -1,5 +1,7 @@
 import test, { after, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { AiUnavailableError } from '../lib/ai/errors'
+import { createMemoryIdempotencyStore } from './ai-support-test-store'
 
 /**
  * KYC handoff contract, fully mocked.
@@ -28,6 +30,7 @@ const prismaWriteCalls: string[] = []
 const generatorCalls: string[] = []
 
 let existingTicket: { publicId: string; subject: string } | null = null
+const idempotencyStore = createMemoryIdempotencyStore()
 let handleSupportChat: typeof import('../lib/ai/support-chat').handleSupportChat
 
 before(async () => {
@@ -93,8 +96,8 @@ before(async () => {
     },
   })
 
-  const module = await import('../lib/ai/support-chat')
-  handleSupportChat = module.handleSupportChat
+  const mod = await import('../lib/ai/support-chat')
+  handleSupportChat = mod.handleSupportChat
 })
 
 after(() => {
@@ -131,7 +134,7 @@ test('KYC question hands off without inventing documents or touching the databas
     idempotencyKey: 'kyc-mock-1',
     request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
     generate: kycGenerator(),
-  })
+  }, { idempotencyStore })
 
   // 1. handoff is formed, no answer is shown.
   assert.equal(result.answer, null)
@@ -177,7 +180,7 @@ test('KYC handoff reuses an existing ticket instead of creating another', async 
       idempotencyKey: 'kyc-mock-2',
       request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
       generate: kycGenerator(),
-    })
+    }, { idempotencyStore })
 
     assert.equal(result.answer, null)
     assert.equal(result.handoff?.publicId, 'SUP-REUSEKYC1')
@@ -195,4 +198,52 @@ test('KYC handoff reuses an existing ticket instead of creating another', async 
   } finally {
     existingTicket = null
   }
+})
+
+test('provider failure falls back to a real handoff and never claims success', async () => {
+  existingTicket = null
+  resetSpies()
+
+  const result = await handleSupportChat({
+    userId: 'mock-user',
+    message: 'My payout has been pending for days.',
+    history: [],
+    forceHandoff: false,
+    idempotencyKey: 'fallback-mock-1',
+    request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+    generate: async () => {
+      throw new AiUnavailableError('timeout', { model: 'gemini-test', provider: 'gemini' })
+    },
+  }, { idempotencyStore })
+
+  // No invented answer, but a human request really exists.
+  assert.equal(result.answer, null)
+  assert.equal(result.handoff?.publicId, 'SUP-TESTKYC1')
+  assert.equal(result.handoffReason, 'timeout')
+  assert.equal(createTicketCalls.length, 1)
+  assert.equal(createTicketCalls[0]!.idempotencyKey, 'fallback-mock-1')
+  assert.deepEqual(prismaWriteCalls, [])
+})
+
+test('an explicit human request forwards the client key to the ticket service', async () => {
+  existingTicket = null
+  resetSpies()
+
+  const result = await handleSupportChat({
+    userId: 'mock-user',
+    message: 'Please connect me to a human operator.',
+    history: [],
+    forceHandoff: true,
+    idempotencyKey: 'human-mock-key-1',
+    request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+    generate: async () => {
+      throw new Error('the generator must not run for a forced handoff')
+    },
+  }, { idempotencyStore })
+
+  assert.equal(result.answer, null)
+  assert.equal(result.handoffReason, 'user_requested_human')
+  assert.equal(createTicketCalls.length, 1)
+  assert.equal(createTicketCalls[0]!.idempotencyKey, 'human-mock-key-1')
+  assert.deepEqual(generatorCalls, [])
 })

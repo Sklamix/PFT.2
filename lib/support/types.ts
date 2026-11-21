@@ -90,6 +90,8 @@ export function cleanText(value: unknown, { min, max, field }: { min: number; ma
   if (typeof value !== 'string') throw new ValidationError(`${field} is required.`)
   const cleaned = value
     .replace(/\r\n/g, '\n')
+    // Intentional: strip ASCII control characters from free-text input.
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .trim()

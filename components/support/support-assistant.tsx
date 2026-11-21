@@ -5,6 +5,7 @@ import { Bot, ChevronDown, ChevronUp, Loader2, Send, UserRound, LifeBuoy } from 
 import { Button } from '@/components/ui/button'
 import {
   AssistantRequestError,
+  isRecoverableAssistantError,
   nextIdempotencyKey,
   requestAssistant,
   type AssistantHistoryTurn,
@@ -34,17 +35,31 @@ function assistantErrorMessage(error: unknown) {
   return 'The assistant could not answer. Please try again or open a support ticket.'
 }
 
-export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) => void }) {
+export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicId: string) => void; onRecover?: () => void | Promise<void> }) {
   const [open, setOpen] = useState(false)
   const [turns, setTurns] = useState<Turn[]>([])
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
+  const [recovering, setRecovering] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [handoff, setHandoff] = useState<{ publicId: string; reused: boolean } | null>(null)
   const pendingKey = useRef<PendingKey | null>(null)
   // Synchronous guard: `sending` is React state, so two clicks in the same tick
   // could both observe `false`. The ref is flipped before the first await.
   const inFlight = useRef(false)
+
+  // The server may have stored a handoff even when the browser lost the
+  // response. Re-read the ticket list so the UI reflects server state instead
+  // of staying stale; the idempotency key stays set, so a manual retry is safe.
+  async function recoverAfterUncertainFailure(reason: unknown) {
+    if (!onRecover || !isRecoverableAssistantError(reason)) return
+    setRecovering(true)
+    try {
+      await onRecover()
+    } finally {
+      setRecovering(false)
+    }
+  }
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -68,8 +83,10 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
       pendingKey.current = null
       if (data.handoff) setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
     } catch (reason) {
-      // Keep the idempotency key so retrying the same message cannot duplicate a handoff.
+      if (reason instanceof AssistantRequestError && reason.status === 409) pendingKey.current = null
+      // Reuse the key after uncertain failures; a conflict starts a fresh request.
       setError(assistantErrorMessage(reason))
+      await recoverAfterUncertainFailure(reason)
     } finally {
       inFlight.current = false
       setSending(false)
@@ -96,7 +113,9 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
       pendingKey.current = null
       setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
     } catch (reason) {
+      if (reason instanceof AssistantRequestError && reason.status === 409) pendingKey.current = null
       setError(assistantErrorMessage(reason))
+      await recoverAfterUncertainFailure(reason)
     } finally {
       inFlight.current = false
       setSending(false)
@@ -183,6 +202,12 @@ export function SupportAssistant({ onHandoff }: { onHandoff: (publicId: string) 
                 <LifeBuoy className="size-3.5" /> Open ticket
               </Button>
             </div>
+          ) : null}
+
+          {recovering ? (
+            <p role="status" aria-live="polite" className="mt-2 flex items-center gap-1.5 text-xs text-[#94A3B8]">
+              <Loader2 className="size-3.5 animate-spin" /> Checking the support desk for a saved request…
+            </p>
           ) : null}
 
           {error ? <p role="alert" className="mt-2 text-xs text-danger">{error}</p> : null}

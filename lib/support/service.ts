@@ -38,7 +38,7 @@ function newPublicId() {
  * reading the winner back. The key is a random client UUID, so the reference
  * stays unguessable.
  */
-function publicIdForKey(userId: string, key: string) {
+export function publicIdForKey(userId: string, key: string) {
   const digest = createHash('sha256').update(`support-handoff:${userId}:${key}`).digest()
   let suffix = ''
   for (let index = 0; index < 10; index += 1) suffix += PUBLIC_ID_ALPHABET[digest[index]! % PUBLIC_ID_ALPHABET.length]
@@ -85,8 +85,6 @@ function toSummary(row: SummaryRow): TicketSummary {
     messageCount: row._count.messages,
   }
 }
-
-type TicketScope = { id: string; publicId: string; userId: string; status: SupportStatus }
 
 /**
  * Resolves a ticket by its public reference (preferred) or internal id.

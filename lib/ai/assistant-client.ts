@@ -25,6 +25,18 @@ export class AssistantRequestError extends Error {
 
 export type PendingKey = { key: string; message: string }
 
+/**
+ * True when the server may already have persisted a handoff even though the
+ * browser did not see a response. The UI must then re-read the ticket list from
+ * the server (source of truth) instead of leaving the screen stale.
+ */
+export function isRecoverableAssistantError(error: unknown): boolean {
+  return (
+    error instanceof AssistantRequestError &&
+    (error.kind === 'timeout' || error.kind === 'network' || error.kind === 'invalid_response')
+  )
+}
+
 /** Reuse the idempotency key only for an identical retried message. */
 export function nextIdempotencyKey(previous: PendingKey | null, message: string): PendingKey {
   if (previous && previous.message === message) return previous

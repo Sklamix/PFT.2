@@ -1,6 +1,7 @@
 import { generateWithGemini, type AssistantGenerator } from './gemini'
 import { generateWithNvidia } from './nvidia'
 import type { AiProvider } from './errors'
+import { createAssistantProvider } from './provider-reliability'
 
 export type { AiProvider }
 
@@ -23,5 +24,9 @@ export function resolveProvider(env: AiEnv = process.env): AiProvider {
   return env.NVIDIA_API_KEY?.trim() ? 'nvidia' : 'gemini'
 }
 
-export const generateAssistant: AssistantGenerator = (input) =>
-  resolveProvider() === 'nvidia' ? generateWithNvidia(input) : generateWithGemini(input)
+const assistantProvider = createAssistantProvider((input) =>
+  resolveProvider() === 'nvidia' ? generateWithNvidia(input) : generateWithGemini(input),
+)
+
+export const generateAssistant: AssistantGenerator = assistantProvider.generate
+export const getAssistantCircuitState = assistantProvider.getCircuitState

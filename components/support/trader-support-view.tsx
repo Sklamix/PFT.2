@@ -258,6 +258,7 @@ export function TraderSupportView() {
             void loadTickets(1, statusFilter)
             openTicket(publicId)
           }}
+          onRecover={() => loadTickets(1, statusFilter)}
         />
 
         <div className="mt-5 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">

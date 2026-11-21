@@ -24,6 +24,7 @@ export type AssistantGenerator = (input: {
   knowledge: string
   history: ChatTurn[]
   message: string
+  signal?: AbortSignal
 }) => Promise<AssistantResult>
 
 export const DEFAULT_MODEL = 'gemini-2.5-flash'
@@ -147,7 +148,7 @@ export function parseAssistantResponse(text: string): AssistantResult {
  * Real Gemini generator. The API key is read on the server only; the client
  * never sees it. Errors are normalised so callers can escalate to a human.
  */
-export const generateWithGemini: AssistantGenerator = async ({ systemInstruction, knowledge, history, message }) => {
+export const generateWithGemini: AssistantGenerator = async ({ systemInstruction, knowledge, history, message, signal }) => {
   const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL
   const apiKey = process.env.GEMINI_API_KEY?.trim()
   if (!apiKey) throw new AiUnavailableError('missing_key', { model })
@@ -180,7 +181,7 @@ export const generateWithGemini: AssistantGenerator = async ({ systemInstruction
         },
         temperature: 0.2,
         maxOutputTokens: 900,
-        abortSignal: AbortSignal.timeout(TIMEOUT_MS),
+        abortSignal: signal ?? AbortSignal.timeout(TIMEOUT_MS),
       },
     })
     const text = typeof response.text === 'string' ? response.text : ''

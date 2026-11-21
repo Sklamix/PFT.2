@@ -4,6 +4,12 @@ import { addTraderMessage, createTicket } from '@/lib/support/service'
 import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION } from './pft-knowledge'
 import { AiUnavailableError, type AssistantGenerator, type ChatTurn } from './gemini'
 import { generateAssistant } from './provider'
+import {
+  prismaAiSupportIdempotencyStore,
+  runIdempotentRequest,
+  supportChatFingerprint,
+  type IdempotencyStore,
+} from './request-idempotency'
 import { loadSupportPricing } from './support-pricing'
 
 export type Handoff = { publicId: string; subject: string; reused: boolean }
@@ -12,6 +18,34 @@ export type SupportChatResult = {
   answer: string | null
   handoff: Handoff | null
   handoffReason: string | null
+}
+
+function readSupportChatResult(value: unknown): SupportChatResult | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const record = value as Record<string, unknown>
+  if (typeof record.answer === 'string') {
+    if (record.handoff !== null || record.handoffReason !== null) return null
+    return { answer: record.answer, handoff: null, handoffReason: null }
+  }
+  if (record.answer !== null || typeof record.handoffReason !== 'string') return null
+
+  if (!record.handoff || typeof record.handoff !== 'object' || Array.isArray(record.handoff)) return null
+  const handoffValue = record.handoff as Record<string, unknown>
+  if (
+    typeof handoffValue.publicId !== 'string'
+    || typeof handoffValue.subject !== 'string'
+    || typeof handoffValue.reused !== 'boolean'
+  ) return null
+
+  return {
+    answer: null,
+    handoff: {
+      publicId: handoffValue.publicId,
+      subject: handoffValue.subject,
+      reused: handoffValue.reused,
+    },
+    handoffReason: record.handoffReason,
+  }
 }
 
 export class HandoffFailedError extends Error {
@@ -150,6 +184,24 @@ async function findRecentHandoffTicket(userId: string) {
   }
 }
 
+export type SupportChatDependencies = {
+  loadPricing: typeof loadSupportPricing
+  loadTraderContext: typeof loadTraderContext
+  findRecentHandoffTicket: typeof findRecentHandoffTicket
+  addTraderMessage: typeof addTraderMessage
+  createTicket: typeof createTicket
+  idempotencyStore: IdempotencyStore
+}
+
+const DEFAULT_DEPENDENCIES: SupportChatDependencies = {
+  loadPricing: loadSupportPricing,
+  loadTraderContext,
+  findRecentHandoffTicket,
+  addTraderMessage,
+  createTicket,
+  idempotencyStore: prismaAiSupportIdempotencyStore,
+}
+
 /**
  * Answers a trader question and — when the assistant cannot answer confidently —
  * makes sure a human sees it: the message is appended to the trader's recent
@@ -161,11 +213,40 @@ export async function handleSupportChat(input: {
   message: string
   history: ChatTurn[]
   forceHandoff: boolean
-  idempotencyKey: string | null
+  idempotencyKey: string
   request: Request
   generate?: AssistantGenerator
-}): Promise<SupportChatResult> {
-  const pricing = await loadSupportPricing()
+}, overrides: Partial<SupportChatDependencies> = {}): Promise<SupportChatResult> {
+  const dependencies = { ...DEFAULT_DEPENDENCIES, ...overrides }
+  const operation = () => handleSupportChatOnce(input, dependencies)
+
+  return runIdempotentRequest(
+    dependencies.idempotencyStore,
+    input.userId,
+    input.idempotencyKey,
+    supportChatFingerprint({
+      message: input.message,
+      history: input.history,
+      forceHandoff: input.forceHandoff,
+    }),
+    operation,
+    readSupportChatResult,
+  )
+}
+
+async function handleSupportChatOnce(
+  input: {
+    userId: string
+    message: string
+    history: ChatTurn[]
+    forceHandoff: boolean
+    idempotencyKey: string
+    request: Request
+    generate?: AssistantGenerator
+  },
+  dependencies: SupportChatDependencies,
+): Promise<SupportChatResult> {
+  const pricing = await dependencies.loadPricing()
   const knowledge = buildPftKnowledge(pricing)
   const generate = input.generate ?? generateAssistant
 
@@ -192,13 +273,13 @@ export async function handleSupportChat(input: {
   }
 
   const finalReason = reason ?? 'not_covered_by_rules'
-  const context = await loadTraderContext(input.userId)
+  const context = await dependencies.loadTraderContext(input.userId)
   const body = handoffBody({ message: input.message, reason: finalReason, history: input.history, context })
 
   // Reuse a recent assistant handoff ticket instead of spamming a new one.
-  const existing = await findRecentHandoffTicket(input.userId)
+  const existing = await dependencies.findRecentHandoffTicket(input.userId)
   if (existing) {
-    const appended = await addTraderMessage({
+    const appended = await dependencies.addTraderMessage({
       userId: input.userId,
       ref: existing.publicId,
       body,
@@ -219,7 +300,7 @@ export async function handleSupportChat(input: {
     // A retry that races this call uses the same idempotency key, which maps to
     // a deterministic publicId: the unique index makes the second insert lose
     // and return the ticket created by the first request.
-    const ticket = await createTicket({
+    const ticket = await dependencies.createTicket({
       userId: input.userId,
       subject: handoffSubject(input.message),
       category,

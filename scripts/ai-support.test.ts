@@ -1,9 +1,17 @@
-import test from 'node:test'
+import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
 import { PrismaClient } from '@prisma/client'
+import {
+  assertClientIsTestDb,
+  assertGateAllowsExecution,
+  resolveObservabilityTestDb,
+} from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
+import { beginTestPrismaInjection, endTestPrismaInjection } from './test-prisma-injection'
 import { hashPassword } from '../lib/admin/auth'
 import {
   AssistantRequestError,
+  isRecoverableAssistantError,
   nextIdempotencyKey,
   parseAssistantChatResponse,
   requestAssistant,
@@ -15,6 +23,42 @@ import { buildPftKnowledge, SUPPORT_SYSTEM_INSTRUCTIONS } from '../lib/ai/pft-kn
 import { generateWithNvidia, NVIDIA_DEFAULT_MODEL } from '../lib/ai/nvidia'
 import { resolveProvider } from '../lib/ai/provider'
 import { handleSupportChat, HandoffFailedError } from '../lib/ai/support-chat'
+import { publicIdForKey } from '../lib/support/service'
+
+/**
+ * DB-writing tests follow the shared fail-closed gate. The app's global Prisma
+ * client is created at import time from `DATABASE_URL`, so that endpoint must
+ * also match the gated URL; otherwise the suite skips instead of risking writes
+ * to an unintended database. The live identity is verified once in `before()`.
+ */
+const GATE = resolveObservabilityTestDb(process.env, { legacyAiSupport: true })
+assertGateAllowsExecution(GATE)
+const TEST_DB_URL = GATE.action === 'use' ? GATE.url : null
+const DB_SKIP =
+  TEST_DB_URL === null
+    ? `DB writes not authorized: ${GATE.action === 'use' ? 'unknown gate state' : GATE.reason}`
+    : process.env.AI_SUPPORT_DB_TESTS !== '1'
+      ? 'DB tests require AI_SUPPORT_DB_TESTS=1 (prevents accidental DB execution during DB-free runs)'
+      : false
+
+let injectionClient: PrismaClient | null = null
+
+before(async () => {
+  if (DB_SKIP) return
+  injectionClient = await assertClientIsTestDb(createTestPrismaClient(TEST_DB_URL!).prisma)
+  beginTestPrismaInjection(injectionClient)
+})
+
+after(async () => {
+  endTestPrismaInjection()
+  if (injectionClient) await injectionClient.$disconnect().catch(() => {})
+})
+
+/** Opens a client for the gated URL; callers close it in `finally`. */
+async function openTestDb(): Promise<PrismaClient> {
+  if (!TEST_DB_URL) throw new Error('Gated test database is not ready')
+  return createTestPrismaClient(TEST_DB_URL).prisma
+}
 
 const jsonResponse = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -91,6 +135,27 @@ test('idempotency key is reused only for the same message', () => {
   const other = nextIdempotencyKey(first, 'different text')
   assert.equal(retry.key, first.key)
   assert.notEqual(other.key, first.key)
+})
+
+test('uncertain client failures trigger server-state recovery', () => {
+  // timeout / network / invalid body: the server may already have stored a handoff.
+  for (const kind of ['timeout', 'network', 'invalid_response'] as const) {
+    assert.equal(isRecoverableAssistantError(new AssistantRequestError(kind, 'x')), true, kind)
+  }
+  // Definitive server answers must NOT trigger a recovery refresh.
+  assert.equal(isRecoverableAssistantError(new AssistantRequestError('http', 'x', 400)), false)
+  assert.equal(isRecoverableAssistantError(new Error('x')), false)
+  assert.equal(isRecoverableAssistantError(null), false)
+})
+
+test('deterministic handoff ids make server-side idempotency verifiable without a DB', () => {
+  const first = publicIdForKey('user-1', 'key-0001')
+  assert.equal(publicIdForKey('user-1', 'key-0001'), first, 'same user + key must map to one id')
+  assert.match(first, /^SUP-[A-Z2-9]{10}$/)
+  // A different key is a different logical request: it must not be merged.
+  assert.notEqual(publicIdForKey('user-1', 'key-0002'), first)
+  // Two traders can use the same client key without ever colliding.
+  assert.notEqual(publicIdForKey('user-2', 'key-0001'), first)
 })
 
 test('stricter response validation', () => {
@@ -286,8 +351,8 @@ test('history still rejects more than six turns', () => {
   assert.match((parsed as { error: string }).error, /limited to 6 turns/)
 })
 
-test('a conversation continues after a long assistant answer', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
-  const prisma = new PrismaClient()
+test('a conversation continues after a long assistant answer', { skip: DB_SKIP }, async () => {
+  const prisma = await openTestDb()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
     data: { email: `ai-longhistory-${suffix}@test.local`, passwordHash: 'x', name: 'AI Long History', role: 'TRADER' },
@@ -322,19 +387,22 @@ test('a conversation continues after a long assistant answer', { skip: process.e
     assert.equal(result.handoff, null)
     assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 0)
   } finally {
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 })
 
-test('server logs safe metadata and creates a real handoff ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {  const prisma = new PrismaClient()
+test('server logs safe metadata and creates a real handoff ticket', { skip: DB_SKIP }, async () => {  const prisma = await openTestDb()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
-    data: { email: `ai-test-${suffix}@test.local`, passwordHash: hashPassword('test-pass'), name: 'AI Test', role: 'TRADER' },
+    data: { email: `ai-test-${suffix}@test.local`, passwordHash: await hashPassword('test-pass'), name: 'AI Test', role: 'TRADER' },
   })
   const logs: string[] = []
   const originalWarn = console.warn
@@ -353,7 +421,7 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
       message: secretMessage,
       history: [{ role: 'user', content: secretMessage }],
       forceHandoff: false,
-      idempotencyKey: null,
+      idempotencyKey: 'server-log-key-1',
       request,
       generate: async () => {
         throw new AiUnavailableError('unavailable', {
@@ -386,7 +454,7 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
       message: 'follow up question',
       history: [],
       forceHandoff: true,
-      idempotencyKey: null,
+      idempotencyKey: 'server-log-key-2',
       request,
     })
     assert.equal(second.handoff?.publicId, result.handoff?.publicId)
@@ -399,19 +467,22 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: proc
         message: 'no false claim',
         history: [],
         forceHandoff: true,
-        idempotencyKey: null,
+        idempotencyKey: 'server-log-key-3',
         request,
       }),
       (error: unknown) => error instanceof HandoffFailedError,
     )
   } finally {
     console.warn = originalWarn
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 })
 
@@ -722,8 +793,8 @@ test('pricing block lists every plan variant for the same account size', () => {
 // Handoff idempotency
 // ---------------------------------------------------------------------------
 
-test('concurrent retries with the same key create exactly one ticket and one message', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
-  const prisma = new PrismaClient()
+test('concurrent retries with the same key create exactly one ticket and one message', { skip: DB_SKIP }, async () => {
+  const prisma = await openTestDb()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
     data: { email: `ai-race-${suffix}@test.local`, passwordHash: 'x', name: 'AI Race', role: 'TRADER' },
@@ -753,17 +824,20 @@ test('concurrent retries with the same key create exactly one ticket and one mes
     assert.equal(await prisma.supportMessage.count({ where: { ticket: { userId: user.id } } }), 1)
     assert.equal(results.filter((result) => result.handoff?.reused === false).length, 1, 'exactly one call creates the ticket')
   } finally {
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 })
 
-test('a sequential retry with the same key returns the same ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
-  const prisma = new PrismaClient()
+test('a sequential retry with the same key returns the same ticket', { skip: DB_SKIP }, async () => {
+  const prisma = await openTestDb()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
     data: { email: `ai-seq-${suffix}@test.local`, passwordHash: 'x', name: 'AI Sequential', role: 'TRADER' },
@@ -805,17 +879,20 @@ test('a sequential retry with the same key returns the same ticket', { skip: pro
     assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 1)
     assert.equal(await prisma.supportMessage.count({ where: { ticket: { userId: user.id } } }), 1)
   } finally {
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 })
 
-test('a hypothetical news violation is answered, not handed off', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
-  const prisma = new PrismaClient()
+test('a hypothetical news violation is answered, not handed off', { skip: DB_SKIP }, async () => {
+  const prisma = await openTestDb()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
     data: { email: `ai-news-${suffix}@test.local`, passwordHash: 'x', name: 'AI News Scenario', role: 'TRADER' },
@@ -849,17 +926,20 @@ test('a hypothetical news violation is answered, not handed off', { skip: proces
     assert.equal(result.handoff, null)
     assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 0)
   } finally {
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 })
 
 async function withTestTrader(prefix: string, run: (ctx: { prisma: PrismaClient; userId: string }) => Promise<void>) {
-  const prisma = new PrismaClient()
+  const prisma = await openTestDb()
   const suffix = `${prefix}-${Date.now().toString(36)}`
   const user = await prisma.user.create({
     data: { email: `${suffix}@test.local`, passwordHash: 'x', name: prefix, role: 'TRADER' },
@@ -867,16 +947,19 @@ async function withTestTrader(prefix: string, run: (ctx: { prisma: PrismaClient;
   try {
     await run({ prisma, userId: user.id })
   } finally {
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 }
 
-test('a real account violation check is handed off', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+test('a real account violation check is handed off', { skip: DB_SKIP }, async () => {
   await withTestTrader('ai-real-check', async ({ prisma, userId }) => {
     const result = await handleSupportChat({
       userId,
@@ -900,7 +983,7 @@ test('a real account violation check is handed off', { skip: process.env.AI_SUPP
   })
 })
 
-test('an operational account action is handed off without execution', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+test('an operational account action is handed off without execution', { skip: DB_SKIP }, async () => {
   await withTestTrader('ai-account-action', async ({ prisma, userId }) => {
     const result = await handleSupportChat({
       userId,
@@ -924,7 +1007,7 @@ test('an operational account action is handed off without execution', { skip: pr
   })
 })
 
-test('an ambiguous violation question is handed off instead of guessed', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
+test('an ambiguous violation question is handed off instead of guessed', { skip: DB_SKIP }, async () => {
   await withTestTrader('ai-ambiguous', async ({ prisma, userId }) => {
     const result = await handleSupportChat({
       userId,
@@ -947,8 +1030,8 @@ test('an ambiguous violation question is handed off instead of guessed', { skip:
   })
 })
 
-test('a valid handoff without an answer is not treated as a failure', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
-  const prisma = new PrismaClient()
+test('a valid handoff without an answer is not treated as a failure', { skip: DB_SKIP }, async () => {
+  const prisma = await openTestDb()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
     data: { email: `ai-noanswer-${suffix}@test.local`, passwordHash: 'x', name: 'AI No Answer', role: 'TRADER' },
@@ -986,17 +1069,20 @@ test('a valid handoff without an answer is not treated as a failure', { skip: pr
     assert.ok(!logs.join('\n').includes('ai_unavailable'), 'a valid handoff must not be logged as an AI failure')
   } finally {
     console.warn = originalWarn
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 })
 
-test('a retry for a closed ticket opens a new ticket', { skip: process.env.AI_SUPPORT_TEST_DB !== '1' }, async () => {
-  const prisma = new PrismaClient()
+test('a retry for a closed ticket opens a new ticket', { skip: DB_SKIP }, async () => {
+  const prisma = await openTestDb()
   const suffix = Date.now().toString(36)
   const user = await prisma.user.create({
     data: { email: `ai-closed-${suffix}@test.local`, passwordHash: 'x', name: 'AI Closed', role: 'TRADER' },
@@ -1032,12 +1118,15 @@ test('a retry for a closed ticket opens a new ticket', { skip: process.env.AI_SU
     assert.equal(second.handoff?.reused, false)
     assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 2)
   } finally {
-    await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
-    await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
-    await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
-    await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
-    await prisma.user.delete({ where: { id: user.id } })
-    await prisma.$disconnect()
+    try {
+      await prisma.supportMessage.deleteMany({ where: { ticket: { userId: user.id } } })
+      await prisma.supportTicket.deleteMany({ where: { userId: user.id } })
+      await prisma.auditLog.deleteMany({ where: { actorId: user.id } })
+      await prisma.rateLimitBucket.deleteMany({ where: { key: { contains: user.id } } })
+      await prisma.user.delete({ where: { id: user.id } })
+    } finally {
+      await prisma.$disconnect()
+    }
   }
 })
 

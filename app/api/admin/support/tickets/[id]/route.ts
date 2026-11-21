@@ -12,7 +12,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  const { session, error } = await requireSupportRead()
+  const { error } = await requireSupportRead()
   if (error) return error
 
   try {

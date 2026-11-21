@@ -19,6 +19,7 @@ All errors use the existing PFT shape:
 | 404 | ticket not found **or not owned by the caller** (indistinguishable by design) |
 | 409 | invalid status transition, closed ticket, unsettled state |
 | 429 | rate limit exceeded |
+| 503 | temporary service unavailability |
 | 500 | generic failure (details only in server logs) |
 
 ## Pagination
@@ -125,8 +126,16 @@ The trader UI displays staff messages as **PFT Support** (the API does not expos
 Request:
 
 ```json
-{ "message": "string (2–1000 chars)", "history": [{ "role": "user|assistant", "content": "≤4000; max 6 turns; 12000 chars total" }], "forceHandoff": false }
+{ "message": "string (2–1000 chars)", "history": [{ "role": "user|assistant", "content": "≤4000; max 6 turns; 12000 chars total" }], "forceHandoff": false, "idempotencyKey": "8–100 chars" }
 ```
+
+`idempotencyKey` is required. A durable record scoped to the trader stores a hash of the key, request fingerprint,
+and completed response. Repeating the same key and payload returns the original response across app instances for
+24 hours after completion; using the key with a different payload returns `409`. A concurrent retry while the
+original is running returns `503` with `Retry-After` and must be retried with the same request key. In-progress claims are
+kept fail-closed if execution fails before saving its result, so they cannot trigger a duplicate generation; such
+claims require operational recovery rather than automatic lease takeover. Completed records are pruned by the trading
+cron after their 24-hour retention period.
 
 Response (answered):
 
@@ -146,7 +155,7 @@ Response (escalated):
 - The prompt is grounded in rulebook v1.6 plus **live** `ChallengePricing` rows loaded per request; prices are never hardcoded. The prompt labels rows as **base fees** and explains that the checkout total adds the optional static (+15%) and frozen backup (+50%) add-ons.
 - Output is a single JSON object (`answer`, `resolved`, `category`, `handoffReason`). Gemini enforces it with a response schema; NVIDIA's published ChatRequest schema does not expose `response_format`, so the JSON contract is stated in the prompt and validated server-side. A clean reply is parsed directly; if the model wraps the object in prose, the first balanced JSON object is recovered (string/escape aware) and then the same validation applies. Malformed JSON, a positive result without an answer, or a negative result without a usable handoff reason is treated as unavailable and escalated. A negative result (`resolved:false`) with no answer but a real reason is a **normal handoff**, not a failure. Truncated output is escalated too — the assistant never answers from invented rules.
 - Failure reasons are distinct: `quota_exhausted` (billing/quota/credit wording, or `402`), `rate_limited` (429 with retry wording), `timeout`, `unavailable` (5xx/unknown/truncated) and `missing_key` (absent, invalid or revoked key — `401`/`403`).
-- Escalation reuses the trader's most recent **AI handoff** ticket (`Support chat:` subject, not CLOSED, updated within 24h) instead of opening a new one; the message is appended. Optional `idempotencyKey` makes retries safe.
+- Escalation reuses the trader's most recent **AI handoff** ticket (`Support chat:` subject, not CLOSED, updated within 24h) instead of opening a new one; the message is appended. The required `idempotencyKey` is durable across app instances.
 - **Server-side idempotency**: a keyed handoff derives a deterministic ticket reference from `userId + idempotencyKey` (`sha256`, 10 chars of the public alphabet). Concurrent or timed-out retries therefore hit the `publicId` unique index: exactly one insert wins, the others read that ticket back and return `handoff.reused = true`. A retry for a CLOSED ticket falls back to a fresh reference, so a new ticket is created intentionally. The key is also stored on the ticket's first message, so the same retry cannot duplicate the message.
 - Handoff context is exact: news-window questions are answered from the rulebook (opening/increasing is a violation; closing/reducing is allowed; a position opened ≥60 min before the event is not a breach, while <60 min is `news-window exposure`), and ambiguous timing must escalate instead of being guessed.
 - Answers follow the trader's language (Ukrainian is required for Ukrainian questions), and a price question for an account size with several plans must list every variant or ask which plan is meant — never a single arbitrary variant.
@@ -176,6 +185,8 @@ activity log. Metadata stores ticket reference, category and message length only
 ```bash
 # after review, against the target database (dev or prod):
 npx prisma db execute --file prisma/sql/support-tickets.sql --schema prisma/schema.prisma
+npx prisma db execute --file prisma/sql/ai-support-idempotency.sql --schema prisma/schema.prisma
 ```
 
-The script is idempotent: enums, tables, indexes and foreign keys are created only when missing.
+The AI idempotency migration must be applied before deploying code that uses the durable request store. The SQL
+is idempotent and creates only its request table, unique key constraint, expiry index, state checks, and user foreign key.
