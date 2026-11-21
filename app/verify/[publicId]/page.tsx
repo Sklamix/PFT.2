@@ -1,5 +1,4 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { ShieldCheck, ShieldOff, ShieldX } from 'lucide-react'
 import { getPublicCertificate } from '@/lib/certificates/service'
 import { renderCertificateSvg } from '@/lib/certificates/render'

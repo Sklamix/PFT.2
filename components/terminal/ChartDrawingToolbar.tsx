@@ -93,7 +93,7 @@ export function ChartDrawingToolbar() {
     const parent = el?.offsetParent as HTMLElement | null
     if (!el || !parent) return
 
-    let saved: Partial<ToolbarPosition> | null = null
+    let saved: Partial<ToolbarPosition> | null
     try {
       saved = JSON.parse(window.localStorage.getItem(TOOLBAR_STORAGE_KEY) ?? 'null') as Partial<ToolbarPosition> | null
     } catch {

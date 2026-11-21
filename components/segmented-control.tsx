@@ -29,7 +29,7 @@ export function SegmentedControl<T extends string | number>({
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const currentIndex = options.findIndex((option) => option.value === value)
-    let nextIndex = currentIndex
+    let nextIndex: number
     if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % options.length
     else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
       nextIndex = (currentIndex - 1 + options.length) % options.length

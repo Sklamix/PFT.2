@@ -1,11 +1,8 @@
 import QRCode from 'qrcode'
 import { TYPE_TITLES, type CertificateTheme, type CertificateType } from './types'
+import { appUrl } from '@/lib/app-url'
 
-const DEFAULT_APP_URL = 'https://pft-app-prod.vercel.app'
-
-export function appUrl() {
-  return (process.env.NEXT_PUBLIC_APP_URL || DEFAULT_APP_URL).replace(/\/+$/, '')
-}
+export { appUrl }
 
 export function verifyUrl(publicId: string) {
   return `${appUrl()}/verify/${encodeURIComponent(publicId)}`

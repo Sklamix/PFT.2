@@ -5,6 +5,7 @@ import { Activity } from 'lucide-react'
 import { formatSpreadValue } from '@/lib/constants/symbols'
 import { FALLBACK_MARKET_CONDITIONS } from '@/lib/market/conditions-defaults'
 import type { MarketConditionsPayload } from '@/lib/market/conditions-types'
+import { configuredCommissionRate, hasVerifiedSpreadSample } from '@/lib/market/spread-display'
 
 const spreadFormat = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 1,
@@ -99,6 +100,8 @@ export function TradingConditionsCard() {
             ) : (
               instruments.map((row) => {
                 const category = row.category.toLowerCase()
+                const hasAverage = hasVerifiedSpreadSample(row.avgSpread)
+                const commissionRate = configuredCommissionRate(row.commissionConfigured, row.commissionPerLot)
                 const avgLabel = category === 'forex'
                   ? `${spreadFormat.format(row.avgSpread)} pips`
                   : category === 'indices'
@@ -123,14 +126,34 @@ export function TradingConditionsCard() {
                           <span className="ml-2 rounded-full border border-highlight/25 bg-highlight/10 px-1.5 py-0.5 text-[8px] uppercase tracking-[0.12em] text-highlight">
                             live
                           </span>
-                          <span className="mt-0.5 block text-[9px] text-slate-600">avg {avgLabel}</span>
+                          {hasAverage ? (
+                            <span className="mt-0.5 block text-[9px] text-slate-600">avg {avgLabel}</span>
+                          ) : null}
                         </>
-                      ) : (
+                      ) : hasAverage ? (
                         <span className="text-primary">{avgLabel}</span>
+                      ) : (
+                        <span
+                          className="text-slate-600"
+                          title="No verified spread samples yet"
+                          aria-label="No verified spread samples yet"
+                        >
+                          —
+                        </span>
                       )}
                     </td>
                     <td className="hidden px-4 py-2.5 text-right font-mono text-slate-400 sm:table-cell">
-                      {commissionFormat.format(row.commissionPerLot)}
+                      {commissionRate != null ? (
+                        commissionFormat.format(commissionRate)
+                      ) : (
+                        <span
+                          className="text-slate-600"
+                          title="Commission tariff is not configured for this instrument"
+                          aria-label="Commission tariff is not configured"
+                        >
+                          —
+                        </span>
+                      )}
                     </td>
                   </tr>
                 )
@@ -141,6 +164,7 @@ export function TradingConditionsCard() {
       </div>
       <p className="text-[10px] leading-relaxed text-slate-600">
         Live quotes refresh every 60 seconds from the terminal feed; averages are rolling 24h samples.
+        A dash means no verified sample or tariff is available yet.
       </p>
     </article>
   )
