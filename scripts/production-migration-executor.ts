@@ -25,6 +25,12 @@ import { evaluateClientTls, type TlsSocketLike } from './tls-preflight-lib'
  *   - an advisory lock makes concurrent runs impossible;
  *   - the history table is `_pft_migrations` (separate from the TEST history).
  *
+ * Pooled endpoints: Neon only exposes a pooled endpoint for the production
+ * branch, and a pooled session can be handed to another backend. A
+ * session-level advisory lock is therefore unreliable there, so a pooled run
+ * takes a TRANSACTION-level advisory lock inside every write transaction
+ * instead, while a direct run keeps the session-level lock for the whole run.
+ *
  * Modes:
  *   --mode pre      read-only: reports which migrations are already satisfied
  *   --mode baseline records already-satisfied migrations in the history (history only)
@@ -116,6 +122,24 @@ const indexExists = (name: string, unique = false): ProductionPostcondition => (
   sql: `SELECT EXISTS (SELECT 1 FROM pg_indexes
          WHERE schemaname='public' AND indexname='${name}'${unique ? " AND lower(indexdef) LIKE '%unique index%'" : ''}) AS ok`,
 })
+
+/**
+ * Every hostname that belongs to the isolated test endpoint, including the
+ * pooled form (`<endpoint>-pooler.<region>...`). A production run must never
+ * be able to touch the test database — not even through the pooler.
+ */
+export function isTestEndpointHost(host: string): boolean {
+  return ALLOWED_TEST_DB_HOSTS.some((allowed) => {
+    const prefix = allowed.split('.')[0]
+    const domain = allowed.slice(prefix.length + 1)
+    return (
+      host === allowed ||
+      host === `${prefix}-pooler` ||
+      host === `${prefix}.${domain}` ||
+      host === `${prefix}-pooler.${domain}`
+    )
+  })
+}
 
 /**
  * The enum must contain every expected value. Extra values are allowed: another
@@ -332,6 +356,8 @@ export type ProductionPlan = {
   host: string
   database: string
   role: string
+  /** A pooled endpoint needs transaction-level locking, a direct one session-level. */
+  pooled: boolean
   migrations: readonly ProductionMigration[]
 }
 
@@ -374,14 +400,12 @@ export function resolveProductionPlan(
   if (database === REQUIRED_TEST_DB_NAME) {
     throw new ProductionRefusal(`refusing to run production migrations against the isolated test database '${database}'`)
   }
-  if (ALLOWED_TEST_DB_HOSTS.includes(host)) {
+  if (isTestEndpointHost(host)) {
     throw new ProductionRefusal(`refusing to run production migrations against the test endpoint '${host}'`)
   }
-  // A pooled endpoint may hand the session to another backend, which breaks the
-  // session-level advisory lock and the multi-statement transactions.
-  if (host.includes('-pooler')) {
-    throw new ProductionRefusal(`production URL must use the direct endpoint, not the pooled one ('${host}')`)
-  }
+  // A pooled endpoint hands the session to another backend between
+  // transactions, so the lock has to be transaction-level there.
+  const pooled = host.includes('-pooler')
   const role = (env.MIGRATION_EXPECTED_ROLE ?? '').trim()
   if (!IDENTIFIER.test(role)) {
     throw new ProductionRefusal('MIGRATION_EXPECTED_ROLE must be the production migration role (lowercase identifier)')
@@ -393,7 +417,7 @@ export function resolveProductionPlan(
   if (!decodeURIComponent(parsed.password)) {
     throw new ProductionRefusal('the production URL must carry the migration role credentials')
   }
-  return { mode, url: raw, host, database, role, migrations: PRODUCTION_MIGRATIONS }
+  return { mode, url: raw, host, database, role, pooled, migrations: PRODUCTION_MIGRATIONS }
 }
 
 export function buildProductionClientConfig(plan: ProductionPlan): ProductionClientConfig {
@@ -595,8 +619,13 @@ export async function runProductionMigrations(
     log(`PRODUCTION_IDENTITY=PASS db=${String(row.db)} role=${String(row.usr)}`)
 
     current = 'advisory lock'
-    await client.query(`SELECT pg_advisory_lock(${PRODUCTION_ADVISORY_LOCK_KEY})`)
-    lockHeld = true
+    // A session-level lock only makes sense on a direct endpoint: on a pooled
+    // one the session can move to another backend and the lock would be lost.
+    if (!plan.pooled) {
+      await client.query(`SELECT pg_advisory_lock(${PRODUCTION_ADVISORY_LOCK_KEY})`)
+      lockHeld = true
+    }
+    log(`PRODUCTION_LOCK=${plan.pooled ? 'transaction' : 'session'}`)
 
     current = 'history'
     // `pre` is strictly read-only: it must not create the history table.
@@ -659,11 +688,26 @@ export async function runProductionMigrations(
           continue
         }
         position += 1
-        await client.query(
-          `INSERT INTO "${PRODUCTION_HISTORY_TABLE}" ("migrationName", "position", "checksum", "executorVersion")
-           VALUES ($1, $2, $3, $4)`,
-          [migration.file, position, file.checksum, PRODUCTION_EXECUTOR_VERSION],
-        )
+        await client.query('BEGIN')
+        try {
+          if (plan.pooled) {
+            await client.query(`SELECT pg_advisory_xact_lock(${PRODUCTION_ADVISORY_LOCK_KEY})`)
+          }
+          await client.query(
+            `INSERT INTO "${PRODUCTION_HISTORY_TABLE}" ("migrationName", "position", "checksum", "executorVersion")
+             VALUES ($1, $2, $3, $4)`,
+            [migration.file, position, file.checksum, PRODUCTION_EXECUTOR_VERSION],
+          )
+          await client.query('COMMIT')
+        } catch (error) {
+          try {
+            await client.query('ROLLBACK')
+          } catch {
+            // the transaction is already aborted
+          }
+          log(`PRODUCTION_FAIL=${migration.file} ${sanitizeError(error)}`)
+          return PRODUCTION_EXIT.failed
+        }
         baselinedCount += 1
         log(`PRODUCTION_BASELINED=${migration.file}`)
       }
@@ -697,12 +741,15 @@ export async function runProductionMigrations(
       ])
       if (alreadySatisfied.length === 0) {
         log(`PRODUCTION_ALREADY_PRESENT=${migration.file} (not in history; run --mode baseline to record it)`)
-        return 6
+        return PRODUCTION_EXIT.alreadyPresent
       }
       current = migration.file
       const body = extractMigrationBody(file.sql, migration.file)
       await client.query('BEGIN')
       try {
+        if (plan.pooled) {
+          await client.query(`SELECT pg_advisory_xact_lock(${PRODUCTION_ADVISORY_LOCK_KEY})`)
+        }
         await client.query(body)
         const failures = await assertPostconditionsSatisfied(client, migration.postconditions)
         if (failures.length > 0) {

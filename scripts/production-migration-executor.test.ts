@@ -70,17 +70,17 @@ type FakeState = {
   failingConditions: Set<string>
 }
 
-function fakeClient(state: FakeState, database = 'neondb'): ProductionClient {
+function fakeClient(state: FakeState, database = 'neondb', host = PROD_HOST): ProductionClient {
   return {
     connection: {
       stream: {
         encrypted: true,
         authorized: true,
         authorizationError: null,
-        servername: PROD_HOST,
+        servername: host,
         getProtocol: () => 'TLSv1.3',
         getCipher: () => ({ name: 'TLS_AES_256_GCM_SHA384' }),
-        getPeerCertificate: () => ({ subject: { CN: PROD_HOST }, issuer: { CN: 'test-ca' }, fingerprint: 'AA:BB' }),
+        getPeerCertificate: () => ({ subject: { CN: host }, issuer: { CN: 'test-ca' }, fingerprint: 'AA:BB' }),
       },
     },
     async connect() {
@@ -161,10 +161,18 @@ test('the production gate refuses a weak TLS policy, a wrong port and forbidden 
   )
 })
 
-test('the production gate refuses a pooled endpoint (it breaks the session lock)', () => {
+test('a pooled production endpoint is accepted and switches to transaction-level locking', () => {
+  const plan = resolveProductionPlan(
+    env({ PRODUCTION_DATABASE_URL: `postgresql://neondb_owner:pw@${PROD_HOST}-pooler.c-6.us-east-2.aws.neon.tech:5432/neondb?sslmode=require&channel_binding=require` }),
+  )
+  assert.equal(plan.pooled, true)
+  assert.equal(plan.host, `${PROD_HOST}-pooler.c-6.us-east-2.aws.neon.tech`)
+})
+
+test('the pooled form of the test endpoint is refused as well', () => {
   assert.throws(
-    () => resolveProductionPlan(env({ PRODUCTION_DATABASE_URL: 'postgresql://neondb_owner:pw@ep-jolly-resonance-pooler.aws.neon.tech:5432/neondb?sslmode=require' })),
-    /direct endpoint/,
+    () => resolveProductionPlan(env({ PRODUCTION_DATABASE_URL: `postgresql://neondb_owner:pw@${ALLOWED_TEST_DB_HOSTS[0].split('.')[0]}-pooler.c-6.us-east-2.aws.neon.tech:5432/neondb?sslmode=require` })),
+    /test endpoint/,
   )
 })
 
@@ -339,10 +347,11 @@ test('baseline mode records only the already satisfied migrations and runs no mi
     'baseline',
   )
   assert.equal(code, 0)
-  assert.ok(!state.queries.some((q) => q.trim() === 'BEGIN'))
   assert.ok(!state.queries.some((q) => q.includes('CREATE TABLE IF NOT EXISTS "AccountAppeal"')))
+  assert.ok(!state.queries.some((q) => q.includes('ALTER TABLE')))
   const inserts = state.queries.filter((q) => q.includes(`INSERT INTO "${PRODUCTION_HISTORY_TABLE}"`))
   assert.equal(inserts.length, 2)
+  assert.equal(state.queries.filter((q) => q.trim() === 'COMMIT').length, 2)
   assert.ok(logs.some((line) => line.includes('PRODUCTION_BASELINED=account-appeals.sql')))
   assert.ok(logs.some((line) => line.includes('PRODUCTION_BASELINED=rules-versioning.sql')))
   assert.ok(logs.some((line) => line.includes('PRODUCTION_BASELINE_SKIPPED=checkout-intent.sql')))
@@ -357,6 +366,35 @@ test('the live identity must be the production role and database', async () => {
   )
   assert.equal(code, 2)
   assert.equal(state.queries.filter((q) => q.trim() === 'BEGIN').length, 0)
+})
+
+test('a pooled run takes a transaction-level lock and never a session-level one', async () => {
+  const state = newState()
+  const logs: string[] = []
+  const pooledHost = `${PROD_HOST}-pooler.c-6.us-east-2.aws.neon.tech`
+  const code = await runProductionMigrations(
+    env({ PRODUCTION_DATABASE_URL: `postgresql://neondb_owner:pw@${pooledHost}:5432/neondb?sslmode=require` }),
+    { createClient: () => fakeClient(state, 'neondb', pooledHost), log: (line) => logs.push(line) },
+    'apply',
+  )
+  assert.equal(code, 0)
+  assert.ok(!state.queries.some((q) => q.includes('pg_advisory_lock(')))
+  assert.equal(state.queries.filter((q) => q.includes('pg_advisory_xact_lock(')).length, PRODUCTION_MIGRATIONS.length)
+  assert.ok(logs.some((line) => line.includes('PRODUCTION_LOCK=transaction')))
+})
+
+test('a direct run takes the session-level lock for the whole run', async () => {
+  const state = newState()
+  const logs: string[] = []
+  const code = await runProductionMigrations(
+    env(),
+    { createClient: () => fakeClient(state), log: (line) => logs.push(line) },
+    'apply',
+  )
+  assert.equal(code, 0)
+  assert.ok(state.queries.some((q) => q.includes('pg_advisory_lock(')))
+  assert.ok(!state.queries.some((q) => q.includes('pg_advisory_xact_lock(')))
+  assert.ok(logs.some((line) => line.includes('PRODUCTION_LOCK=session')))
 })
 
 test('the refusal error carries its own type', () => {
