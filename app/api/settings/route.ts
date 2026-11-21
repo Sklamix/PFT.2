@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
+import { hasUsablePassword } from '@/lib/trader/accounts'
 import { normalizePreferences, PREFERENCE_SELECT } from '@/lib/settings/preferences'
 import { formatDateTime } from '@/lib/settings/format'
 
@@ -29,6 +30,7 @@ export async function GET() {
         kycStatus: true,
         emailVerifiedAt: true,
         lastLoginIp: true,
+        passwordHash: true,
         lastDeviceHash: true,
         lastPasswordChangedAt: true,
         ...PREFERENCE_SELECT,
@@ -71,6 +73,8 @@ export async function GET() {
       security: {
         // The architecture keeps one active session per trader; there is no multi-device session table.
         singleSessionModel: true,
+        // Drives the SecurityPanel form: passwordless accounts verify with a STEP_UP email code.
+        hasPassword: hasUsablePassword(user.passwordHash),
         lastSignInAt: accessEvents[0]?.createdAt ?? null,
         lastSignInLabel: accessEvents[0] ? formatDateTime(accessEvents[0].createdAt, prefs) : null,
         lastSignInIp: user.lastLoginIp,

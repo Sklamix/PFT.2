@@ -7,6 +7,7 @@ import { Field, INPUT_CLASS, Notice, Panel } from './ui'
 import { cn } from '@/lib/utils'
 
 type SecuritySummary = {
+  hasPassword: boolean
   singleSessionModel: boolean
   lastSignInAt: string | null
   lastSignInLabel: string | null
@@ -50,6 +51,8 @@ export function SecurityPanel({
 }) {
   const router = useRouter()
   const [currentPassword, setCurrentPassword] = useState('')
+  const [verificationCode, setVerificationCode] = useState('')
+  const [codeSent, setCodeSent] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [reveal, setReveal] = useState(false)
@@ -60,8 +63,29 @@ export function SecurityPanel({
   const [success, setSuccess] = useState<string | null>(null)
 
   const score = useMemo(() => passwordScore(newPassword), [newPassword])
+  const hasPassword = security.hasPassword
   const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword
-  const canSubmit = currentPassword.length > 0 && newPassword.length >= 8 && newPassword === confirmPassword && !busy
+  const canSubmit =
+    (hasPassword ? currentPassword.length > 0 : verificationCode.length === 6) &&
+    newPassword.length >= 8 &&
+    newPassword === confirmPassword &&
+    !busy
+
+  async function requestStepUpCode() {
+    setBusy(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/settings/password/request-step-up', { method: 'POST' })
+      const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string }
+      if (!response.ok) throw new Error(data.error ?? 'Unable to send a verification code.')
+      setCodeSent(true)
+      setSuccess(data.message ?? 'A verification code has been sent to your email.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to send a verification code.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -73,11 +97,17 @@ export function SecurityPanel({
       const response = await fetch('/api/settings/password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword, confirmPassword }),
+        body: JSON.stringify(
+          hasPassword
+            ? { currentPassword, newPassword, confirmPassword }
+            : { code: verificationCode, newPassword, confirmPassword },
+        ),
       })
       const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string }
       if (!response.ok) throw new Error(data.error ?? 'Unable to change the password.')
       setCurrentPassword('')
+      setVerificationCode('')
+      setCodeSent(false)
       setNewPassword('')
       setConfirmPassword('')
       setSuccess(data.message ?? 'Password updated.')
@@ -111,16 +141,53 @@ export function SecurityPanel({
     <div className="flex flex-col gap-4">
       <Panel title="Password" description="Use at least 8 characters. Changing it signs out every other device.">
         <form onSubmit={(event) => void changePassword(event)} className="grid gap-4 sm:grid-cols-2">
-          <Field label="Current password" className="sm:col-span-2">
-            <input
-              type={reveal ? 'text' : 'password'}
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
-              autoComplete="current-password"
-              className={INPUT_CLASS}
-              required
-            />
-          </Field>
+          {hasPassword ? (
+            <Field label="Current password" className="sm:col-span-2">
+              <input
+                type={reveal ? 'text' : 'password'}
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                autoComplete="current-password"
+                className={INPUT_CLASS}
+                required
+              />
+            </Field>
+          ) : (
+            <div className="sm:col-span-2 flex items-start gap-3 rounded-md border border-border/70 bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">
+              <KeyRound className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <p className="font-medium text-foreground">You do not have a password yet.</p>
+                <p className="mt-1">
+                  Your account signs in with email codes. To set one, we email a six-digit verification code to your
+                  address — enter it below together with the new password.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void requestStepUpCode()}
+                  disabled={busy}
+                  className="mt-2 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-foreground transition hover:border-primary/50 hover:text-primary disabled:opacity-60"
+                >
+                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
+                  {codeSent ? 'Send a new code' : 'Email a verification code'}
+                </button>
+              </div>
+            </div>
+          )}
+          {!hasPassword && codeSent ? (
+            <Field label="Verification code">
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={verificationCode}
+                onChange={(event) => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                className={cn(INPUT_CLASS, 'font-mono tracking-[0.3em]')}
+                required
+              />
+            </Field>
+          ) : null}
           <Field
             label="New password"
             hint={

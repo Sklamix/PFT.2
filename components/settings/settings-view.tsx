@@ -28,6 +28,7 @@ type SettingsPayload = {
     timeZone: string
   }
   security: {
+    hasPassword: boolean
     singleSessionModel: boolean
     lastSignInAt: string | null
     lastSignInLabel: string | null
