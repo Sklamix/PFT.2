@@ -2,6 +2,9 @@ import { Prisma, WalletNetwork } from '@prisma/client'
 import { NextResponse } from 'next/server'
 import { recomputeMetrics } from '@/lib/admin/risk'
 import { checkPayoutEligibility, type PayoutEligibilityCode } from '@/lib/payouts/eligibility'
+import { payoutAvailableBalance } from '@/lib/payouts/available'
+import { ledgerEntriesAfterBaselineWhere } from '@/lib/finance/baseline'
+import { payoutCreationBlockedByClosure } from '@/lib/accounts/inactivity-closure'
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
 import { recordActivity } from '@/lib/admin/activity'
@@ -38,10 +41,6 @@ function parseAmount(value: unknown): Prisma.Decimal | null {
 function validWalletAddress(network: WalletNetwork, address: string) {
   if (network === 'USDT_TRC20') return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address)
   return /^0x[a-fA-F0-9]{40}$/.test(address)
-}
-
-function roundDownToCents(value: Prisma.Decimal) {
-  return value.toDecimalPlaces(2, Prisma.Decimal.ROUND_DOWN)
 }
 
 const PAYOUT_SELECT = {
@@ -141,10 +140,20 @@ export async function POST(request: Request) {
           peakEquity: true,
           profitSplitPct: true,
           reservedPayoutAmount: true,
+          inactivityClosureClaimedAt: true,
         },
       })
       if (!account) return { error: 'FUNDED_ACCOUNT_NOT_FOUND' as const }
       if (account.archivedAt != null) return { error: 'FUNDED_ACCOUNT_NOT_FOUND' as const }
+
+      // D8: ANY inactivity-closure claim — live or stale — blocks new payouts. A stale
+      // claim is resolved only by the closure worker (takeover/finalize/release) or the
+      // next Cron pass, so a payout can never be created after closure obtained priority.
+      const closureGate = payoutCreationBlockedByClosure({
+        claimClaimedAt: account.inactivityClosureClaimedAt,
+        now: new Date(),
+      })
+      if (closureGate.blocked) return { error: 'ACCOUNT_CLOSING' as const }
       if (account.riskReviewAt != null) {
         return { error: 'PAYOUT_RECONCILIATION_REQUIRED' as const, code: 'RISK_REVIEW', difference: '0.00' }
       }
@@ -156,7 +165,7 @@ export async function POST(request: Request) {
       ])
       const [ledger, ledgerEntries] = await Promise.all([
         tx.accountLedgerEntry.aggregate({
-          where: { accountId, ...(baseline ? { createdAt: { gte: baseline.capturedAt } } : {}) },
+          where: ledgerEntriesAfterBaselineWhere(accountId, baseline),
           _sum: { amount: true },
         }),
         tx.accountLedgerEntry.count({ where: { accountId } }),
@@ -227,17 +236,14 @@ export async function POST(request: Request) {
       const reservedAmount = reserved._sum.amount ?? new Prisma.Decimal(0)
       const paidAmount = paid._sum.amount ?? new Prisma.Decimal(0)
       const debitedAmount = previouslyDebited._sum.amount ?? new Prisma.Decimal(0)
-      const accumulatedProfit = account.currentBalance
-        .minus(account.initialBalance)
-        .plus(paidAmount)
-        .plus(debitedAmount)
-      const profitShare = roundDownToCents(
-        accumulatedProfit
-          .greaterThan(0)
-          ? accumulatedProfit.mul(account.profitSplitPct).div(100)
-          : new Prisma.Decimal(0),
-      )
-      const available = profitShare.minus(paidAmount).minus(reservedAmount)
+      const available = payoutAvailableBalance({
+        currentBalance: account.currentBalance,
+        initialBalance: account.initialBalance,
+        paidAmount,
+        reservedAmount,
+        debitedAmount,
+        profitSplitPct: account.profitSplitPct,
+      })
       if (amount.greaterThan(available)) {
         return {
           error: 'INSUFFICIENT_PAYOUT_BALANCE' as const,
@@ -317,6 +323,12 @@ export async function POST(request: Request) {
     })
 
     if ('error' in payout) {
+      if (payout.error === 'ACCOUNT_CLOSING') {
+        return NextResponse.json(
+          { error: 'This account is being closed for inactivity. Payout requests are unavailable.' },
+          { status: 409 },
+        )
+      }
       if (payout.error === 'FUNDED_ACCOUNT_NOT_FOUND') {
         return NextResponse.json({ error: 'Funded account not found.' }, { status: 404 })
       }

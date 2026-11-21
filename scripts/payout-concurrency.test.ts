@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { PrismaClient, Prisma } from '@prisma/client'
 
@@ -15,26 +15,107 @@ import { PrismaClient, Prisma } from '@prisma/client'
  * No external transfers, no real payouts, no schema changes.
  */
 
-const FORBIDDEN_TEST_DATABASE_URLS = [/ep-jolly-resonance/i]
+import { assertGateAllowsExecution, resolveObservabilityTestDb, assertClientIsTestDb } from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
+import { createTelemetry, isValidTestRunId, sanitizeTelemetryDetail } from './db-test-telemetry'
 
-function resolveConcurrencyDatabaseUrl(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.PAYOUT_CONCURRENCY_TEST_DB !== '1') return null
-  const url = env.PAYOUT_CONCURRENCY_TEST_DB_URL?.trim()
-  if (!url || !/^postgres(ql)?:\/\//i.test(url)) return null
-  if (FORBIDDEN_TEST_DATABASE_URLS.some((pattern) => pattern.test(url))) return null
-  if (!/\/pft_dbtest(\?|$)/.test(url)) return null // only the dedicated test database
-  return url
-}
-
-const TEST_URL = resolveConcurrencyDatabaseUrl()
+// Shared fail-closed identity gate (scripts/observability-db-gate.ts) in legacy
+// mode: the PAYOUT_CONCURRENCY_* env pair is an explicitly authorized legacy
+// alias of the same isolated pft_dbtest database (exact owner-approved host
+// allowlist, production denylist, /pft_dbtest path, sslmode=verify-full policy,
+// and a cross-check whenever the canonical OBSERVABILITY_TEST_DB_URL is set).
+const GATE = resolveObservabilityTestDb(process.env, { legacy: true })
+assertGateAllowsExecution(GATE)
+const TEST_URL = GATE.action === 'use' ? GATE.url : null
 const DB_OK = TEST_URL !== null
+// PHASE 1.48: run-scoped identity; one TEST_RUN_ID is generated per run by the launcher.
+const RUN_ID = isValidTestRunId(process.env.TEST_RUN_ID) ? process.env.TEST_RUN_ID : null
+const RUN_TAG = RUN_ID ?? Date.now().toString(36)
+/** PHASE 1.97: external references are run-scoped; `transactionRef` is globally unique. */
+const REF_BASE = `CONC-REF-${RUN_TAG}`
+const TELEMETRY = createTelemetry(RUN_ID, 'payout-concurrency')
+TELEMETRY.suiteStarted()
+// PHASE 1.49: cleanup failures must fail the suite (never a silent full PASS).
+// Recorded during tests and raised from the top-level after() hook so a primary
+// assertion failure is not replaced by the cleanup error.
+const cleanupFailures: string[] = []
+const createdUserIds = new Set<string>()
+const createdAccountIds = new Set<string>()
+after(async () => {
+  if (DB_OK && TEST_URL && (createdAccountIds.size > 0 || createdUserIds.size > 0)) {
+    let verifier: Client | null = null
+    try {
+      verifier = await makeClient('cleanup-verify', TEST_URL)
+      const accountIds = [...createdAccountIds]
+      const userIds = [...createdUserIds]
+      // PHASE 1.97: best-effort exact-key cleanup before the residual audit. This also
+      // covers a setup failure that happened before the per-test finally block.
+      try {
+        if (accountIds.length > 0) {
+          await verifier.payout.deleteMany({ where: { accountId: { in: accountIds } } })
+          await verifier.accountLedgerEntry.deleteMany({ where: { accountId: { in: accountIds } } })
+          await verifier.auditLog.deleteMany({ where: { accountId: { in: accountIds } } })
+          await verifier.accountBreachEvent.deleteMany({ where: { accountId: { in: accountIds } } })
+          await verifier.tradingAccount.deleteMany({ where: { id: { in: accountIds } } })
+        }
+        if (userIds.length > 0) {
+          await verifier.user.deleteMany({ where: { id: { in: userIds } } })
+        }
+      } catch (error) {
+        cleanupFailures.push(`residual cleanup failed: ${sanitizeTelemetryDetail((error as Error)?.message ?? String(error), 160)}`)
+      }
+      const residual = {
+        TradingAccount: accountIds.length
+          ? await verifier.tradingAccount.count({ where: { id: { in: accountIds } } })
+          : 0,
+        User: userIds.length ? await verifier.user.count({ where: { id: { in: userIds } } }) : 0,
+        Payout: accountIds.length
+          ? await verifier.payout.count({ where: { accountId: { in: accountIds } } })
+          : 0,
+        AccountLedgerEntry: accountIds.length
+          ? await verifier.accountLedgerEntry.count({ where: { accountId: { in: accountIds } } })
+          : 0,
+        AuditLog: accountIds.length
+          ? await verifier.auditLog.count({ where: { accountId: { in: accountIds } } })
+          : 0,
+        AccountBreachEvent: accountIds.length
+          ? await verifier.accountBreachEvent.count({ where: { accountId: { in: accountIds } } })
+          : 0,
+        Position: accountIds.length
+          ? await verifier.position.count({ where: { tradingAccountId: { in: accountIds } } })
+          : 0,
+        TradeHistory: accountIds.length
+          ? await verifier.tradeHistory.count({ where: { tradingAccountId: { in: accountIds } } })
+          : 0,
+      }
+      const total = Object.values(residual).reduce((sum, value) => sum + value, 0)
+      TELEMETRY.cleanupCompleted({ Residual: total })
+      if (total !== 0) {
+        cleanupFailures.push(`cleanup residual is not zero: ${JSON.stringify(residual)}`)
+      }
+    } catch (error) {
+      cleanupFailures.push(sanitizeTelemetryDetail((error as Error)?.message ?? String(error), 160))
+    } finally {
+      await safeClose(verifier, 'cleanup-verify')
+    }
+  }
+  TELEMETRY.suiteCompleted()
+  if (cleanupFailures.length > 0) {
+    throw new Error(
+      `payout-concurrency cleanup failed for ${cleanupFailures.length} issue(s): ${cleanupFailures.join(' | ')}`,
+    )
+  }
+})
 const D = (v: string | number | Prisma.Decimal) => new Prisma.Decimal(v)
 const AMOUNT = D('100.00')
 
 type Client = PrismaClient & { __label: string }
 
-function makeClient(label: string, url: string): Client {
-  const client = new PrismaClient({ datasources: { db: { url } } }) as Client
+/** Identity is asserted on EVERY client before it is handed to the test. */
+async function makeClient(label: string, url: string): Promise<Client> {
+  const client = (await assertClientIsTestDb(
+    createTestPrismaClient(url).prisma,
+  )) as Client
   client.__label = label
   return client
 }
@@ -124,10 +205,12 @@ async function requestPayoutTx(
 }
 
 async function setupAccount(client: Client, opts: { status?: string; initialBalance?: string } = {}) {
-  const unique = `pftconc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const unique = `pftconc-${RUN_TAG}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const user = await client.user.create({
     data: { email: `${unique}@conc.test`, name: unique, passwordHash: `conc-test-no-login-${unique}`, kycStatus: 'APPROVED' },
   })
+  TELEMETRY.recordCreated('User')
+  createdUserIds.add(user.id)
   const balance = D(opts.initialBalance ?? '1000')
   const account = await client.tradingAccount.create({
     data: {
@@ -157,10 +240,24 @@ async function setupAccount(client: Client, opts: { status?: string; initialBala
       profitSplitPct: 80,
     },
   })
+  TELEMETRY.recordCreated('TradingAccount')
+  createdAccountIds.add(account.id)
   return { user, account, unique }
 }
 
 type Harness = Awaited<ReturnType<typeof setupAccount>>
+
+/** PHASE 1.97: guarantees the setup client is closed when row setup fails. */
+async function setupWithClient(url: string): Promise<{ setup: Client; h: Harness }> {
+  const setup = await makeClient('setup', url)
+  try {
+    const h = await setupAccount(setup)
+    return { setup, h }
+  } catch (error) {
+    await safeClose(setup, 'setup')
+    throw error
+  }
+}
 
 /** Models an account with the payout's amount already debited and reserved. */
 async function applyReserve(client: Client, h: Harness) {
@@ -179,13 +276,61 @@ async function applyReserve(client: Client, h: Harness) {
   })
 }
 
-async function cleanup(client: Client, h: Harness) {
-  await client.payout.deleteMany({ where: { accountId: h.account.id } })
-  await client.accountLedgerEntry.deleteMany({ where: { accountId: h.account.id } })
-  await client.auditLog.deleteMany({ where: { accountId: h.account.id } })
-  await client.accountBreachEvent.deleteMany({ where: { accountId: h.account.id } })
-  await client.tradingAccount.delete({ where: { id: h.account.id } })
-  await client.user.delete({ where: { id: h.user.id } })
+/** PHASE 1.50: exact creation counts taken immediately before deletion. Payout rows
+ *  are created both directly and by the business replica (tx.payout.create), and the
+ *  latter can roll back; a pre-cleanup COUNT is the only truthful source. */
+async function snapshotCreated(client: Client, h: Harness): Promise<Record<string, number>> {
+  return {
+    Payout: await client.payout.count({ where: { accountId: h.account.id } }),
+    AccountLedgerEntry: await client.accountLedgerEntry.count({ where: { accountId: h.account.id } }),
+    AuditLog: await client.auditLog.count({ where: { accountId: h.account.id } }),
+    AccountBreachEvent: await client.accountBreachEvent.count({ where: { accountId: h.account.id } }),
+  }
+}
+
+async function cleanup(client: Client, h: Harness, counts: Record<string, number> = {}): Promise<Record<string, number>> {
+  counts.Payout = (await client.payout.deleteMany({ where: { accountId: h.account.id } })).count
+  counts.AccountLedgerEntry = (await client.accountLedgerEntry.deleteMany({ where: { accountId: h.account.id } })).count
+  counts.AuditLog = (await client.auditLog.deleteMany({ where: { accountId: h.account.id } })).count
+  counts.AccountBreachEvent = (await client.accountBreachEvent.deleteMany({ where: { accountId: h.account.id } })).count
+  counts.TradingAccount = (await client.tradingAccount.delete({ where: { id: h.account.id } })).id ? 1 : 0
+  counts.User = (await client.user.delete({ where: { id: h.user.id } })).id ? 1 : 0
+  return counts
+}
+
+/**
+ * PHASE 1.45: guaranteed client teardown. Closes a client without throwing, so a
+ * cleanup failure can never mask the primary test/assertion failure. Cleanup
+ * errors are logged separately on stderr.
+ */
+async function safeClose(client: Client | null, label: string): Promise<void> {
+  if (!client) return
+  try {
+    await client.$disconnect()
+  } catch (error) {
+    console.error(`payout-concurrency cleanup: disconnect failed for ${label}: ${(error as Error)?.message ?? String(error)}`)
+  }
+}
+
+/** PHASE 1.45/1.48: row cleanup that never masks the primary failure and reports
+ *  actual deleted counts (or CLEANUP_FAILED) to the local telemetry stream. */
+async function safeRowCleanup(client: Client, h: Harness): Promise<void> {
+  // creation snapshot is telemetry-only: a failure here must never block cleanup
+  try {
+    TELEMETRY.snapshotCreated(await snapshotCreated(client, h))
+  } catch (error) {
+    console.error(`payout-concurrency telemetry: creation snapshot failed: ${(error as Error)?.message ?? String(error)}`)
+  }
+  TELEMETRY.cleanupStarted()
+  const counts: Record<string, number> = {}
+  try {
+    await cleanup(client, h, counts)
+    TELEMETRY.cleanupCompleted(counts)
+  } catch (error) {
+    TELEMETRY.cleanupFailed(counts, error)
+    cleanupFailures.push(sanitizeTelemetryDetail((error as Error)?.message ?? String(error), 120))
+    console.error(`payout-concurrency cleanup: row cleanup failed: ${(error as Error)?.message ?? String(error)}`)
+  }
 }
 
 /** Runs `fn` on a dedicated connection inside a real PostgreSQL transaction. */
@@ -232,11 +377,12 @@ const skipped = { skip: DB_OK ? false : 'requires PAYOUT_CONCURRENCY_TEST_DB=1 a
 
 test('Q2: breach committed first — later payout request is rejected, no reserve created', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
+  let a: Client | null = null
+  let b: Client | null = null
   try {
-    const a = makeClient('breach', url)
-    const b = makeClient('request', url)
+    a = await makeClient('breach', url)
+    b = await makeClient('request', url)
 
     // Connection A commits the breach first.
     const breach = await runOn(a, (tx) =>
@@ -257,11 +403,11 @@ test('Q2: breach committed first — later payout request is rejected, no reserv
     assert.equal(String(account.currentBalance), '1000', 'balance untouched')
     assert.equal(String(account.reservedPayoutAmount), '0')
     assert.equal(account.status, 'BREACHED_DAILY')
-    await a.$disconnect()
-    await b.$disconnect()
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    await safeClose(a, 'a')
+    await safeClose(b, 'b')
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })
 
@@ -279,11 +425,12 @@ async function applyBreachInTx(tx: Prisma.TransactionClient, accountId: string, 
 
 test('Q9 Case A: request takes the account lock first — payout survives the breach', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
+  let a: Client | null = null
+  let b: Client | null = null
   try {
-    const a = makeClient('request', url)
-    const b = makeClient('breach', url)
+    a = await makeClient('request', url)
+    b = await makeClient('breach', url)
 
     let requestLocked = false
     let requestCommitted = false
@@ -313,21 +460,22 @@ test('Q9 Case A: request takes the account lock first — payout survives the br
     assert.equal(String(account.currentBalance), '900', 'reserve debited exactly once')
     assert.equal(String(account.reservedPayoutAmount), '100')
     assert.equal(ledger.filter((l) => l.type === 'PAYOUT_RESERVE').length, 1)
-    await a.$disconnect()
-    await b.$disconnect()
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    await safeClose(a, 'a')
+    await safeClose(b, 'b')
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })
 
 test('Q9 Case B: breach takes the account lock first — request is rejected after re-read', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
+  let a: Client | null = null
+  let b: Client | null = null
   try {
-    const a = makeClient('breach', url)
-    const b = makeClient('request', url)
+    a = await makeClient('breach', url)
+    b = await makeClient('request', url)
 
     // Breach acquires the account lock first (as the engine does via withPrismaBook)
     // and holds it while the payout request waits.
@@ -355,24 +503,26 @@ test('Q9 Case B: breach takes the account lock first — request is rejected aft
     assert.equal(ledger.length, 0)
     assert.equal(String(account.currentBalance), '1000')
     assert.equal(String(account.reservedPayoutAmount), '0')
-    await a.$disconnect()
-    await b.$disconnect()
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    await safeClose(a, 'a')
+    await safeClose(b, 'b')
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })
 
 test('Q9 Case C: unordered race (20 iterations) — every outcome respects the invariants', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
+  const setup = await makeClient('setup', url)
   try {
     let okIterations = 0
     for (let i = 0; i < 20; i += 1) {
       const h = await setupAccount(setup)
+      let a: Client | null = null
+      let b: Client | null = null
       try {
-        const a = makeClient(`req-${i}`, url)
-        const b = makeClient(`breach-${i}`, url)
+        a = await makeClient(`req-${i}`, url)
+        b = await makeClient(`breach-${i}`, url)
         const jitter = Math.random() * 120
         const requestPromise = runOn(a, async (tx) => {
           await new Promise((resolve) => setTimeout(resolve, jitter))
@@ -406,22 +556,23 @@ test('Q9 Case C: unordered race (20 iterations) — every outcome respects the i
         }
         assert.ok(account.status === 'BREACHED_DAILY' || account.status === 'BREACHED_MAX')
         okIterations += 1
-        await a.$disconnect()
-        await b.$disconnect()
       } finally {
-        await cleanup(setup, h)
+        await safeClose(a, 'req')
+        await safeClose(b, 'breach')
+        await safeRowCleanup(setup, h)
       }
     }
     assert.equal(okIterations, 20)
   } finally {
-    await setup.$disconnect()
+    await safeClose(setup, 'setup')
   }
 })
 
 test('approve vs reject race — exactly one outcome, reserve never lost or double-restored', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
+  let a: Client | null = null
+  let b: Client | null = null
   try {
     const payout = await setup.payout.create({
       data: {
@@ -432,8 +583,8 @@ test('approve vs reject race — exactly one outcome, reserve never lost or doub
     })
     await applyReserve(setup, h)
     const owner = h.user.id
-    const a = makeClient('approve', url)
-    const b = makeClient('reject', url)
+    a = await makeClient('approve', url)
+    b = await makeClient('reject', url)
     const approvePromise = runOn(a, async (tx) => {
       const { approveManualPayoutInTx } = await import('../lib/admin/payout-execution')
       return approveManualPayoutInTx(tx, { id: payout.id, actorId: owner })
@@ -467,18 +618,19 @@ test('approve vs reject race — exactly one outcome, reserve never lost or doub
       { account, payouts: [finalPayout], ledger: await setup.accountLedgerEntry.findMany({ where: { accountId: h.account.id } }) },
       {},
     )
-    await a.$disconnect()
-    await b.$disconnect()
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    await safeClose(a, 'a')
+    await safeClose(b, 'b')
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })
 
 test('confirm vs reject race — MANUALLY_PAID xor REJECTED, no double financial move', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
+  let a: Client | null = null
+  let b: Client | null = null
   try {
     const payout = await setup.payout.create({
       data: {
@@ -495,13 +647,13 @@ test('confirm vs reject race — MANUALLY_PAID xor REJECTED, no double financial
       })
     }
     await applyReserve(setup, h)
-    const a = makeClient('confirm', url)
-    const b = makeClient('reject', url)
+    a = await makeClient('confirm', url)
+    b = await makeClient('reject', url)
     const confirmPromise = runOn(a, async (tx) => {
       const { confirmManualPaymentInTx } = await import('../lib/admin/payout-execution')
       return confirmManualPaymentInTx(tx, {
         id: payout.id, ownerId: h.user.id, paidAmount: AMOUNT, paidCurrency: 'USDT_ERC20',
-        paidAt: new Date(), paymentMethod: 'Manual transfer', transactionRef: 'CONC-REF-1',
+        paidAt: new Date(), paymentMethod: 'Manual transfer', transactionRef: `${REF_BASE}-1`,
       })
     })
     const rejectPromise = runOn(b, async (tx) => {
@@ -527,18 +679,19 @@ test('confirm vs reject race — MANUALLY_PAID xor REJECTED, no double financial
       assert.equal(ledger.length, 1, 'exactly one release')
       assert.equal(String(account.currentBalance), '1000')
     }
-    await a.$disconnect()
-    await b.$disconnect()
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    await safeClose(a, 'a')
+    await safeClose(b, 'b')
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })
 
 test('reject vs archive race — serialized by the account lock, terminal outcome consistent', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
+  let a: Client | null = null
+  let b: Client | null = null
   try {
     const payout = await setup.payout.create({
       data: {
@@ -548,8 +701,8 @@ test('reject vs archive race — serialized by the account lock, terminal outcom
       },
     })
     await applyReserve(setup, h)
-    const a = makeClient('reject', url)
-    const b = makeClient('archive', url)
+    a = await makeClient('reject', url)
+    b = await makeClient('archive', url)
     const rejectPromise = runOn(a, async (tx) => {
       const { rejectManualPayoutInTx } = await import('../lib/admin/payout-execution')
       return rejectManualPayoutInTx(tx, { id: payout.id, actorId: h.user.id, reason: 'conc reject' })
@@ -577,18 +730,18 @@ test('reject vs archive race — serialized by the account lock, terminal outcom
       assert.equal(reject.result?.ok, true)
       assert.equal(finalPayout.status, 'REJECTED')
     }
-    await a.$disconnect()
-    await b.$disconnect()
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    await safeClose(a, 'a')
+    await safeClose(b, 'b')
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })
 
 test('parallel double reject and double confirm — one financial mutation, idempotent outcomes', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
+  const extraClients: Client[] = []
   try {
     const makePayout = async (status: 'APPROVED', ref?: string) => {
       const payout = await setup.payout.create({
@@ -615,8 +768,8 @@ test('parallel double reject and double confirm — one financial mutation, idem
 
     // Two parallel rejects on the same APPROVED payout.
     const p1 = await makePayout('APPROVED')
-    const r1 = makeClient('reject-1', url)
-    const r2 = makeClient('reject-2', url)
+    const r1 = await makeClient('reject-1', url); extraClients.push(r1)
+    const r2 = await makeClient('reject-2', url); extraClients.push(r2)
     const rejects = await Promise.all([
       runOn(r1, async (tx) => {
         const { rejectManualPayoutInTx } = await import('../lib/admin/payout-execution')
@@ -636,11 +789,11 @@ test('parallel double reject and double confirm — one financial mutation, idem
 
     // Two parallel confirms with the same reference.
     const p2 = await makePayout('APPROVED')
-    const c1 = makeClient('confirm-1', url)
-    const c2 = makeClient('confirm-2', url)
+    const c1 = await makeClient('confirm-1', url); extraClients.push(c1)
+    const c2 = await makeClient('confirm-2', url); extraClients.push(c2)
     const confirmInput = {
       id: p2.id, ownerId: h.user.id, paidAmount: AMOUNT, paidCurrency: 'USDT_ERC20',
-      paidAt: new Date(), paymentMethod: 'Manual transfer', transactionRef: 'CONC-REF-SAME',
+      paidAt: new Date(), paymentMethod: 'Manual transfer', transactionRef: `${REF_BASE}-SAME`,
     }
     const confirms = await Promise.all([
       runOn(c1, async (tx) => {
@@ -656,33 +809,33 @@ test('parallel double reject and double confirm — one financial mutation, idem
     // conflict — never a second payment or an error other than the CAS conflict.
     assert.equal(confirms.filter((c) => c.result?.ok === true).length >= 1, true)
     assert.equal((await setup.payout.findUniqueOrThrow({ where: { id: p2.id } })).status, 'MANUALLY_PAID')
-    const paidCount = await setup.payout.count({ where: { transactionRef: 'CONC-REF-SAME' } })
+    const paidCount = await setup.payout.count({ where: { accountId: h.account.id, transactionRef: `${REF_BASE}-SAME` } })
     assert.equal(paidCount, 1, 'unique transaction reference')
 
     // Two confirms with different references on the same payout — one wins, other conflicts.
     const p3 = await makePayout('APPROVED')
-    const c3 = makeClient('confirm-3', url)
-    const c4 = makeClient('confirm-4', url)
+    const c3 = await makeClient('confirm-3', url); extraClients.push(c3)
+    const c4 = await makeClient('confirm-4', url); extraClients.push(c4)
     const conflict = await Promise.all([
       runOn(c3, async (tx) => {
         const { confirmManualPaymentInTx } = await import('../lib/admin/payout-execution')
-        return confirmManualPaymentInTx(tx, { ...confirmInput, id: p3.id, transactionRef: 'CONC-REF-A' })
+        return confirmManualPaymentInTx(tx, { ...confirmInput, id: p3.id, transactionRef: `${REF_BASE}-A` })
       }),
       runOn(c4, async (tx) => {
         const { confirmManualPaymentInTx } = await import('../lib/admin/payout-execution')
-        return confirmManualPaymentInTx(tx, { ...confirmInput, id: p3.id, transactionRef: 'CONC-REF-B' })
+        return confirmManualPaymentInTx(tx, { ...confirmInput, id: p3.id, transactionRef: `${REF_BASE}-B` })
       }),
     ])
     const okConfirms = conflict.filter((c) => c.result?.ok === true).length
     assert.equal(okConfirms, 1, 'only one reference can win')
     const winningRefs = await setup.payout.count({
-      where: { transactionRef: { in: ['CONC-REF-A', 'CONC-REF-B'] } },
+      where: { accountId: h.account.id, transactionRef: { in: [`${REF_BASE}-A`, `${REF_BASE}-B`] } },
     })
     assert.equal(winningRefs, 1, 'exactly one unique transaction reference stored')
 
     // Repeated breach and repeated reserve: one event, one reserve row each.
-    const b1 = makeClient('breach-1', url)
-    const b2 = makeClient('breach-2', url)
+    const b1 = await makeClient('breach-1', url); extraClients.push(b1)
+    const b2 = await makeClient('breach-2', url); extraClients.push(b2)
     const breaches = await Promise.all([
       runOn(b1, (tx) => applyBreachInTx(tx, h.account.id, 'DAILY_LOSS', new Date('2026-01-01T09:55:00.000Z'))),
       runOn(b2, (tx) => applyBreachInTx(tx, h.account.id, 'DAILY_LOSS', new Date('2026-01-01T09:55:00.000Z'))),
@@ -693,17 +846,16 @@ test('parallel double reject and double confirm — one financial mutation, idem
     const p2Final = await setup.payout.findUniqueOrThrow({ where: { id: p2.id } })
     assert.equal(p2Final.status, 'MANUALLY_PAID', 'breach does not touch a paid payout')
 
-    await Promise.all([r1, r2, c1, c2, c3, c4, b1, b2].map((c) => c.$disconnect()))
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    for (const c of extraClients) await safeClose(c, c.__label)
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })
 
 test('Q5: active hold blocks request; expired news hold does not; expiry creates no approval', skipped, async () => {
   const url = TEST_URL as string
-  const setup = makeClient('setup', url)
-  const h = await setupAccount(setup)
+  const { setup, h } = await setupWithClient(url)
   try {
     const now = Date.now()
     // Active manual owner hold (no expiry — stays until manually cleared).
@@ -724,7 +876,7 @@ test('Q5: active hold blocks request; expired news hold does not; expiry creates
     await setup.auditLog.create({
       data: { actorId: h.user.id, accountId: h.account.id, action: 'NEWS_WINDOW_EXPOSURE', createdAt: new Date(now - 8 * 24 * 3600_000) },
     })
-    const req2 = await runOn(setup, async (tx) => {
+    await runOn(setup, async (tx) => {
       const { checkPayoutEligibility } = await import('../lib/payouts/eligibility')
       return checkPayoutEligibility(tx, { accountId: h.account.id, userId: h.user.id, amount: AMOUNT })
     })
@@ -751,7 +903,7 @@ test('Q5: active hold blocks request; expired news hold does not; expiry creates
     const ledger = await setup.accountLedgerEntry.count({ where: { accountId: h.account.id } })
     assert.equal(ledger, 0)
   } finally {
-    await cleanup(setup, h)
-    await setup.$disconnect()
+    await safeRowCleanup(setup, h)
+    await safeClose(setup, 'setup')
   }
 })

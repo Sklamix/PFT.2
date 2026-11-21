@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useMemo, useState } from 'react'
 import {
   AlertCircle,
   ArrowLeft,
@@ -33,6 +33,42 @@ import {
   type DrawdownMode,
 } from '@/lib/challenges'
 import { cn } from '@/lib/utils'
+
+const CHECKOUT_STATUS_ATTEMPTS = 10
+const CHECKOUT_STATUS_INTERVAL_MS = 1500
+
+/**
+ * Polls the safe checkout-status endpoint for the same identity+product. It never
+ * creates a second invoice; it only returns the first request's result or a clear
+ * "still processing" outcome.
+ */
+async function waitForCheckoutResult(payload: Record<string, unknown>): Promise<{ url?: string; error?: string }> {
+  for (let attempt = 0; attempt < CHECKOUT_STATUS_ATTEMPTS; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, CHECKOUT_STATUS_INTERVAL_MS))
+    const response = await fetch('/api/checkout/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    const data = (await response.json().catch(() => ({}))) as {
+      status?: string
+      url?: string
+      error?: string
+    }
+    if (response.ok && data.status === 'READY' && data.url) return { url: data.url }
+    if (data.status === 'FAILED') {
+      return { error: 'The previous checkout attempt failed. You can try again.' }
+    }
+    if (data.status === 'EXPIRED' || data.status === 'NONE') {
+      return { error: 'The previous checkout expired. Please start a new purchase.' }
+    }
+    if (!response.ok) return { error: data.error ?? 'Could not verify the checkout status.' }
+  }
+  return {
+    error:
+      'Your purchase is still being prepared. Please check your email shortly — no second invoice was created.',
+  }
+}
 
 const COUNTRIES = [
   'United States',
@@ -115,6 +151,23 @@ export function CheckoutModal({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Synchronize derived form state during render instead of in an effect. This keeps
+  // prefill/reset behaviour identical without cascading effect renders.
+  const resetKey = `${open}:${accountSize}:${calculatedPrice}`
+  const [lastResetKey, setLastResetKey] = useState(resetKey)
+  if (open && lastResetKey !== resetKey) {
+    setLastResetKey(resetKey)
+    setHasFrozenBackup(false)
+  }
+
+  const customerKey = open && customer ? `${customer.email}|${customer.name ?? ''}` : null
+  const [lastCustomerKey, setLastCustomerKey] = useState<string | null>(null)
+  if (customer && customerKey && customerKey !== lastCustomerKey) {
+    setLastCustomerKey(customerKey)
+    setEmail(customer.email)
+    if (customer.name) setFullName(customer.name)
+  }
+
   const rules = CHALLENGES[evaluationType]
   const basePrice = calculatedPrice
   const frozenBackupPrice = getFrozenBackupPrice(basePrice)
@@ -123,16 +176,6 @@ export function CheckoutModal({
     () => `${formatCurrency(accountSize)} · ${rules.label}`,
     [accountSize, rules.label],
   )
-
-  useEffect(() => {
-    if (open) setHasFrozenBackup(false)
-  }, [open, accountSize, calculatedPrice])
-
-  useEffect(() => {
-    if (!open || !customer) return
-    setEmail(customer.email)
-    if (customer.name) setFullName(customer.name)
-  }, [open, customer?.email, customer?.name])
 
   function resetTransient() {
     setError(null)
@@ -176,25 +219,47 @@ export function CheckoutModal({
 
     setSubmitting(true)
     try {
+      const payload = {
+        planSize: accountSize,
+        evaluationType: evaluationPayload(evaluationType),
+        email: email.trim(),
+        fullName: fullName.trim(),
+        paymentMethod: 'crypto',
+        country,
+        promoCode: promoCode.trim() || undefined,
+        drawdownMode,
+        dailyLossType: evaluationType === 'two-step' ? dailyLossType : undefined,
+        hasFrozenBackup,
+        totalAmount,
+      }
       const response = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          planSize: accountSize,
-          evaluationType: evaluationPayload(evaluationType),
-          email: email.trim(),
-          fullName: fullName.trim(),
-          paymentMethod: 'crypto',
-          country,
-          promoCode: promoCode.trim() || undefined,
-          drawdownMode,
-          dailyLossType: evaluationType === 'two-step' ? dailyLossType : undefined,
-          hasFrozenBackup,
-          totalAmount,
-        }),
+        body: JSON.stringify(payload),
       })
 
-      const data = (await response.json()) as { url?: string; error?: string }
+      const data = (await response.json()) as {
+        url?: string
+        error?: string
+        status?: string
+        message?: string
+      }
+
+      if (response.status === 202 || data.status === 'PROCESSING') {
+        // The first request is still preparing the invoice. Poll its safe status
+        // instead of starting a second purchase.
+        const status = await waitForCheckoutResult(payload)
+        if (status.url) {
+          window.location.assign(status.url)
+          return
+        }
+        setError(
+          status.error ??
+            'Your purchase is still being prepared. Please check your email shortly or try again in a minute.',
+        )
+        setSubmitting(false)
+        return
+      }
 
       if (!response.ok || !data.url) {
         setError(data.error || 'Unable to create your invoice. Please try again.')
@@ -508,10 +573,24 @@ export function CheckoutModal({
               />
               <span className="text-xs leading-relaxed text-muted-foreground">
                 I agree to the{' '}
-                <a href="#faq" className="text-highlight underline-offset-2 hover:underline">
+                <a
+                  href="/legal/terms"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-highlight underline-offset-2 hover:underline"
+                >
                   Terms of Service
                 </a>
-                , Refund Policy, and confirm that I have read the{' '}
+                ,{' '}
+                <a
+                  href="/legal/refund-policy"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-highlight underline-offset-2 hover:underline"
+                >
+                  Refund Policy
+                </a>
+                , and confirm that I have read the{' '}
                 <a href="#rules" className="text-highlight underline-offset-2 hover:underline">
                   risk evaluation rules
                 </a>

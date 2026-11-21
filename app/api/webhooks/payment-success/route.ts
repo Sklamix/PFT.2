@@ -1,20 +1,18 @@
-import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 import type { Order, OrderStatus, Prisma } from '@prisma/client'
+import { isValidSignature } from '@/lib/payments/nowpayments-ipn'
 import { appUrl, sendCredentialsEmail } from '@/lib/email/account-credentials'
 import { setPasswordUrl } from '@/lib/email/password-reset'
 import { hasUsablePassword, issuePasswordToken } from '@/lib/trader/accounts'
 import { isEmailConfigured } from '@/lib/email/resend'
-import { AccountLimitError } from '@/lib/accounts/limits'
-import { ResetError, isResetOrderPayload, resetAccountForPayment } from '@/lib/accounts/reset'
 import { claimWebhookEvent, releaseWebhookEvent, webhookEventId } from '@/lib/security/webhook-events'
 import {
   InvalidOrderPayloadError,
   planFromOrderPayload,
-  provisionChallengeAccounts,
   type ChallengePlan,
   type ProvisionedAccount,
 } from '@/lib/provisioning/challenge-account'
+import { provisionOrderAccountsInTx, recordProvisioningFailure } from '@/lib/payments/recovery'
 
 const PAID_STATUSES = new Set(['finished', 'confirmed'])
 const TERMINAL_STATUSES: Record<string, OrderStatus> = {
@@ -35,27 +33,6 @@ interface NowPaymentsIpn {
   pay_currency?: string
   outcome_amount?: number | string
   outcome_currency?: string
-}
-
-function sortKeysDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeysDeep)
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value as Record<string, unknown>)
-        .sort()
-        .map((key) => [key, sortKeysDeep((value as Record<string, unknown>)[key])]),
-    )
-  }
-  return value
-}
-
-/** NOWPayments signs HMAC-SHA512(JSON.stringify(body with keys sorted recursively)) with the IPN secret. */
-function isValidSignature(body: unknown, signature: string, secret: string) {
-  const expected = crypto.createHmac('sha512', secret).update(JSON.stringify(sortKeysDeep(body))).digest('hex')
-  const received = signature.trim().toLowerCase()
-  return (
-    received.length === expected.length && crypto.timingSafeEqual(Buffer.from(received), Buffer.from(expected))
-  )
 }
 
 const json = (body: Record<string, unknown>, status = 200) => NextResponse.json(body, { status })
@@ -179,94 +156,46 @@ async function handlePaid(order: Order, payload: Prisma.JsonObject, paymentStatu
     if (!(error instanceof InvalidOrderPayloadError)) throw error
     console.error('Paid order cannot be provisioned automatically', orderId, error.message)
   }
-  const resetAccountId = isResetOrderPayload(order.rawPayload) ? String(order.rawPayload.resetAccountId) : null
-
-  let provisioned
+  let provisioned: Awaited<ReturnType<typeof provisionOrderAccountsInTx>> | undefined
   try {
     provisioned = await prisma.$transaction(async (tx) => {
       await tx.order.updateMany({
         where: { id: order.id, status: { not: 'PAID' } },
         data: { status: 'PAID', rawPayload: payload },
       })
-      if (!plan) return null
-
       const claim = await tx.order.updateMany({
         where: { id: order.id, provisionedAt: null },
         data: { provisionedAt: new Date(), credentialsEmailStatus: isEmailConfigured() ? 'PENDING' : 'SKIPPED' },
       })
+      // Already claimed (provisioned, blocked, or being recovered): never provision twice.
       if (claim.count === 0) return null
 
-      const result = resetAccountId
-        ? {
-            primary: await resetAccountForPayment(tx, {
-              accountId: resetAccountId,
-              userId: order.userId,
-              orderId: order.id,
-              providerOrderId: orderId,
-            }),
-            standby: null,
-          }
-        : await provisionChallengeAccounts(tx, {
-            userId: order.userId,
-            orderId: order.id,
-            providerOrderId: orderId,
-            plan,
-          })
-      await tx.order.update({
-        where: { id: order.id },
-        data: {
-          accountId: result.primary.id,
-          rawPayload: {
-            ...payload,
-            provisioning: { primaryAccountId: result.primary.id, standbyAccountId: result.standby?.id ?? null },
-          },
-        },
-      })
-      return result
+      const fresh = await tx.order.findUniqueOrThrow({ where: { id: order.id } })
+      return provisionOrderAccountsInTx(tx, fresh, payload)
     })
   } catch (error) {
-    if (error instanceof AccountLimitError) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          status: 'PAID',
-          provisionedAt: new Date(),
-          credentialsEmailStatus: 'SKIPPED',
-          rawPayload: {
-            ...payload,
-            provisioningBlocked: {
-              reason: error.message,
-              count: error.count,
-              allocation: error.allocation,
-              blockedAt: new Date().toISOString(),
-            },
-          },
-        },
-      })
-      console.error('[pft provisioning] Account limit blocked paid order', orderId, error.message)
-      return json({ ok: true, orderId, status: 'PAID', provisioningBlocked: true })
+    // The payment is confirmed: keep it PAID and open a bounded recovery case instead
+    // of losing the purchase. No refund or transfer happens automatically.
+    const recorded = await prisma.$transaction((tx) =>
+      recordProvisioningFailure(tx, { orderId: order.id, payload, error }),
+    )
+    console.error('[pft provisioning] Paid order needs recovery', orderId, recorded.code)
+    if (recorded.alreadyProvisioned) {
+      return json({ ok: true, orderId, status: 'PAID', paymentStatus, alreadyProvisioned: true })
     }
-    if (error instanceof ResetError) {
-      await prisma.order.update({
-        where: { id: order.id },
-        data: {
-          status: 'PAID',
-          provisionedAt: new Date(),
-          credentialsEmailStatus: 'SKIPPED',
-          rawPayload: {
-            ...payload,
-            provisioningBlocked: {
-              reason: error.message,
-              code: error.code,
-              blockedAt: new Date().toISOString(),
-            },
-          },
-        },
-      })
-      console.error('[pft provisioning] Paid reset could not be provisioned', orderId, error.code, error.message)
-      return json({ ok: true, orderId, status: 'PAID', provisioningBlocked: true, reason: error.message })
+    if (recorded.retryable) {
+      // Transient failure: NOWPayments retries the IPN and the recovery worker retries.
+      return json({ error: 'Provisioning failed temporarily; retry scheduled' }, 500)
     }
-    throw error
+    return json({
+      ok: true,
+      orderId,
+      status: 'PAID',
+      paymentStatus,
+      provisioningBlocked: true,
+      recovery: recorded.status,
+      reason: recorded.code,
+    })
   }
 
   if (provisioned) {

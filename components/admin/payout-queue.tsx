@@ -18,7 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { formatSla, formatUsd } from '@/lib/admin/risk'
+import { formatUsd } from '@/lib/admin/risk'
 import type { PayoutRow, PayoutStatus } from '@/lib/admin/types'
 
 type StatusFilter = 'ALL' | PayoutStatus

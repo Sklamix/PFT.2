@@ -51,6 +51,44 @@ export function reconstructBalance(input: {
   return roundMoney(base.plus(toDecimal(input.postBaselineLedger)))
 }
 
+export type BaselineWatermark = {
+  capturedAt: Date
+  ledgerWatermarkAt: Date | null
+  ledgerWatermarkId: string | null
+}
+
+/**
+ * Deterministic "after baseline" cursor. New baselines store the (createdAt, id) of the
+ * last included ledger entry, so an entry written in the same millisecond is handled
+ * exactly once. Legacy baselines without a watermark fall back to a strict timestamp
+ * cursor: a same-instant entry is excluded, which surfaces as a reconciliation
+ * difference and blocks payouts (fail-closed) instead of double-counting silently.
+ */
+export function ledgerEntriesAfterBaselineWhere(
+  accountId: string,
+  baseline: BaselineWatermark | null,
+): Prisma.AccountLedgerEntryWhereInput {
+  if (!baseline) return { accountId }
+  if (baseline.ledgerWatermarkAt && baseline.ledgerWatermarkId) {
+    return {
+      accountId,
+      OR: [
+        { createdAt: { gt: baseline.ledgerWatermarkAt } },
+        {
+          createdAt: baseline.ledgerWatermarkAt,
+          id: { gt: baseline.ledgerWatermarkId },
+        },
+      ],
+    }
+  }
+  return { accountId, createdAt: { gt: baseline.capturedAt } }
+}
+
+export function baselineWatermarkKind(baseline: BaselineWatermark | null): 'NONE' | 'CURSOR' | 'LEGACY_TIMESTAMP' {
+  if (!baseline) return 'NONE'
+  return baseline.ledgerWatermarkAt && baseline.ledgerWatermarkId ? 'CURSOR' : 'LEGACY_TIMESTAMP'
+}
+
 export function planBaseline(input: {
   accountId: string
   currentBalance: Prisma.Decimal
@@ -99,6 +137,7 @@ export async function reconstructAccountBalance(accountId: string): Promise<{
   expectedBalance: Prisma.Decimal
   difference: Prisma.Decimal
   baseline: { id: string; amount: Prisma.Decimal; capturedAt: Date; version: number } | null
+  watermark: 'NONE' | 'CURSOR' | 'LEGACY_TIMESTAMP'
   unresolvedFx: number
   pendingPayouts: number
   ledgerEntryCount: number
@@ -112,10 +151,7 @@ export async function reconstructAccountBalance(accountId: string): Promise<{
     where: { accountId },
     orderBy: { version: 'desc' },
   })
-  const ledgerFilter = {
-    accountId,
-    ...(baseline ? { createdAt: { gte: baseline.capturedAt } } : {}),
-  }
+  const ledgerFilter = ledgerEntriesAfterBaselineWhere(accountId, baseline)
   const [ledger, totalEntries, unresolvedFx, pendingPayouts] = await Promise.all([
     prisma.accountLedgerEntry.aggregate({ where: ledgerFilter, _sum: { amount: true } }),
     prisma.accountLedgerEntry.count({ where: { accountId } }),
@@ -145,6 +181,7 @@ export async function reconstructAccountBalance(accountId: string): Promise<{
     baseline: baseline
       ? { id: baseline.id, amount: baseline.amount, capturedAt: baseline.capturedAt, version: baseline.version }
       : null,
+    watermark: baselineWatermarkKind(baseline),
     unresolvedFx,
     pendingPayouts,
     ledgerEntryCount: totalEntries,
@@ -178,7 +215,7 @@ export async function createLedgerBaseline(
       }),
       tx.accountLedgerBaseline.findUnique({
         where: { accountId_version: { accountId, version } },
-        select: { id: true, amount: true, capturedAt: true, version: true },
+        select: { id: true, amount: true, capturedAt: true, version: true, ledgerWatermarkAt: true, ledgerWatermarkId: true },
       }),
       tx.fxReconciliation.count({ where: { accountId, status: 'UNRESOLVED' } }),
       tx.payout.count({ where: { accountId, status: { in: ['PENDING', 'APPROVED'] } } }),
@@ -192,11 +229,11 @@ export async function createLedgerBaseline(
     const latestBaseline = existing ?? (await tx.accountLedgerBaseline.findFirst({
       where: { accountId },
       orderBy: { version: 'desc' },
-      select: { id: true, amount: true, capturedAt: true, version: true },
+      select: { id: true, amount: true, capturedAt: true, version: true, ledgerWatermarkAt: true, ledgerWatermarkId: true },
     }))
     const postBaseline = latestBaseline
       ? await tx.accountLedgerEntry.aggregate({
-          where: { accountId, createdAt: { gte: latestBaseline.capturedAt } },
+          where: ledgerEntriesAfterBaselineWhere(accountId, latestBaseline),
           _sum: { amount: true },
         })
       : ledgerTotal
@@ -246,11 +283,21 @@ export async function createLedgerBaseline(
 
     if (!apply || existing || blockers.length > 0) return plan
 
+    // Deterministic cursor: the last ledger entry included in this baseline amount.
+    // Entry ids are cuids; (createdAt, id) gives a stable total order.
+    const lastEntry = await tx.accountLedgerEntry.findFirst({
+      where: { accountId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { createdAt: true, id: true },
+    })
+
     const created = await tx.accountLedgerBaseline.create({
       data: {
         accountId,
         amount: account.currentBalance,
         currency: 'USD',
+        ledgerWatermarkAt: lastEntry?.createdAt ?? null,
+        ledgerWatermarkId: lastEntry?.id ?? null,
         source: options.source ?? 'LEGACY_BASELINE',
         version,
         historyComplete: false,

@@ -1,4 +1,7 @@
 import { after, NextResponse } from 'next/server'
+import { randomUUID } from 'node:crypto'
+import { isIP } from 'node:net'
+import { Prisma } from '@prisma/client'
 import { checkAccountLimits } from '@/lib/accounts/limits'
 import {
   ACCOUNT_SIZES,
@@ -18,6 +21,13 @@ import { appUrl } from '@/lib/email/account-credentials'
 import { recordActivity } from '@/lib/admin/activity'
 import { RULES_VERSION } from '@/lib/rules/version'
 import { getTraderSession } from '@/lib/trader/auth'
+import {
+  claimCheckoutIntent,
+  checkoutIntentKey,
+  completeCheckoutIntentInTx,
+  failCheckoutIntent,
+  normalizeEmail,
+} from '@/lib/payments/checkout-intent'
 
 const PAY_CURRENCY = 'usdttrc20'
 const PAY_CURRENCY_LABEL = 'USDT (TRC20)'
@@ -44,7 +54,16 @@ function parseDrawdownMode(value: unknown): DrawdownMode {
   return value === 'static' ? 'static' : 'trailing'
 }
 
+/** Best-effort anti-abuse signal. Never used as a sole identity or block reason. */
+function clientIp(req: Request): string | null {
+  const forwarded = req.headers.get('x-forwarded-for')
+  const candidate =
+    forwarded?.split(',')[0]?.trim() || req.headers.get('x-real-ip')?.trim() || ''
+  return isIP(candidate) ? candidate.slice(0, 64) : null
+}
+
 export async function POST(req: Request) {
+  let claimedIntentKey: string | null = null
   try {
     const body = await req.json()
     const { email, fullName, paymentMethod, country, promoCode } = body as {
@@ -128,6 +147,38 @@ export async function POST(req: Request) {
       }
     }
 
+    // D7: one active payable invoice per (identity, product). The unique intent key is
+    // the database guarantee; concurrent losers receive the winner's invoice.
+    const intentKey = checkoutIntentKey({
+      email: traderEmail,
+      planSize,
+      evaluationType: evaluationLabel,
+      drawdownMode,
+      dailyLossType,
+      hasFrozenBackup,
+    })
+    const intent = await claimCheckoutIntent(prisma, {
+      key: intentKey,
+      email: traderEmail,
+      userId: traderSession?.sub ?? null,
+    })
+    if (intent.state === 'existing') {
+      return NextResponse.json({ url: intent.paymentUrl, orderId: intent.orderId, resumed: true })
+    }
+    if (intent.state === 'in_progress') {
+      // Safe "still processing" contract: the client may poll /api/checkout/status
+      // instead of starting a second purchase. No second invoice is created.
+      return NextResponse.json(
+        {
+          status: 'PROCESSING',
+          retryAfterMs: 1500,
+          message: 'Your purchase is being prepared. Please wait for the existing invoice.',
+        },
+        { status: 202 },
+      )
+    }
+    claimedIntentKey = intentKey
+
     const limitUserId =
       traderSession?.sub ??
       (await prisma.user.findUnique({ where: { email: traderEmail }, select: { id: true } }))?.id
@@ -168,7 +219,9 @@ export async function POST(req: Request) {
     const promo = typeof promoCode === 'string' ? promoCode : undefined
     const displayName = typeof fullName === 'string' && fullName.trim() ? fullName.trim() : traderEmail.split('@')[0]
 
-    const orderId = `PFT-${Date.now()}`
+    // Collision-resistant: providerOrderId is unique and is the webhook's only lookup key.
+    // A millisecond-only id could collide and strand a paid invoice without an order.
+    const orderId = `PFT-${Date.now()}-${randomUUID().slice(0, 8)}`
     const baseUrl = appUrl()
     const apiKey = process.env.NOWPAYMENTS_API_KEY
     if (!apiKey) {
@@ -202,6 +255,7 @@ export async function POST(req: Request) {
     const invoiceUrl = data?.invoice_url
     if (!response.ok || typeof invoiceUrl !== 'string' || !invoiceUrl.startsWith('https://')) {
       console.error('NOWPayments invoice error:', response.status, data)
+      await failCheckoutIntent(prisma, intentKey)
       return NextResponse.json({ error: data?.message || 'Unable to generate a payment invoice.' }, { status: 400 })
     }
     const providerInvoiceId = data?.id != null ? String(data.id) : null
@@ -228,10 +282,23 @@ export async function POST(req: Request) {
         providerInvoiceId,
         countryCode,
         promo,
+        intentKey,
+        checkoutIp: clientIp(req),
       },
       // Only a signed-in owner may update the stored profile name; guest checkouts may not rename accounts by email.
       Boolean(traderSession),
     )
+
+    // Fail closed: without a persisted order the provider IPN cannot be matched to a
+    // purchase, so a paid invoice would be captured with no account and no trace.
+    if (process.env.DATABASE_URL && !persistedOrderId) {
+      console.error('Checkout aborted: order row could not be persisted', orderId)
+      await failCheckoutIntent(prisma, intentKey)
+      return NextResponse.json(
+        { error: 'Checkout is temporarily unavailable. Please try again in a moment.' },
+        { status: 503 },
+      )
+    }
 
     // Runs after the response is sent so a slow or failing email provider never blocks the redirect.
     after(() => deliverInvoiceEmail(invoiceDetails, persistedOrderId))
@@ -247,6 +314,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ url: invoiceUrl, orderId })
   } catch (error) {
     console.error('Checkout route error:', error)
+    if (claimedIntentKey) {
+      try {
+        const { prisma } = await import('@/lib/prisma')
+        await failCheckoutIntent(prisma, claimedIntentKey)
+      } catch (releaseError) {
+        console.error('Checkout intent release failed', releaseError)
+      }
+    }
     return NextResponse.json({ error: 'Unable to start checkout. Please try again.' }, { status: 500 })
   }
 }
@@ -257,52 +332,91 @@ async function persistPendingOrder(
     providerInvoiceId: string | null
     countryCode?: string
     promo?: string
+    intentKey: string
+    checkoutIp: string | null
   },
   allowProfileUpdate: boolean,
 ): Promise<string | null> {
   if (!process.env.DATABASE_URL) return null
   try {
     const { prisma } = await import('@/lib/prisma')
-    const user = await prisma.user.upsert({
-      where: { email: order.email },
-      create: {
-        email: order.email,
-        passwordHash: 'pending-invite',
-        name: order.fullName,
-        role: 'TRADER',
-      },
-      update: allowProfileUpdate ? { name: order.fullName } : {},
-    })
-    const created = await prisma.order.create({
-      data: {
-        userId: user.id,
-        provider: 'nowpayments',
-        providerOrderId: order.orderId,
-        providerInvoiceId: order.providerInvoiceId,
-        paymentUrl: order.invoiceUrl,
-        amount: order.totalAmount.toString(),
-        currency: 'USD',
-        status: 'PENDING',
-        rulesVersion: RULES_VERSION,
-        invoiceEmailStatus: isEmailConfigured() ? 'PENDING' : 'SKIPPED',
-        rawPayload: {
-          planSize: order.planSize,
-          evaluationType: order.evaluationLabel,
-          email: order.email,
-          fullName: order.fullName,
-          paymentMethod: 'crypto',
-          payCurrency: PAY_CURRENCY,
-          country: order.countryCode ?? null,
-          promoCode: order.promo ?? null,
-          drawdownMode: order.drawdownMode,
-          dailyLossType: order.dailyLossType,
-          hasFrozenBackup: order.hasFrozenBackup,
-          basePrice: order.basePrice,
-          frozenBackupPrice: order.frozenBackupPrice,
-          totalAmount: order.totalAmount,
-          frozenBackupPolicy: order.hasFrozenBackup ? FROZEN_BACKUP_POLICY : null,
+    const email = normalizeEmail(order.email)
+    // D6: one identity per normalized email. Case variants are the same trader, so
+    // allocation limits cannot be multiplied by re-registering with different casing.
+    const user =
+      (await prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+      })) ??
+      (await prisma.user
+        .create({
+          data: {
+            email,
+            passwordHash: 'pending-invite',
+            name: order.fullName,
+            role: 'TRADER',
+          },
+        })
+        .catch(async (error) => {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+            const raced = await prisma.user.findFirst({
+              where: { email: { equals: email, mode: 'insensitive' } },
+            })
+            if (raced) return raced
+          }
+          throw error
+        }))
+
+    if (allowProfileUpdate && user.name !== order.fullName) {
+      await prisma.user.updateMany({ where: { id: user.id }, data: { name: order.fullName } })
+    }
+    if (order.checkoutIp) {
+      // Anti-abuse signal only, and only when no login IP was captured yet. IP is never
+      // a sole identifier or an automatic block reason.
+      await prisma.user.updateMany({
+        where: { id: user.id, lastLoginIp: null },
+        data: { lastLoginIp: order.checkoutIp },
+      })
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const row = await tx.order.create({
+        data: {
+          userId: user.id,
+          provider: 'nowpayments',
+          providerOrderId: order.orderId,
+          checkoutIntentKey: order.intentKey,
+          providerInvoiceId: order.providerInvoiceId,
+          paymentUrl: order.invoiceUrl,
+          amount: order.totalAmount.toString(),
+          currency: 'USD',
+          status: 'PENDING',
+          rulesVersion: RULES_VERSION,
+          invoiceEmailStatus: isEmailConfigured() ? 'PENDING' : 'SKIPPED',
+          rawPayload: {
+            planSize: order.planSize,
+            evaluationType: order.evaluationLabel,
+            email: order.email,
+            fullName: order.fullName,
+            paymentMethod: 'crypto',
+            payCurrency: PAY_CURRENCY,
+            country: order.countryCode ?? null,
+            promoCode: order.promo ?? null,
+            drawdownMode: order.drawdownMode,
+            dailyLossType: order.dailyLossType,
+            hasFrozenBackup: order.hasFrozenBackup,
+            basePrice: order.basePrice,
+            frozenBackupPrice: order.frozenBackupPrice,
+            totalAmount: order.totalAmount,
+            frozenBackupPolicy: order.hasFrozenBackup ? FROZEN_BACKUP_POLICY : null,
+          },
         },
-      },
+      })
+      await completeCheckoutIntentInTx(tx, {
+        key: order.intentKey,
+        orderId: row.id,
+        paymentUrl: order.invoiceUrl,
+      })
+      return row
     })
     return created.id
   } catch (persistError) {
