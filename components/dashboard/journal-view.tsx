@@ -120,9 +120,9 @@ function JournalDrawer({ trade, onClose, onSaved }: { trade: JournalTrade; onClo
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/70" onClick={onClose}>
+    <div className="animate-journal-overlay fixed inset-0 z-50 flex justify-end bg-black/70" onClick={onClose}>
       <div
-        className="h-full w-full max-w-md overflow-y-auto border-l border-slate-800/80 bg-[#0B0F19] p-6"
+        className="animate-journal-panel h-full w-full max-w-md overflow-y-auto border-l border-slate-800/80 bg-[#0B0F19] p-6"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between">
