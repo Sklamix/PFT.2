@@ -1,0 +1,11 @@
+# PHASE 1.10.39 — files that must never be uploaded to a Vercel deployment.
+# Local secrets / machine-specific tooling / build artifacts only.
+.env*
+.agents/
+cloudflare/
+backups/
+.wrangler/
+node_modules/
+.next/
+.vercel/
+tsconfig.tsbuildinfo

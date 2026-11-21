@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server'
 import { ADMIN_COOKIE } from '@/lib/admin/constants'
 import { TRADER_COOKIE } from '@/lib/trader/constants'
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
   if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
     if (!request.cookies.get(ADMIN_COOKIE)?.value) {

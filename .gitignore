@@ -31,3 +31,4 @@ backups/
 
 # Wrangler local state
 .wrangler/
+.neon
