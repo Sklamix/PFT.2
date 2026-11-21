@@ -162,14 +162,35 @@ test('insult without a PFT question is answered without escalation', async () =>
   await assertNoEscalation('you are useless')
 })
 
-test('abuse with a real account problem still follows handoff rules', async () => {
+test('abuse with a real account problem suggests, never auto-creates, a handoff', async () => {
   resetSpies()
   const message = 'I lost access to my account, you idiot'
   const result = await chat(message, handoffGenerator('account access requires verification', 'ACCOUNT'))
 
   assert.equal(result.answer, null)
   assert.equal(result.handoffReason, 'account access requires verification')
-  assert.ok(result.handoff?.publicId.startsWith('SUP-'))
+  assert.equal(result.suggestedHandoff, true)
+  assert.equal(result.handoff, null)
+  assert.equal(result.suggestedCategory, 'ACCOUNT')
+  assert.equal(createTicketCalls.length, 0)
+  assert.deepEqual(prismaWriteCalls, [])
+
+  // Confirmation creates the ticket with the suggested category.
+  const confirmed = await handleSupportChat({
+    userId: 'mock-user',
+    message,
+    history: [],
+    forceHandoff: true,
+    suggestedCategory: result.suggestedCategory ?? 'GENERAL',
+    suggestedReason: 'account access requires verification',
+    idempotencyKey: 'esc-confirm-account',
+    request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+    generate: handoffGenerator('account access requires verification', 'ACCOUNT'),
+  }, { idempotencyStore })
+
+  assert.equal(confirmed.suggestedHandoff, false)
+  assert.equal(confirmed.handoff?.publicId.startsWith('SUP-'), true)
+  assert.equal(confirmed.handoffReason, 'account access requires verification')
   assert.equal(createTicketCalls.length, 1)
   const created = createTicketCalls[0]!
   assert.equal(created.category, 'ACCOUNT')
@@ -177,17 +198,36 @@ test('abuse with a real account problem still follows handoff rules', async () =
   assert.deepEqual(prismaWriteCalls, [])
 })
 
-test('abuse with a real payout problem still follows handoff rules', async () => {
+test('abuse with a real payout problem suggests, never auto-creates, a handoff', async () => {
   resetSpies()
   const message = 'My payout is missing, fuck this'
   const result = await chat(message, handoffGenerator('payout requires a review', 'PAYOUT'))
 
   assert.equal(result.answer, null)
   assert.equal(result.handoffReason, 'payout requires a review')
+  assert.equal(result.suggestedHandoff, true)
+  assert.equal(result.suggestedCategory, 'PAYOUT')
+  assert.equal(createTicketCalls.length, 0)
+  assert.deepEqual(prismaWriteCalls, [])
+
+  const confirmed = await handleSupportChat({
+    userId: 'mock-user',
+    message,
+    history: [],
+    forceHandoff: true,
+    suggestedCategory: result.suggestedCategory ?? 'GENERAL',
+    suggestedReason: 'payout requires a review',
+    idempotencyKey: 'esc-confirm-payout',
+    request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+    generate: handoffGenerator('payout requires a review', 'PAYOUT'),
+  }, { idempotencyStore })
+
   assert.equal(createTicketCalls.length, 1)
   const created = createTicketCalls[0]!
   assert.equal(created.category, 'PAYOUT')
   assert.match(created.body.toLowerCase(), /payout/)
+  assert.equal(confirmed.handoff?.reused, false)
+  assert.equal(confirmed.handoffReason, 'payout requires a review')
   assert.deepEqual(prismaWriteCalls, [])
 })
 

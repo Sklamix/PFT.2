@@ -165,6 +165,13 @@ test('stricter response validation', () => {
     answer: 'ok',
     handoff: null,
     handoffReason: null,
+    suggestedCategory: null,
+  })
+  assert.deepEqual(parseAssistantChatResponse({ answer: null, handoff: null, handoffReason: 'r', suggestedCategory: 'KYC' }), {
+    answer: null,
+    handoff: null,
+    handoffReason: 'r',
+    suggestedCategory: 'KYC',
   })
 })
 
@@ -435,7 +442,9 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: DB_S
       },
     })
 
-    assert.ok(result.handoff?.publicId.startsWith('SUP-'))
+    assert.equal(result.handoff, null, 'a provider failure is a suggestion, not a stored ticket')
+    assert.equal(result.suggestedHandoff, true)
+    assert.equal(result.suggestedCategory, 'GENERAL')
     const combined = logs.join('\n')
     assert.match(combined, /"event":"ai_unavailable"/)
     assert.match(combined, /"reason":"unavailable"/)
@@ -457,8 +466,10 @@ test('server logs safe metadata and creates a real handoff ticket', { skip: DB_S
       idempotencyKey: 'server-log-key-2',
       request,
     })
-    assert.equal(second.handoff?.publicId, result.handoff?.publicId)
-    assert.equal(second.handoff?.reused, true)
+    assert.equal(second.handoff?.publicId, undefined)
+    assert.notEqual(second.handoff?.reused, true)
+    assert.equal(second.suggestedHandoff, false, 'a forced handoff executes without suggestion')
+    assert.equal(second.handoff?.reused, false)
     assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 1)
 
     await assert.rejects(
@@ -978,8 +989,9 @@ test('a real account violation check is handed off', { skip: DB_SKIP }, async ()
 
     assert.equal(result.answer, null)
     assert.equal(result.handoffReason, 'needs actual account data')
-    assert.ok(result.handoff?.publicId.startsWith('SUP-'))
-    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 1)
+    assert.equal(result.suggestedHandoff, true)
+    assert.equal(result.handoff, null)
+    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 0)
   })
 })
 
@@ -1002,8 +1014,9 @@ test('an operational account action is handed off without execution', { skip: DB
 
     assert.equal(result.answer, null, 'the assistant must not claim to perform the action')
     assert.equal(result.handoffReason, 'account actions are not allowed')
-    assert.ok(result.handoff?.publicId.startsWith('SUP-'))
-    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 1)
+    assert.equal(result.suggestedHandoff, true)
+    assert.equal(result.handoff, null)
+    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 0)
   })
 })
 
@@ -1026,7 +1039,9 @@ test('an ambiguous violation question is handed off instead of guessed', { skip:
 
     assert.equal(result.answer, null)
     assert.equal(result.handoffReason, 'missing account type, timing and violation count')
-    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 1)
+    assert.equal(result.suggestedHandoff, true)
+    assert.equal(result.handoff, null)
+    assert.equal(await prisma.supportTicket.count({ where: { userId } }), 0)
   })
 })
 
@@ -1063,10 +1078,10 @@ test('a valid handoff without an answer is not treated as a failure', { skip: DB
 
     assert.equal(result.answer, null)
     assert.equal(result.handoffReason, 'news timing is not covered by the facts')
-    assert.ok(result.handoff?.publicId.startsWith('SUP-'))
-    assert.equal(result.handoff?.reused, false)
-    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 1)
-    assert.ok(!logs.join('\n').includes('ai_unavailable'), 'a valid handoff must not be logged as an AI failure')
+    assert.equal(result.suggestedHandoff, true)
+    assert.equal(result.handoff, null)
+    assert.equal(await prisma.supportTicket.count({ where: { userId: user.id } }), 0)
+    assert.ok(!logs.join('\\n').includes('ai_unavailable'), 'an unresolved model reply is not an AI failure')
   } finally {
     console.warn = originalWarn
     try {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Prisma } from '@prisma/client'
+import { Prisma, type SupportCategory } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60_000
@@ -50,6 +50,8 @@ export function supportChatFingerprint(input: {
   message: string
   history: { role: string; content: string }[]
   forceHandoff: boolean
+  suggestedCategory?: SupportCategory | null
+  suggestedReason?: string | null
 }) {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex')
 }

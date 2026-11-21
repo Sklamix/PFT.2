@@ -8,6 +8,8 @@ export type AssistantChatResponse = {
   answer: string | null
   handoff: AssistantHandoff | null
   handoffReason?: string | null
+  /** Category proposed for an unanswered question; echoed back on confirmation. */
+  suggestedCategory?: string | null
 }
 
 export type AssistantErrorKind = 'timeout' | 'network' | 'invalid_response' | 'http'
@@ -67,13 +69,22 @@ export function parseAssistantChatResponse(value: unknown): AssistantChatRespons
     }
   }
   const handoffReason = typeof value.handoffReason === 'string' ? value.handoffReason : null
-  return { answer, handoff: parsedHandoff, handoffReason }
+  const suggestedCategory =
+    value.suggestedCategory === undefined || value.suggestedCategory === null
+      ? null
+      : typeof value.suggestedCategory === 'string' ? value.suggestedCategory : undefined
+  if (suggestedCategory === undefined) {
+    throw new AssistantRequestError('invalid_response', 'Unexpected assistant response.')
+  }
+  return { answer, handoff: parsedHandoff, handoffReason, suggestedCategory }
 }
 
 type RequestInput = {
   message: string
   history: AssistantHistoryTurn[]
   forceHandoff?: boolean
+  suggestedCategory?: string
+  suggestedReason?: string
   idempotencyKey?: string | null
 }
 
@@ -108,6 +119,8 @@ export async function requestAssistant(input: RequestInput, deps: RequestDeps = 
         message: input.message,
         history: input.history,
         ...(input.forceHandoff ? { forceHandoff: true } : {}),
+        ...(input.forceHandoff && input.suggestedCategory ? { suggestedCategory: input.suggestedCategory } : {}),
+        ...(input.forceHandoff && input.suggestedReason ? { suggestedReason: input.suggestedReason } : {}),
         ...(input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : {}),
       }),
       signal: controller.signal,

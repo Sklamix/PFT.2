@@ -59,7 +59,7 @@ function supportDependencies(created: { count: number }): SupportChatDependencie
   }
 }
 
-test('provider failure produces a human handoff and never a fabricated answer', async () => {
+test('provider failure suggests a handoff and never a fabricated answer', async () => {
   let providerCalls = 0
   const provider = createAssistantProvider(
     async () => {
@@ -81,10 +81,27 @@ test('provider failure produces a human handoff and never a fabricated answer', 
   }, supportDependencies(created))
 
   assert.equal(providerCalls, 2)
-  assert.equal(created.count, 1)
+  // No auto-handoff: the trader must confirm the transfer first.
+  assert.equal(created.count, 0)
   assert.equal(result.answer, null)
-  assert.equal(result.handoff?.publicId, 'SUP-TEST123456')
+  assert.equal(result.handoff, null)
+  assert.equal(result.suggestedHandoff, true)
   assert.equal(result.handoffReason, 'rate_limited')
+
+  const confirmed = await handleSupportChat({
+    userId: 'trader-test',
+    message: 'Please explain my payout status.',
+    history: [],
+    forceHandoff: true,
+    idempotencyKey: `fallback-confirm-${Date.now()}`,
+    request: new Request('https://pft.test/api/support/ai/chat'),
+    generate: provider.generate,
+  }, supportDependencies(created))
+
+  assert.equal(created.count, 1)
+  assert.equal(confirmed.suggestedHandoff, false)
+  assert.equal(confirmed.handoff?.publicId, 'SUP-TEST123456')
+  assert.equal(confirmed.handoffReason, 'user_requested_human')
 })
 
 test('missing provider credentials are not retried', async () => {

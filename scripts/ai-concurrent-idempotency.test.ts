@@ -104,7 +104,10 @@ test('separate app instances cannot generate duplicate replies for a shared requ
   const retry = await handleSupportChat(input, secondDependencies)
 
   assert.equal(providerCalls, 2)
-  assert.equal(created.count, 1)
+  // No auto-handoff: a provider failure is a suggestion, confirmed separately.
+  assert.equal(created.count, 0)
+  assert.equal(first.suggestedHandoff, true)
+  assert.equal(first.handoff, null)
   assert.deepEqual(retry, first)
 })
 

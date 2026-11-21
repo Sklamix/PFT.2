@@ -18,16 +18,35 @@ export type SupportChatResult = {
   answer: string | null
   handoff: Handoff | null
   handoffReason: string | null
+  /** True when the assistant could not answer and a handoff is available on request. */
+  suggestedHandoff: boolean
+  /** Category the model picked for an unanswered question, reused on confirmation. */
+  suggestedCategory: SupportCategory | null
 }
 
 function readSupportChatResult(value: unknown): SupportChatResult | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
+  if (typeof record.suggestedHandoff !== 'boolean') return null
+  const suggestedCategoryRaw = record.suggestedCategory === null
+    ? null
+    : typeof record.suggestedCategory === 'string' ? record.suggestedCategory : undefined
+  if (suggestedCategoryRaw === undefined) return null
+  const suggestedCategory: SupportCategory | null =
+    suggestedCategoryRaw === null ? null
+      : SUPPORT_CATEGORIES.includes(suggestedCategoryRaw as SupportCategory) ? (suggestedCategoryRaw as SupportCategory) : null
+  if (suggestedCategoryRaw !== null && suggestedCategory === null) return null
   if (typeof record.answer === 'string') {
-    if (record.handoff !== null || record.handoffReason !== null) return null
-    return { answer: record.answer, handoff: null, handoffReason: null }
+    if (record.handoff !== null || record.handoffReason !== null || record.suggestedHandoff || suggestedCategory !== null) return null
+    return { answer: record.answer, handoff: null, handoffReason: null, suggestedHandoff: false, suggestedCategory: null }
   }
   if (record.answer !== null || typeof record.handoffReason !== 'string') return null
+
+  if (record.handoff === null) {
+    // A suggested handoff: no ticket exists yet, the trader must confirm first.
+    if (!record.suggestedHandoff || suggestedCategory === null) return null
+    return { answer: null, handoff: null, handoffReason: record.handoffReason, suggestedHandoff: true, suggestedCategory }
+  }
 
   if (!record.handoff || typeof record.handoff !== 'object' || Array.isArray(record.handoff)) return null
   const handoffValue = record.handoff as Record<string, unknown>
@@ -35,6 +54,7 @@ function readSupportChatResult(value: unknown): SupportChatResult | null {
     typeof handoffValue.publicId !== 'string'
     || typeof handoffValue.subject !== 'string'
     || typeof handoffValue.reused !== 'boolean'
+    || record.suggestedHandoff
   ) return null
 
   return {
@@ -45,6 +65,8 @@ function readSupportChatResult(value: unknown): SupportChatResult | null {
       reused: handoffValue.reused,
     },
     handoffReason: record.handoffReason,
+    suggestedHandoff: false,
+    suggestedCategory: null,
   }
 }
 
@@ -57,6 +79,7 @@ export class HandoffFailedError extends Error {
 
 const HANDOFF_SUBJECT_PREFIX = 'Support chat:'
 const DEDUPE_WINDOW_MS = 24 * 60 * 60_000
+const SUPPORT_CATEGORIES: SupportCategory[] = ['GENERAL', 'CHALLENGE', 'PAYOUT', 'KYC', 'ACCOUNT', 'TECHNICAL', 'RULES']
 
 /** Correlation id from the edge/platform, safe to log. */
 function requestCorrelationId(request: Request) {
@@ -203,10 +226,12 @@ const DEFAULT_DEPENDENCIES: SupportChatDependencies = {
 }
 
 /**
- * Answers a trader question and — when the assistant cannot answer confidently —
- * makes sure a human sees it: the message is appended to the trader's recent
- * assistant handoff ticket, or a new ticket is created. The response never
- * claims a transfer that was not stored.
+ * Answers a trader question. When the assistant cannot answer a question
+ * confidently, it does NOT open a ticket on its own: it returns
+ * `suggestedHandoff` and the trader decides (`forceHandoff: true` confirms the
+ * transfer). A confirmed handoff always makes sure a human sees it: the message
+ * is appended to the trader's recent assistant handoff ticket, or a new ticket
+ * is created. The response never claims a transfer that was not stored.
  */
 export async function handleSupportChat(input: {
   userId: string
@@ -214,6 +239,10 @@ export async function handleSupportChat(input: {
   history: ChatTurn[]
   forceHandoff: boolean
   idempotencyKey: string
+  /** Category proposed by a previous suggestion; used only with forceHandoff. */
+  suggestedCategory?: SupportCategory
+  /** Why the model could not answer; used only with a confirmed handoff. */
+  suggestedReason?: string
   request: Request
   generate?: AssistantGenerator
 }, overrides: Partial<SupportChatDependencies> = {}): Promise<SupportChatResult> {
@@ -228,6 +257,8 @@ export async function handleSupportChat(input: {
       message: input.message,
       history: input.history,
       forceHandoff: input.forceHandoff,
+      suggestedCategory: input.suggestedCategory ?? null,
+      suggestedReason: input.forceHandoff ? (input.suggestedReason ?? null) : null,
     }),
     operation,
     readSupportChatResult,
@@ -241,6 +272,8 @@ async function handleSupportChatOnce(
     history: ChatTurn[]
     forceHandoff: boolean
     idempotencyKey: string
+    suggestedCategory?: SupportCategory
+    suggestedReason?: string
     request: Request
     generate?: AssistantGenerator
   },
@@ -250,8 +283,10 @@ async function handleSupportChatOnce(
   const knowledge = buildPftKnowledge(pricing)
   const generate = input.generate ?? generateAssistant
 
-  let category: SupportCategory = 'GENERAL'
-  let reason: string | null = input.forceHandoff ? 'user_requested_human' : null
+  // A confirmed handoff keeps the category and reason the model picked for the
+  // original suggestion; a forced handoff without a suggestion states it plainly.
+  let category: SupportCategory = input.suggestedCategory ?? 'GENERAL'
+  let reason: string | null = input.forceHandoff ? (input.suggestedReason ?? 'user_requested_human') : null
 
   if (!input.forceHandoff) {
     try {
@@ -262,7 +297,7 @@ async function handleSupportChatOnce(
         message: input.message,
       })
       if (result.resolved) {
-        return { answer: result.answer, handoff: null, handoffReason: null }
+        return { answer: result.answer, handoff: null, handoffReason: null, suggestedHandoff: false, suggestedCategory: null }
       }
       category = result.category
       reason = result.handoffReason ?? 'not_covered_by_rules'
@@ -270,6 +305,9 @@ async function handleSupportChatOnce(
       logAiFailure(error, input.request)
       reason = error instanceof AiUnavailableError ? error.reason : 'ai_unavailable'
     }
+    // Offer the transfer; the ticket is created only when the trader confirms.
+    // The model's category rides along so the confirmation does not lose it.
+    return { answer: null, handoff: null, handoffReason: reason, suggestedHandoff: true, suggestedCategory: category }
   }
 
   const finalReason = reason ?? 'not_covered_by_rules'
@@ -291,6 +329,8 @@ async function handleSupportChatOnce(
         answer: null,
         handoff: { publicId: existing.publicId, subject: existing.subject, reused: true },
         handoffReason: finalReason,
+        suggestedHandoff: false,
+        suggestedCategory: null,
       }
     }
     // Closed or otherwise unavailable: fall through and create a fresh ticket.
@@ -312,6 +352,8 @@ async function handleSupportChatOnce(
       answer: null,
       handoff: { publicId: ticket.publicId, subject: ticket.subject, reused: ticket.reused },
       handoffReason: finalReason,
+      suggestedHandoff: false,
+      suggestedCategory: null,
     }
   } catch {
     // Never claim a transfer that was not stored.

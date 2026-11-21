@@ -43,6 +43,10 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
   const [recovering, setRecovering] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [handoff, setHandoff] = useState<{ publicId: string; reused: boolean } | null>(null)
+  // A handoff the assistant suggested but that was not executed: the trader
+  // must confirm it. Holds the message and the history needed to re-send it.
+  const [suggestedHandoff, setSuggestedHandoff] = useState<{ message: string; category: string; reason: string | null } | null>(null)
+  const [confirming, setConfirming] = useState(false)
   const pendingKey = useRef<PendingKey | null>(null)
   // Synchronous guard: `sending` is React state, so two clicks in the same tick
   // could both observe `false`. The ref is flipped before the first await.
@@ -70,6 +74,7 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
     setSending(true)
     setError(null)
     setHandoff(null)
+    setSuggestedHandoff(null)
 
     const history = turns.slice(-MAX_HISTORY)
     const pending = nextIdempotencyKey(pendingKey.current, message)
@@ -82,6 +87,10 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
       setDraft('')
       pendingKey.current = null
       if (data.handoff) setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
+      // No answer and no ticket stored: ask the trader before transferring.
+      else if (data.handoffReason) {
+        setSuggestedHandoff({ message, category: data.suggestedCategory ?? 'GENERAL', reason: data.handoffReason || null })
+      }
     } catch (reason) {
       if (reason instanceof AssistantRequestError && reason.status === 409) pendingKey.current = null
       // Reuse the key after uncertain failures; a conflict starts a fresh request.
@@ -94,12 +103,13 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
   }
 
   async function talkToHuman() {
-    if (inFlight.current) return
+    if (inFlight.current || confirming) return
     const message = draft.trim() || 'I would like to speak to a human operator.'
     inFlight.current = true
     setSending(true)
     setError(null)
     setHandoff(null)
+    setSuggestedHandoff(null)
     const pending = nextIdempotencyKey(pendingKey.current, message)
     pendingKey.current = pending
     try {
@@ -119,6 +129,37 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
     } finally {
       inFlight.current = false
       setSending(false)
+    }
+  }
+
+  /** Confirms the suggested handoff: creates the ticket the trader approved. */
+  async function confirmHandoff() {
+    if (!suggestedHandoff || confirming) return
+    const message = suggestedHandoff.message
+    setConfirming(true)
+    setError(null)
+    setHandoff(null)
+    try {
+      // forceHandoff changes the server fingerprint, so a fresh key is required.
+      const data = await requestAssistant({
+        message,
+        history: turns.slice(-MAX_HISTORY),
+        forceHandoff: true,
+        suggestedCategory: suggestedHandoff.category,
+        suggestedReason: suggestedHandoff.reason ?? undefined,
+        idempotencyKey: crypto.randomUUID(),
+      })
+      if (!data.handoff) {
+        setError('The assistant did not confirm the transfer. Please try again.')
+        return
+      }
+      setSuggestedHandoff(null)
+      setHandoff({ publicId: data.handoff.publicId, reused: data.handoff.reused === true })
+    } catch (reason) {
+      setError(assistantErrorMessage(reason))
+      await recoverAfterUncertainFailure(reason)
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -176,6 +217,32 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
               </ul>
             )}
           </div>
+
+          {suggestedHandoff ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="mt-3 rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs"
+            >
+              <p className="font-semibold text-foreground">I could not answer this from the official rules.</p>
+              <p className="mt-0.5 text-[#94A3B8]">Pass this request to a human support agent?</p>
+              <div className="mt-2 flex gap-2">
+                <Button size="xs" className="h-8" disabled={confirming} onClick={() => void confirmHandoff()}>
+                  {confirming ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                  Yes, pass to agent
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="h-8"
+                  disabled={confirming}
+                  onClick={() => setSuggestedHandoff(null)}
+                >
+                  No
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {handoff ? (
             <div

@@ -122,7 +122,7 @@ function resetSpies() {
   generatorCalls.length = 0
 }
 
-test('KYC question hands off without inventing documents or touching the database', async () => {
+test('KYC question suggests a handoff without inventing documents or touching the database', async () => {
   existingTicket = null
   resetSpies()
 
@@ -136,38 +136,54 @@ test('KYC question hands off without inventing documents or touching the databas
     generate: kycGenerator(),
   }, { idempotencyStore })
 
-  // 1. handoff is formed, no answer is shown.
+  // 1. a suggestion is formed, no answer and no ticket yet.
   assert.equal(result.answer, null)
-  assert.equal(result.handoff?.publicId, 'SUP-TESTKYC1')
-  assert.equal(result.handoff?.reused, false)
+  assert.equal(result.handoff, null)
+  assert.equal(result.suggestedHandoff, true)
+  assert.equal(result.suggestedCategory, 'KYC')
 
   // 2. nothing invented about KYC documents.
   assert.doesNotMatch(JSON.stringify(result), INVENTED_DOCUMENTS)
 
-  // 3. the model reason is preserved and written into the ticket body.
+  // 3. the model reason is preserved and NOT written anywhere until confirmed.
   assert.equal(result.handoffReason, HANDOFF_REASON)
-  assert.equal(createTicketCalls.length, 1)
-  const created = createTicketCalls[0]!
-  assert.ok(created.body.includes(HANDOFF_REASON))
-  assert.doesNotMatch(created.body, INVENTED_DOCUMENTS)
-
-  // 4. category is preserved.
-  assert.equal(created.category, 'KYC')
-
-  // 5. createTicket is called as expected.
-  assert.equal(created.userId, 'mock-user')
-  assert.equal(created.idempotencyKey, 'kyc-mock-1')
-  assert.match(created.subject, /^Support chat:/)
-
-  // 6. a new ticket path must not append to an existing ticket.
+  assert.equal(createTicketCalls.length, 0)
   assert.equal(addTraderMessageCalls.length, 0)
 
-  // 7. no direct Prisma write, and the generator saw the KYC question.
+  // 4. no direct Prisma write, and the generator saw the KYC question.
   assert.deepEqual(prismaWriteCalls, [])
   assert.deepEqual(generatorCalls, [KYC_QUESTION])
+
+  // 5. confirmation creates the ticket with the suggested category and reason.
+  const confirmed = await handleSupportChat({
+    userId: 'mock-user',
+    message: KYC_QUESTION,
+    history: [],
+    forceHandoff: true,
+    suggestedCategory: result.suggestedCategory ?? 'GENERAL',
+    suggestedReason: HANDOFF_REASON,
+    idempotencyKey: 'kyc-mock-confirm-1',
+    request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
+    generate: kycGenerator(),
+  }, { idempotencyStore })
+
+  assert.equal(confirmed.answer, null)
+  assert.equal(confirmed.handoff?.publicId, 'SUP-TESTKYC1')
+  assert.equal(confirmed.handoff?.reused, false)
+  assert.equal(confirmed.suggestedHandoff, false)
+  assert.equal(createTicketCalls.length, 1)
+  const created = createTicketCalls[0]!
+  assert.ok(created.body.includes(HANDOFF_REASON), 'the confirmed ticket keeps the model original reason')
+  assert.doesNotMatch(created.body, INVENTED_DOCUMENTS)
+  assert.equal(created.category, 'KYC')
+  assert.equal(created.userId, 'mock-user')
+  assert.equal(created.idempotencyKey, 'kyc-mock-confirm-1')
+  assert.match(created.subject, /^Support chat:/)
+  assert.equal(addTraderMessageCalls.length, 0)
+  assert.deepEqual(prismaWriteCalls, [])
 })
 
-test('KYC handoff reuses an existing ticket instead of creating another', async () => {
+test('a confirmed handoff reuses an existing open ticket instead of creating another', async () => {
   existingTicket = { publicId: 'SUP-REUSEKYC1', subject: 'Support chat: earlier KYC question' }
   resetSpies()
 
@@ -176,7 +192,8 @@ test('KYC handoff reuses an existing ticket instead of creating another', async 
       userId: 'mock-user',
       message: KYC_QUESTION,
       history: [],
-      forceHandoff: false,
+      forceHandoff: true,
+      suggestedCategory: 'KYC',
       idempotencyKey: 'kyc-mock-2',
       request: new Request('http://localhost:3100/api/support/ai/chat', { method: 'POST' }),
       generate: kycGenerator(),
@@ -185,14 +202,14 @@ test('KYC handoff reuses an existing ticket instead of creating another', async 
     assert.equal(result.answer, null)
     assert.equal(result.handoff?.publicId, 'SUP-REUSEKYC1')
     assert.equal(result.handoff?.reused, true)
-    assert.equal(result.handoffReason, HANDOFF_REASON)
+    assert.equal(result.handoffReason, 'user_requested_human')
+    assert.equal(result.suggestedHandoff, false)
     assert.doesNotMatch(JSON.stringify(result), INVENTED_DOCUMENTS)
 
     // Existing ticket: append only, never create.
     assert.equal(createTicketCalls.length, 0)
     assert.equal(addTraderMessageCalls.length, 1)
     assert.equal(addTraderMessageCalls[0]!.ref, 'SUP-REUSEKYC1')
-    assert.ok(addTraderMessageCalls[0]!.body.includes(HANDOFF_REASON))
 
     assert.deepEqual(prismaWriteCalls, [])
   } finally {
@@ -200,7 +217,7 @@ test('KYC handoff reuses an existing ticket instead of creating another', async 
   }
 })
 
-test('provider failure falls back to a real handoff and never claims success', async () => {
+test('provider failure suggests a handoff and never claims success', async () => {
   existingTicket = null
   resetSpies()
 
@@ -216,12 +233,13 @@ test('provider failure falls back to a real handoff and never claims success', a
     },
   }, { idempotencyStore })
 
-  // No invented answer, but a human request really exists.
+  // No invented answer, and no ticket until the trader confirms.
   assert.equal(result.answer, null)
-  assert.equal(result.handoff?.publicId, 'SUP-TESTKYC1')
+  assert.equal(result.handoff, null)
+  assert.equal(result.suggestedHandoff, true)
+  assert.equal(result.suggestedCategory, 'GENERAL')
   assert.equal(result.handoffReason, 'timeout')
-  assert.equal(createTicketCalls.length, 1)
-  assert.equal(createTicketCalls[0]!.idempotencyKey, 'fallback-mock-1')
+  assert.equal(createTicketCalls.length, 0)
   assert.deepEqual(prismaWriteCalls, [])
 })
 
