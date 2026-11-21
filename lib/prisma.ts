@@ -21,8 +21,17 @@ const globalForPrisma = globalThis as unknown as {
 
 let moduleProductionPrisma: PrismaClient | undefined
 
+/**
+ * True when the TEST-only Prisma injection is requested (the client itself is
+ * checked separately). Exported so every module that asks "is a database client
+ * reachable?" shares ONE definition of the opt-in.
+ */
+export function testPrismaInjectionRequested(env: Record<string, string | undefined> = process.env): boolean {
+  return env[INJECTION_ENV] === '1'
+}
+
 function injectionRequested(): boolean {
-  return process.env[INJECTION_ENV] === '1'
+  return testPrismaInjectionRequested()
 }
 
 /** PHASE 1.95: the exact production log levels, exported so runtime smoke can assert them. */

@@ -294,7 +294,7 @@ type FakeRecovery = {
   updatedAt: Date
 }
 
-function recoveryHarness(options: { order?: Partial<FakeOrder>; recovery?: Partial<FakeRecovery> | null } = {}) {
+function recoveryHarness(options: { order?: Partial<FakeOrder>; recovery?: Partial<FakeRecovery> | null; auditActorForeignKey?: boolean; auditWriteFails?: boolean } = {}) {
   const order: FakeOrder = {
     id: 'ord-1',
     userId: 'user-1',
@@ -394,6 +394,12 @@ function recoveryHarness(options: { order?: Partial<FakeOrder>; recovery?: Parti
     },
     auditLog: {
       create: async (args: { data: Record<string, unknown> }) => {
+        // `AuditLog.actorId` is a FK to User: a cron/system actor id is not a User
+        // row, so the real database answers P2003.
+        if (options.auditActorForeignKey && args.data.actorId) {
+          throw new Prisma.PrismaClientKnownRequestError('fk', { code: 'P2003', clientVersion: 'test' })
+        }
+        if (options.auditWriteFails) throw new Error('audit store unavailable')
         audits.push(args.data)
         return args.data
       },
@@ -537,6 +543,40 @@ test('D5: permanent failure and exhausted attempts land in MANUAL_REVIEW without
     deps: { provision: successProvisioner({ calls: 0 }) },
   })
   assert.deepEqual(result, { ok: false, reason: 'attempts_exhausted' })
+})
+
+test('D5: an audit actor that is not a User never breaks the recovery outcome', async () => {
+  const harness = recoveryHarness({ auditActorForeignKey: true })
+  const counter = { calls: 0 }
+  const result = await retryOrderProvisioning(harness.prisma, {
+    orderId: 'ord-1',
+    actorId: 'cron',
+    manual: false,
+    now: T0,
+    deps: { provision: successProvisioner(counter) },
+  })
+  assert.equal(result.ok, true)
+  assert.equal(counter.calls, 1)
+  // The audit trail is kept; only the actor reference is dropped.
+  assert.equal(harness.audits.length, 1)
+  assert.equal(harness.audits[0].actorId, null)
+  assert.equal(harness.audits[0].action, 'PAYMENT_RECOVERY_PROVISIONED')
+})
+
+test('D5: a failing audit write in the error path never masks the recovery decision', async () => {
+  const harness = recoveryHarness({ auditWriteFails: true })
+  const denied: RetryProvisioner = async () => {
+    throw new AccountLimitError('limit', 4, 250_000)
+  }
+  const result = await retryOrderProvisioning(harness.prisma, {
+    orderId: 'ord-1',
+    actorId: 'cron',
+    manual: false,
+    now: T0,
+    deps: { provision: denied },
+  })
+  assert.equal(result.ok, false)
+  assert.equal(harness.getRecovery()?.status, 'MANUAL_REVIEW')
 })
 
 test('D5: already provisioned orders are never provisioned again', async () => {

@@ -81,6 +81,25 @@ export function nextAttemptDelayMs(attempts: number): number {
 
 export type RecoveryDecision = 'OPEN' | 'MANUAL_REVIEW'
 
+/**
+ * `AuditLog.actorId` is a foreign key to `User`. A cron/system actor id — or a
+ * staff account that was deleted meanwhile — is not a User row, so the audit
+ * write failed with a FK violation (P2003) and, inside the error path, that
+ * failure masked the recovery decision. The audit trail is kept; only the actor
+ * reference is dropped.
+ */
+async function writeRecoveryAudit(
+  prisma: PrismaClient,
+  data: Prisma.AuditLogUncheckedCreateInput,
+): Promise<void> {
+  try {
+    await prisma.auditLog.create({ data })
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2003') throw error
+    await prisma.auditLog.create({ data: { ...data, actorId: null } })
+  }
+}
+
 export function recoveryDecision(
   failure: ProvisioningFailureClass,
   attemptsAfterThisFailure: number,
@@ -370,14 +389,12 @@ export async function retryOrderProvisioning(
         updatedBy: input.actorId,
       },
     })
-    await prisma.auditLog.create({
-      data: {
-        actorId: input.actorId,
-        accountId: result.accountId,
-        action: result.provisioned ? 'PAYMENT_RECOVERY_PROVISIONED' : 'PAYMENT_RECOVERY_ALREADY_PROVISIONED',
-        reason: 'Paid order recovery',
-        metadata: { orderId: order.id, attempts, manual: input.manual },
-      },
+    await writeRecoveryAudit(prisma, {
+      actorId: input.actorId,
+      accountId: result.accountId,
+      action: result.provisioned ? 'PAYMENT_RECOVERY_PROVISIONED' : 'PAYMENT_RECOVERY_ALREADY_PROVISIONED',
+      reason: 'Paid order recovery',
+      metadata: { orderId: order.id, attempts, manual: input.manual },
     })
     return { ok: true, status: result.provisioned ? 'PROVISIONED' : 'ALREADY_PROVISIONED', accountId: result.accountId }
   } catch (error) {
@@ -395,8 +412,8 @@ export async function retryOrderProvisioning(
         updatedBy: input.actorId,
       },
     })
-    await prisma.auditLog.create({
-      data: {
+    try {
+      await writeRecoveryAudit(prisma, {
         actorId: input.actorId,
         action: 'PAYMENT_RECOVERY_FAILED',
         reason: failure.message,
@@ -407,8 +424,12 @@ export async function retryOrderProvisioning(
           decision,
           code: failure.code,
         },
-      },
-    })
+      })
+    } catch (error) {
+      // The recovery decision is already persisted; a failed audit write must
+      // never mask it.
+      console.error('[pft payment-recovery] audit write failed', error)
+    }
     if (decision === 'MANUAL_REVIEW' || !failure.retryable) {
       return { ok: false, reason: 'not_retryable', detail: failure.code }
     }

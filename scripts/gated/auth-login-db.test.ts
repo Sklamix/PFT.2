@@ -154,7 +154,10 @@ test('repeated failures trigger 429 with Retry-After and keep counting stable', 
   assert.ok(Number.isFinite(retryAfter) && retryAfter > 0, 'Retry-After must be present')
 
   const bucket = await prisma!.rateLimitBucket.findUnique({ where: { key: bucketKey(user.email) } })
-  assert.equal(bucket?.count, 5, 'blocked attempts must not increment past the window')
+  // PHASE 1.99: the reservation is taken BEFORE the credential check, so the
+  // refused attempt is counted as well. The counter saturates at limit+1
+  // (5 -> 6) and never grows beyond that inside the window.
+  assert.equal(bucket?.count, 6, 'a refused attempt is counted; the counter saturates at limit+1')
 })
 
 test('unknown email returns a generic 401 and does not leak existence', { skip: SKIP }, async () => {

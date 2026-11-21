@@ -163,7 +163,7 @@ test('section B post-check does not require admin_option change', () => {
   assert.match(all, /holds no ADMIN OPTION on pft_test_migrator/)
 })
 
-test('section C restores nine objects including AiSupportRequest, in order, each to its owner', () => {
+test('section C restores ten objects including AiSupportRequest and the migration history table, in order, each to its owner', () => {
   const all = plan('C', singleOwnerEnv()).statements.join('\n')
   const order = [
     'ALTER TABLE public."CheckoutIntent" OWNER TO owner_user',
@@ -175,6 +175,7 @@ test('section C restores nine objects including AiSupportRequest, in order, each
     'ALTER TABLE public."AccountLedgerBaseline" OWNER TO owner_user',
     'ALTER TABLE public."TradingAccount" OWNER TO owner_user',
     'ALTER TABLE public."AiSupportRequest" OWNER TO owner_user',
+    'ALTER TABLE public."_pft_test_migrations" OWNER TO owner_user',
   ]
   let last = -1
   for (const s of order) {
@@ -183,8 +184,12 @@ test('section C restores nine objects including AiSupportRequest, in order, each
     last = i
   }
   const restorations = (all.match(/OWNER TO owner_user/g) ?? [])
-  assert.equal(restorations.length, 9, 'nine objects restored to single owner')
+  assert.equal(restorations.length, 10, 'ten objects restored to single owner')
   assert.match(all, /DO \$asr\$/, 'AiSupportRequest restoration is conditional (DO block)')
+  // The executor creates its history table as the migration role, so the teardown
+  // must hand it back too — otherwise the clean-check finds a relation still
+  // owned by the migration role and rolls the whole section back.
+  assert.match(all, /DO \$hist\$/, 'history table restoration is conditional (DO block)')
 })
 
 test('section C guard requires the trusted widened self-grant in pft_test_migrator', () => {

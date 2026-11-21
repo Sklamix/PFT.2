@@ -263,6 +263,10 @@ test('adapter: TLS failure keeps the query count at zero and never logs secrets'
 test('adapter: pool is pinned to one connection, strict TLS and no sslmode ambiguity', () => {
   const config = buildTestPoolConfig(VALID_URL)
   assert.equal(config.max, 1)
+  // The single client must survive an idle gap: pg-pool's idle timer would
+  // close it and re-create it, and the onConnect guard refuses a second
+  // physical connection (verified live against pft_dbtest).
+  assert.equal(config.idleTimeoutMillis, 0)
   assert.equal(config.ssl && typeof config.ssl === 'object' ? config.ssl.rejectUnauthorized : false, true)
   assert.equal(config.ssl && typeof config.ssl === 'object' ? config.ssl.minVersion : undefined, 'TLSv1.2')
   assert.ok(typeof config.connectionString === 'string')

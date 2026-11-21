@@ -696,6 +696,16 @@ BEGIN
     ALTER TABLE public."AiSupportRequest" OWNER TO ${owners.User};
   END IF;
 END $asr$;`,
+      `DO $hist$
+BEGIN
+  -- The migration executor creates its history table AS the migration role, so
+  -- the teardown must hand it back too: otherwise the clean-check below finds a
+  -- relation still owned by the migration role and rolls the whole section back
+  -- (proven live: the section failed with "pft_test_migrator still owns relations").
+  IF EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename='_pft_test_migrations') THEN
+    ALTER TABLE public."_pft_test_migrations" OWNER TO ${owners.User};
+  END IF;
+END $hist$;`,
     ]
     return [
       `DO $guard$

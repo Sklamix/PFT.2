@@ -477,7 +477,9 @@ export async function runMigrationPreflight(
       for (const g of grants.rows) emit(`GRANT ${g.table_name}:${g.privilege_type} grantor=${g.grantor}`)
       emit(`DELEGATION_STATUS=${ownershipOk ? 'DELEGATED' : 'NOT_DELEGATED'} membership=${membershipOk ? 'OK' : 'CHECK'}`)
       if (mode === 'teardown') {
-        const restoreTargets = ['User', 'Order', 'AccountLedgerBaseline', 'TradingAccount', 'CheckoutIntent', 'PaymentRecovery']
+        // The migration executor creates its history table as the migration role,
+        // so the teardown must hand it back as well (it is a relation too).
+        const restoreTargets = ['User', 'Order', 'AccountLedgerBaseline', 'TradingAccount', 'CheckoutIntent', 'PaymentRecovery', '_pft_test_migrations']
         const newTypes = ['CheckoutIntentStatus', 'PaymentRecoveryStatus']
         let restorable = true
         for (const table of restoreTargets) {

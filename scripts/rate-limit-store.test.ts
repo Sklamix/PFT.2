@@ -31,9 +31,20 @@ test('rate-limit upsert keeps atomic increment and window reset', () => {
 
 async function loadMemoryStore() {
   delete process.env.DATABASE_URL
+  // The TEST-only injected client also selects the durable path, so the memory
+  // mode must clear it as well.
+  delete process.env.PFT_TEST_PRISMA_INJECTION
   const mod = await import('../lib/security/rate-limit-store')
   return mod
 }
+
+test('store mode: the durable path is used with DATABASE_URL or with the injected test client', async () => {
+  const { rateLimitStoreUsesDatabase } = await import('../lib/security/rate-limit-store')
+  assert.equal(rateLimitStoreUsesDatabase({ DATABASE_URL: 'postgresql://user@host/db' }), true)
+  assert.equal(rateLimitStoreUsesDatabase({ PFT_TEST_PRISMA_INJECTION: '1' }), true)
+  assert.equal(rateLimitStoreUsesDatabase({}), false)
+  assert.equal(rateLimitStoreUsesDatabase({ DATABASE_URL: '', PFT_TEST_PRISMA_INJECTION: '0' }), false)
+})
 
 test('memory mode: increments, resets and expires windows', async () => {
   const store = await loadMemoryStore()

@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { prisma, testPrismaInjectionRequested } from '@/lib/prisma'
 
 /**
  * Durable fixed-window rate-limit store. Uses Postgres when a database is
@@ -7,7 +7,22 @@ import { prisma } from '@/lib/prisma'
  */
 
 const memory = new Map<string, { count: number; resetAt: number }>()
-const usingDb = () => Boolean(process.env.DATABASE_URL)
+
+/**
+ * Postgres is used whenever a database client is reachable: the application's
+ * DATABASE_URL, or the TEST-only injected client (TLS-verified, pointing at the
+ * isolated test database).
+ *
+ * Checking DATABASE_URL alone was wrong for the gated harness: the injected
+ * client was installed but the env var was not set, so the store silently fell
+ * back to the in-process map — the counters stayed in memory and never reached
+ * the database, while the suite still reported success.
+ */
+export function rateLimitStoreUsesDatabase(env: Record<string, string | undefined> = process.env): boolean {
+  return Boolean(env.DATABASE_URL) || testPrismaInjectionRequested(env)
+}
+
+const usingDb = () => rateLimitStoreUsesDatabase()
 
 export type RateLimitState = { count: number; resetAt: number }
 

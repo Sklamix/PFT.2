@@ -59,7 +59,12 @@ export function buildTestPoolConfig(
     ssl: { rejectUnauthorized: true, minVersion: 'TLSv1.2' },
     max: 1,
     connectionTimeoutMillis: 10_000,
-    idleTimeoutMillis: 10_000,
+    // The pool must KEEP its single client: the onConnect guard refuses a second
+    // physical connection, and pg-pool's idle timer would otherwise close the
+    // client after 10s and re-create it on the next query — a re-connect the guard
+    // then rejected, which failed every later query of the suite (verified live:
+    // a gap of >10s between two queries raised the guard error).
+    idleTimeoutMillis: 0,
     application_name: 'pft-test-adapter',
     onConnect: (client) => {
       const result = validatePoolClientTls(client, expectedHost, identityCheck)
@@ -96,7 +101,10 @@ export function createTestPrismaClient(rawUrl: string, deps: TestPrismaDeps = {}
   const config = buildTestPoolConfig(rawUrl, deps.identityCheck, (result) => {
     stats.tlsChecks += 1
     if (stats.tlsChecks > 1) {
-      // Hard guard for the authorized single-connection runs: no reconnect/second client.
+      // Hard guard for the authorized single-connection runs: the pool is pinned
+      // to ONE physical client (max: 1, no idle re-creation), so a second
+      // connection means something outside the sanctioned run opened one. Every
+      // connection is TLS-verified by the same hook before its first statement.
       throw new Error('TEST DB adapter opened more than one physical connection — refusing')
     }
     if (diagnostics) {
