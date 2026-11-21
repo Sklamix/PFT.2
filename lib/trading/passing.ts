@@ -287,7 +287,8 @@ export async function evaluateAccountPassing(
 export async function evaluateActiveAccountsPassing(limit = 500) {
   const { prisma } = await import('@/lib/prisma')
   const accounts = await prisma.tradingAccount.findMany({
-    where: { status: 'ACTIVE', phase: { in: ['PHASE_1', 'PHASE_2'] } },
+    // Archived accounts never progress phases, even with a stale ACTIVE status.
+    where: { status: 'ACTIVE', archivedAt: null, phase: { in: ['PHASE_1', 'PHASE_2'] } },
     select: { id: true },
     orderBy: { updatedAt: 'asc' },
     take: limit,

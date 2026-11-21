@@ -1,5 +1,7 @@
 import { Prisma } from '@prisma/client'
-import { getSymbol, isTerminalSymbol, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { getSymbol, type TerminalSymbolId } from '@/lib/constants/symbols'
+import { ensureLegacyTariffPlan } from '@/lib/finance/commission-plans'
+import { canonicalSymbol } from '@/lib/instruments/registry'
 import { prisma } from '@/lib/prisma'
 import { getQuoteSnapshots } from '@/lib/trading/market-quotes'
 import { DEFAULT_TRADING_CONDITIONS, FALLBACK_MARKET_CONDITIONS } from './conditions-defaults'
@@ -14,14 +16,8 @@ import type {
 const METRICS_ID = 'global'
 const SYMBOL_ORDER = new Map(DEFAULT_TRADING_CONDITIONS.map((instrument, index) => [instrument.symbol, index]))
 const LIVE_SPREAD_TTL_MS = 3_000
-const TERMINAL_SYMBOL_OVERRIDES: Record<string, TerminalSymbolId> = {
-  'EUR/USD': 'EURUSD',
-  'GBP/USD': 'GBPUSD',
-  'XAU/USD': 'XAUUSD',
-  NAS100: 'US100',
-}
 
-let liveSpreadCache: { expiresAt: number; bySymbol: Map<string, LiveSpread> } | null = null
+let liveSpreadCache: { key: string; expiresAt: number; bySymbol: Map<string, LiveSpread> } | null = null
 
 function toNumber(value: Prisma.Decimal | number | string) {
   return Number(value)
@@ -32,6 +28,7 @@ function serializeInstrument(row: {
   symbol: string
   avgSpread: Prisma.Decimal
   commissionPerLot: Prisma.Decimal
+  commissionConfigured: boolean
   category: string
   isActive: boolean
   updatedAt: Date
@@ -41,6 +38,7 @@ function serializeInstrument(row: {
     symbol: row.symbol,
     avgSpread: toNumber(row.avgSpread),
     commissionPerLot: toNumber(row.commissionPerLot),
+    commissionConfigured: row.commissionConfigured,
     category: row.category,
     isActive: row.isActive,
     updatedAt: row.updatedAt.toISOString(),
@@ -64,10 +62,7 @@ function sortInstruments<T extends { symbol: string; category: string }>(rows: T
 }
 
 export function terminalSymbolForCondition(symbol: string): TerminalSymbolId | null {
-  const override = TERMINAL_SYMBOL_OVERRIDES[symbol]
-  if (override) return override
-  const compact = symbol.replace(/[^A-Z0-9]/gi, '').toUpperCase()
-  return isTerminalSymbol(compact) ? compact : null
+  return canonicalSymbol(symbol)
 }
 
 /**
@@ -84,16 +79,22 @@ export function spreadToDisplayUnits(symbol: string, rawSpread: number) {
   return rawSpread
 }
 
-async function getLiveSpreads() {
-  if (liveSpreadCache && liveSpreadCache.expiresAt > Date.now()) return liveSpreadCache.bySymbol
+async function getLiveSpreads(instruments: readonly { symbol: string }[]) {
+  const key = instruments.map((instrument) => instrument.symbol).sort().join('|')
+  if (liveSpreadCache && liveSpreadCache.key === key && liveSpreadCache.expiresAt > Date.now()) {
+    return liveSpreadCache.bySymbol
+  }
 
   const bySymbol = new Map<string, LiveSpread>()
   try {
-    const terminalBySymbol = new Map(
-      [...new Set(FALLBACK_MARKET_CONDITIONS.instruments.map((instrument) => instrument.symbol))]
-        .map((symbol) => [symbol, terminalSymbolForCondition(symbol)] as const)
-        .filter((entry): entry is readonly [string, TerminalSymbolId] => Boolean(entry[1])),
-    )
+    const terminalBySymbol = new Map<string, TerminalSymbolId>()
+    for (const instrument of instruments) {
+      const terminal = terminalSymbolForCondition(instrument.symbol)
+      if (terminal) terminalBySymbol.set(instrument.symbol, terminal)
+    }
+
+    // Quote providers are batched (one FXCM request, one Swissquote request), so adding
+    // instruments does not add external HTTP calls. Only per-symbol tick persistence scales.
     const snapshots = await getQuoteSnapshots([...new Set(terminalBySymbol.values())])
     const snapshotByTerminal = new Map(snapshots.map((snapshot) => [snapshot.symbol, snapshot]))
 
@@ -113,12 +114,12 @@ async function getLiveSpreads() {
     console.warn('[pft conditions] Live terminal spreads unavailable', error)
   }
 
-  liveSpreadCache = { expiresAt: Date.now() + LIVE_SPREAD_TTL_MS, bySymbol }
+  liveSpreadCache = { key, expiresAt: Date.now() + LIVE_SPREAD_TTL_MS, bySymbol }
   return bySymbol
 }
 
 async function attachLiveSpreads(instruments: TradingCondition[]) {
-  const liveSpreads = await getLiveSpreads()
+  const liveSpreads = await getLiveSpreads(instruments)
   return instruments.map((instrument) => ({
     ...instrument,
     liveSpread: liveSpreads.get(instrument.symbol) ?? null,
@@ -170,6 +171,7 @@ export async function getTradingConditionsForAdmin(): Promise<MarketConditionsPa
 export async function updateTradingConditions(input: {
   avgExecutionSpeedMs?: number
   instruments?: TradingConditionUpdate[]
+  actorId?: string | null
 }) {
   await prisma.$transaction(async (tx) => {
     if (input.avgExecutionSpeedMs != null) {
@@ -193,7 +195,39 @@ export async function updateTradingConditions(input: {
         data: {
           avgSpread: new Prisma.Decimal(update.avgSpread),
           commissionPerLot: new Prisma.Decimal(update.commissionPerLot),
+          // Explicit operator switch; never inferred from the numeric rate.
+          commissionConfigured: update.commissionConfigured,
           isActive: update.isActive,
+        },
+      })
+
+      if (update.commissionConfigured) {
+        // Version the legacy per-lot tariff so positions can snapshot immutable terms.
+        await ensureLegacyTariffPlan(tx, {
+          instrumentId: update.id,
+          rate: new Prisma.Decimal(update.commissionPerLot),
+          createdBy: input.actorId ?? null,
+        })
+      } else {
+        // Turning the tariff off must also retire the active plan.
+        await tx.commissionPlan.updateMany({
+          where: { instrumentId: update.id, isActive: true },
+          data: { isActive: false },
+        })
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: input.actorId ?? null,
+          action: 'TRADING_CONDITIONS_UPDATED',
+          reason: 'Trading conditions and commission tariff updated',
+          metadata: {
+            instrumentId: update.id,
+            avgSpread: update.avgSpread,
+            commissionPerLot: update.commissionPerLot,
+            commissionConfigured: update.commissionConfigured,
+            isActive: update.isActive,
+          },
         },
       })
     }

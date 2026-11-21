@@ -2,6 +2,8 @@
  * One-off, guarded production migration for the PFT.2 stress-test release.
  *
  * Only runs when PFT_STRESS_MIGRATIONS=1, so normal builds stay no-ops.
+ * PHASE 1.96a: this script is NOT part of the build lifecycle. Run it only through
+ * `npm run db:migrate:stress` as a separate, authorized deploy step.
  * Applies exactly the six additive SQL files from this release; it never runs
  * the historical bootstrap cleanup scripts.
  */

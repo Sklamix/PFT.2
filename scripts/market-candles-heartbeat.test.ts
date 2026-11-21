@@ -13,7 +13,7 @@ import {
 } from '../lib/ops/market-candles-heartbeat'
 
 // ---------------------------------------------------------------------------
-// Pure unit tests (no database) — always run.
+// Pure unit tests (no database) вЂ” always run.
 // ---------------------------------------------------------------------------
 
 test('component key and interval are stable', () => {
@@ -119,14 +119,14 @@ test('heartbeat loop: no parallel requests (in-flight tick skipped)', async () =
 
   f.fire() // first run: inFlight=true, awaits gate
   await new Promise((r) => setImmediate(r))
-  f.fire() // second fire while in-flight → skipped
+  f.fire() // second fire while in-flight в†’ skipped
   assert.equal(calls, 1, 'no parallel heartbeat request')
 
   release() // let the first finish
   await gate
   await new Promise((r) => setImmediate(r))
 
-  f.fire() // now free → runs again
+  f.fire() // now free в†’ runs again
   await new Promise((r) => setImmediate(r))
   assert.equal(calls, 2)
 })
@@ -172,30 +172,36 @@ test('heartbeat loop: stop prevents new runs', async () => {
 })
 
 // ---------------------------------------------------------------------------
-// Integration tests — real PostgreSQL against the isolated test database.
+// Integration tests вЂ” real PostgreSQL against the isolated test database.
 // Opted in with OBSERVABILITY_TEST_DB=1 + OBSERVABILITY_TEST_DB_URL.
 // ---------------------------------------------------------------------------
 
-const FORBIDDEN_TEST_DATABASE_URLS = [/ep-jolly-resonance/i]
+import { assertGateAllowsExecution, resolveObservabilityTestDb, assertClientIsTestDb, embeddedObservabilitySkipReason } from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
+import { cleanupThenDisconnect } from './test-cleanup'
 
-function resolveTestUrl(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.OBSERVABILITY_TEST_DB !== '1') return null
-  const url = env.OBSERVABILITY_TEST_DB_URL?.trim()
-  if (!url || !/^postgres(ql)?:\/\//i.test(url)) return null
-  if (FORBIDDEN_TEST_DATABASE_URLS.some((p) => p.test(url))) return null
-  if (!/\/pft_dbtest(\?|$)/.test(url)) return null
-  return url
+// Shared fail-closed identity gate (scripts/observability-db-gate.ts): exact
+// owner-approved hostname allowlist, production denylist, /pft_dbtest URL path,
+// sslmode=verify-full enforcement and the canonical/legacy env policy.
+const GATE = resolveObservabilityTestDb(process.env)
+assertGateAllowsExecution(GATE)
+const TEST_URL = GATE.action === 'use' ? GATE.url : null
+const skip = embeddedObservabilitySkipReason(GATE)
+
+/** Client on the gated URL; asserts live DB identity BEFORE any business op. */
+async function gatedDb(): Promise<PrismaClient> {
+  return assertClientIsTestDb(createTestPrismaClient(TEST_URL!).prisma)
 }
 
-const TEST_URL = resolveTestUrl()
-const DB_OK = TEST_URL !== null
-const skip = DB_OK ? false : 'requires OBSERVABILITY_TEST_DB=1 and OBSERVABILITY_TEST_DB_URL (isolated pft_dbtest)'
+async function cleanup(client: PrismaClient): Promise<void> {
+  await client.systemHeartbeat.deleteMany({ where: { componentKey: MARKET_CANDLES_COMPONENT_KEY } })
+  await client.systemComponent.deleteMany({ where: { key: MARKET_CANDLES_COMPONENT_KEY } })
+}
 
 test('integration: heartbeat registers component and writes correct lastMeta', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
-    await client.systemHeartbeat.deleteMany({ where: { componentKey: MARKET_CANDLES_COMPONENT_KEY } })
-    await client.systemComponent.deleteMany({ where: { key: MARKET_CANDLES_COMPONENT_KEY } })
+    await cleanup(client)
 
     const state = createTickState()
     const tickTime = 1_700_000_000_000
@@ -212,7 +218,7 @@ test('integration: heartbeat registers component and writes correct lastMeta', {
     const heartbeat = await client.systemHeartbeat.findUnique({ where: { componentKey: MARKET_CANDLES_COMPONENT_KEY } })
     assert.ok(heartbeat)
     assert.equal(heartbeat!.liveness, 'HEALTHY')
-    // lastSuccessfulAt reflects the heartbeat write (≈ now), not the tick time
+    // lastSuccessfulAt reflects the heartbeat write (в‰€ now), not the tick time
     const okAt = heartbeat!.lastSuccessfulAt!.getTime()
     assert.ok(okAt >= before && okAt <= after + 1000, 'lastSuccessfulAt reflects heartbeat write time')
 
@@ -224,18 +230,21 @@ test('integration: heartbeat registers component and writes correct lastMeta', {
       assert.ok(!(forbidden in meta), `lastMeta must not contain ${forbidden}`)
     }
 
-    await client.systemHeartbeat.deleteMany({ where: { componentKey: MARKET_CANDLES_COMPONENT_KEY } })
-    await client.systemComponent.deleteMany({ where: { key: MARKET_CANDLES_COMPONENT_KEY } })
+    await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'market-candles-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: MARKET_CANDLES_COMPONENT_KEY } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: full tick failure keeps lastTickAt, advances lastSuccessfulAt, liveness FAILED', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
-    await client.systemHeartbeat.deleteMany({ where: { componentKey: MARKET_CANDLES_COMPONENT_KEY } })
-    await client.systemComponent.deleteMany({ where: { key: MARKET_CANDLES_COMPONENT_KEY } })
+    await cleanup(client)
 
     const state = createTickState()
     const tickTime = 1_700_000_000_000
@@ -254,9 +263,13 @@ test('integration: full tick failure keeps lastTickAt, advances lastSuccessfulAt
     const meta = heartbeat!.lastMeta as Record<string, unknown>
     assert.equal(meta.lastTickAt, new Date(tickTime).toISOString(), 'lastMeta.lastTickAt unchanged by full failure')
 
-    await client.systemHeartbeat.deleteMany({ where: { componentKey: MARKET_CANDLES_COMPONENT_KEY } })
-    await client.systemComponent.deleteMany({ where: { key: MARKET_CANDLES_COMPONENT_KEY } })
+    await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'market-candles-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: MARKET_CANDLES_COMPONENT_KEY } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })

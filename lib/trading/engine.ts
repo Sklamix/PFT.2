@@ -4,7 +4,7 @@ import { resolveCommissionSnapshot, type CommissionSnapshot } from '@/lib/financ
 import { planEntry, planExit, type PositionFinance } from '@/lib/finance/execution'
 import { FxTable } from '@/lib/finance/fx'
 import { pendingFillKey } from '@/lib/finance/idempotency'
-import { resolveInstrumentSpec, lotSizeError, type VerifiedInstrumentSpec } from '@/lib/finance/instrument'
+import { resolveInstrumentSpec, lotSizeError } from '@/lib/finance/instrument'
 import { ledgerKey } from '@/lib/finance/ledger'
 import { moneyNumber, roundLots, roundMoney, toDecimal } from '@/lib/finance/money'
 import { exitPnlUsd, notionalUsd as financeNotionalUsd, requiredMarginUsd as financeRequiredMarginUsd } from '@/lib/finance/pnl'
@@ -23,7 +23,6 @@ import {
   positionMarginDecimal,
   positionValuation,
   protectiveTrigger,
-  realizedPnlDecimal,
   revalue,
   roundUsd,
   toRiskMetrics,
@@ -54,8 +53,14 @@ import {
 
 const HISTORY_LIMIT = 50
 
-function isTradingStatus(status: string) {
-  return status === 'ACTIVE' || status === 'FUNDED'
+function isTradingStatus(status: string, archivedAt: Date | null = null) {
+  // Defense in depth: an account with archivedAt set is never tradable, even if
+  // a status transition ever leaves it looking ACTIVE/FUNDED.
+  return archivedAt == null && (status === 'ACTIVE' || status === 'FUNDED')
+}
+
+function tradingAllowed(w: Working) {
+  return isTradingStatus(w.status, w.archivedAt)
 }
 
 const PAYOUT_EXECUTION_BLOCKED =
@@ -82,6 +87,7 @@ type Working = {
   withdrawnProfit: number
   leverage: number
   drawdownMode: string
+  archivedAt: Date | null
   maxDailyLoss: number
   maxTrailingDrawdown: number
   status: string
@@ -142,6 +148,7 @@ function load(tx: BookTx): Working {
     withdrawnProfit: account.withdrawnProfit,
     leverage: parseLeverage(account.leverage),
     drawdownMode: account.drawdownMode,
+    archivedAt: account.archivedAt ?? null,
     maxDailyLoss: account.maxDailyLoss > 0 ? account.maxDailyLoss : DEFAULT_MAX_DAILY_LOSS,
     maxTrailingDrawdown: account.maxTrailingDrawdown > 0 ? account.maxTrailingDrawdown : DEFAULT_MAX_TRAILING_DRAWDOWN,
     status: account.status,
@@ -714,7 +721,7 @@ async function metricsFor(w: Working): Promise<RiskMetrics> {
  * account belonging to the same trader is promoted to ACTIVE.
  */
 async function enforceRules(w: Working) {
-  if (!isTradingStatus(w.status)) return
+  if (!tradingAllowed(w)) return
   const metrics = await metricsDecimalFor(w)
   w.riskReviewEvaluated = true
   w.peakEquityDecimal = metrics.peakEquity
@@ -890,7 +897,7 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
     userId: w.tx.account.userId,
     status: w.status,
     breachReason: w.breachReason,
-    activeSiblingAccountId: isTradingStatus(w.status) ? null : await w.tx.findActiveSibling(),
+    activeSiblingAccountId: tradingAllowed(w) ? null : await w.tx.findActiveSibling(),
     leverage: w.leverage,
     drawdownMode: w.drawdownMode,
     startingBalance: w.startingBalance,
@@ -950,7 +957,7 @@ async function processPendingOrders(w: Working, quotes: Quotes) {
     const quote = quotes[order.symbol]
     if (!quote) continue
 
-    let triggered = false
+    let triggered: boolean
     if (order.type === 'STOP') {
       const stop = order.stopPrice ?? order.limitPrice
       triggered = order.side === 'BUY' ? quote.ask >= stop : quote.bid <= stop
@@ -1007,7 +1014,7 @@ async function processPendingOrders(w: Working, quotes: Quotes) {
     w.orderUpdates.push({ status: 'FILLED', message: pendingOrderMessage(order, `filled at ${fill.toFixed(5)}`) })
     await settleProtectiveOrders(w)
     await enforceRules(w)
-    if (!isTradingStatus(w.status)) break
+    if (!tradingAllowed(w)) break
   }
 }
 
@@ -1173,7 +1180,7 @@ async function openInstrumentPosition(
 export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<{ position: Position }>> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ position: Position }>> => {
     const w = load(tx)
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
     if (w.payoutExecutionAt != null) {
@@ -1184,7 +1191,7 @@ export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<
     await applyQuotes(w, { ...(input.fxQuotes ?? {}), [input.symbol]: input.quote })
     await settleProtectiveOrders(w)
     await enforceRules(w)
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: 'Order rejected: account breached risk rules', book: await persist(w) }
     }
 
@@ -1222,7 +1229,7 @@ export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<
 export async function placePendingOrder(input: PendingOrderInput): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> => {
     const w = load(tx)
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
     if (w.payoutExecutionAt != null) {
@@ -1233,7 +1240,7 @@ export async function placePendingOrder(input: PendingOrderInput): Promise<Engin
     await applyQuotes(w, { ...(input.fxQuotes ?? {}), [input.symbol]: input.quote })
     await settleProtectiveOrders(w)
     await enforceRules(w)
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: 'Order rejected: account breached risk rules', book: await persist(w) }
     }
     const quotePrice = input.side === 'BUY' ? input.quote.ask : input.quote.bid
@@ -1349,7 +1356,7 @@ export async function modifyPendingOrder(
 ): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult<{ pendingOrder: PendingTradeOrder }>> => {
     const w = load(tx)
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
@@ -1395,7 +1402,7 @@ export async function modifyPendingOrder(
 export async function modifyPositionProtection(input: PositionProtectionInput): Promise<EngineResult> {
   const result = await tradingRepo.withBook(input.accountId, async (tx): Promise<EngineResult> => {
     const w = load(tx)
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
     if (w.payoutExecutionAt != null) {
@@ -1523,7 +1530,7 @@ export async function closePositionsBySymbols(
     const w = load(tx)
     setFx(w, quotes)
     if (provenance) w.priceProvenance = new Map(Object.entries(provenance))
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
@@ -1554,7 +1561,7 @@ export async function closeAllPositions(
     const w = load(tx)
     setFx(w, quotes)
     if (provenance) w.priceProvenance = new Map(Object.entries(provenance))
-    if (!isTradingStatus(w.status)) {
+    if (!tradingAllowed(w)) {
       return { ok: false, status: 403, error: `Account is ${w.status}; trading is disabled`, book: await snapshot(w) }
     }
 
@@ -1658,10 +1665,10 @@ export async function syncAccount(
     setFx(w, quotes)
     if (provenance) w.priceProvenance = new Map(Object.entries(provenance))
     await applyQuotes(w, quotes)
-    if (isTradingStatus(w.status)) {
+    if (tradingAllowed(w)) {
       await settleProtectiveOrders(w)
       await enforceRules(w)
-      if (isTradingStatus(w.status)) await processPendingOrders(w, quotes)
+      if (tradingAllowed(w)) await processPendingOrders(w, quotes)
     }
     return { ok: true, book: await persist(w) }
   })

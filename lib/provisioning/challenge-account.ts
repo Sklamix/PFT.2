@@ -1,6 +1,6 @@
 import { randomInt } from 'crypto'
 import type { Prisma } from '@prisma/client'
-import { accountLimitError, checkAccountLimits } from '@/lib/accounts/limits'
+import { accountLimitError, checkAccountLimits, lockAllocationCluster } from '@/lib/accounts/limits'
 import { CHALLENGES, type ChallengeType as PlanChallengeType, type DrawdownMode } from '@/lib/challenges'
 import { tryEnsureRiskEquityBaseline } from '@/lib/risk-equity/baseline'
 
@@ -131,6 +131,8 @@ export async function provisionChallengeAccounts(
   }
 
   if (!options?.skipAllocationLimit) {
+    // D6: serialize related identities (phone, IP+device) before reading usage.
+    await lockAllocationCluster(tx, input.userId)
     const usage = await checkAccountLimits(tx, input.userId, input.plan.planSize)
     if (!usage.ok) throw accountLimitError(usage)
   }

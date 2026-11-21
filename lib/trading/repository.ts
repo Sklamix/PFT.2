@@ -8,7 +8,7 @@ import type { InstrumentRow } from '@/lib/finance/instrument'
 import type { LedgerDraft } from '@/lib/finance/ledger'
 import { roundLots } from '@/lib/finance/money'
 import type { CloseReason, OrderSide, PendingTradeOrder, PendingTradeOrderStatus, Position, TradeHistory } from '@/lib/types/terminal'
-import type { NewsExposure, NewsViolationEvent } from './types'
+import type { NewsExposure } from './types'
 import { berlinDayKey, isTargetLockedState } from './target-lock'
 import { recordAccountBreachEvent } from '@/lib/rules/breach-event'
 import { classifyNewsExposure } from './news-window'
@@ -20,6 +20,7 @@ export type AccountRow = {
   displayId: string
   userId: string
   status: string
+  archivedAt: Date | null
   leverage: string
   drawdownMode: string
   breachReason: string | null
@@ -224,8 +225,9 @@ export interface BookTx {
 
 export class StoreUnavailableError extends Error {}
 
-function useMockStore() {
-  return !process.env.DATABASE_URL
+function mockStoreEnabled() {
+  // PHASE 1.96a: production never silently uses the in-memory trading backend.
+  return !process.env.DATABASE_URL && process.env.NODE_ENV !== 'production'
 }
 
 // ---------------------------------------------------------------------------
@@ -902,6 +904,7 @@ async function withPrismaBook<T>(accountId: string, fn: (book: BookTx) => Promis
         displayId: row.displayId,
         userId: row.userId,
         status: row.status,
+        archivedAt: row.archivedAt,
         leverage: row.leverage,
         drawdownMode: row.drawdownMode,
         breachReason: row.breachReason,
@@ -981,6 +984,7 @@ function mockAccount(id: string, status: string, offsetMs: number): MockAccount 
     displayId: id,
     userId: DEMO_USER,
     status,
+    archivedAt: null,
     leverage: '1:100',
     drawdownMode: 'trailing',
     breachReason: null,
@@ -1417,20 +1421,20 @@ async function withMockBook<T>(accountId: string, fn: (book: BookTx) => Promise<
 
 export const tradingRepo = {
   source(): 'database' | 'memory' {
-    return useMockStore() ? 'memory' : 'database'
+    return mockStoreEnabled() ? 'memory' : 'database'
   },
 
   withBook<T>(accountId: string, fn: (book: BookTx) => Promise<T>): Promise<T | null> {
-    return useMockStore() ? withMockBook(accountId, fn) : withPrismaBook(accountId, fn)
+    return mockStoreEnabled() ? withMockBook(accountId, fn) : withPrismaBook(accountId, fn)
   },
 
   async positionAccountId(positionId: string): Promise<string | null> {
-    if (useMockStore()) return mockState().positions.get(positionId)?.tradingAccountId ?? null
+    if (mockStoreEnabled()) return mockState().positions.get(positionId)?.tradingAccountId ?? null
     return prismaPositionAccount(positionId)
   },
 
   async activeTradingTargets(): Promise<{ accountId: string; symbol: string }[]> {
-    if (useMockStore()) {
+    if (mockStoreEnabled()) {
       const state = mockState()
       const targets = new Set<string>()
       for (const position of state.positions.values()) {
@@ -1453,12 +1457,12 @@ export const tradingRepo = {
     const prisma = await prismaClient()
     const [positions, orders] = await Promise.all([
       prisma.position.findMany({
-        where: { status: 'OPEN', tradingAccount: { status: 'ACTIVE' } },
+        where: { status: 'OPEN', tradingAccount: { status: 'ACTIVE', archivedAt: null } },
         select: { tradingAccountId: true, symbol: true },
         distinct: ['tradingAccountId', 'symbol'],
       }),
       prisma.pendingTradeOrder.findMany({
-        where: { status: 'PENDING', tradingAccount: { status: 'ACTIVE' } },
+        where: { status: 'PENDING', tradingAccount: { status: 'ACTIVE', archivedAt: null } },
         select: { tradingAccountId: true, symbol: true },
         distinct: ['tradingAccountId', 'symbol'],
       }),

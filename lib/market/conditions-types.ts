@@ -12,6 +12,8 @@ export type TradingCondition = {
   symbol: string
   avgSpread: number
   commissionPerLot: number
+  /** False when no tariff has been configured for this instrument yet. */
+  commissionConfigured: boolean
   category: string
   isActive: boolean
   updatedAt: string
@@ -33,5 +35,7 @@ export type TradingConditionUpdate = {
   id: string
   avgSpread: number
   commissionPerLot: number
+  /** Explicit switch: a zero rate only means "free" when this is true. */
+  commissionConfigured: boolean
   isActive: boolean
 }

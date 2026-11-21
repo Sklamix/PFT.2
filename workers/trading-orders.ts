@@ -9,6 +9,20 @@ import { prisma } from '@/lib/prisma'
 import { syncAccount } from '@/lib/trading/engine'
 import { tradingRepo } from '@/lib/trading/repository'
 import type { Quotes } from '@/lib/trading/types'
+import { createHeartbeatLoop } from '@/lib/ops/market-candles-heartbeat'
+import {
+  TRADING_ORDERS_HEARTBEAT_INTERVAL_MS,
+  createTradingOrdersState,
+  heartbeatOnce,
+  recordConnection,
+  recordConnectionError,
+  recordMessage,
+  recordPriceWriteError,
+  recordReconnect,
+  recordStopped,
+  recordSyncError,
+  recordSyncSuccess,
+} from '@/lib/ops/trading-orders-heartbeat'
 
 const TARGET_REFRESH_MS = 5_000
 const MIN_ACCOUNT_SYNC_INTERVAL_MS = 250
@@ -34,6 +48,13 @@ let reconnectTimer: ReturnType<typeof setTimeout> | undefined
 let targetRefreshTimer: ReturnType<typeof setInterval> | undefined
 let reconnectDelay = 1_000
 let stopping = false
+
+const heartbeatState = createTradingOrdersState()
+const heartbeatLoop = createHeartbeatLoop(
+  () => heartbeatOnce(heartbeatState),
+  TRADING_ORDERS_HEARTBEAT_INTERVAL_MS,
+  { setInterval, clearInterval, isStopped: () => stopping },
+)
 
 function requiredEnvironment(name: string) {
   const value = process.env[name]?.trim()
@@ -88,15 +109,20 @@ async function drainAccountQueue(accountId: string, queue: AccountQueue) {
   try {
     const result = await syncAccount(accountId, quotes)
     if (!result.ok) {
+      recordSyncError(heartbeatState)
       console.error(`[pft trading worker] Account ${accountId} sync failed: ${result.error}`)
     } else if (result.book.events.orderUpdates.length > 0 || result.book.events.breach) {
+      recordSyncSuccess(heartbeatState)
       console.info('[pft trading worker] Account event', {
         accountId,
         orderUpdates: result.book.events.orderUpdates,
         breach: result.book.events.breach,
       })
+    } else {
+      recordSyncSuccess(heartbeatState)
     }
   } catch (error) {
+    recordSyncError(heartbeatState)
     console.error(`[pft trading worker] Account ${accountId} sync failed`, error)
   } finally {
     queue.lastRunAt = Date.now()
@@ -143,6 +169,7 @@ function persistPrice(price: TwelveDataPrice) {
         },
       })
     } catch (error) {
+      recordPriceWriteError(heartbeatState)
       console.error(`[pft trading worker] Failed to persist ${price.symbol} price`, error)
       return
     }
@@ -192,21 +219,27 @@ function connect() {
   current.addEventListener('open', () => {
     if (socket !== current || stopping) return
     reconnectDelay = 1_000
+    recordConnection(heartbeatState)
     current.send(twelveDataSubscriptionMessage(FOREX_MAJORS))
     console.info('[pft trading worker] Connected to Twelve Data price stream', {
       symbols: FOREX_MAJORS.join(','),
     })
   })
   current.addEventListener('message', (event) => {
-    if (socket === current && !stopping) handleMessage(String(event.data))
+    if (socket === current && !stopping) {
+      recordMessage(heartbeatState)
+      handleMessage(String(event.data))
+    }
   })
   current.addEventListener('error', (event) => {
+    if (socket === current) recordConnectionError(heartbeatState)
     console.error('[pft trading worker] Twelve Data WebSocket error', event)
   })
   current.addEventListener('close', (event) => {
     if (socket !== current) return
     socket = null
     if (stopping) return
+    recordReconnect(heartbeatState)
     console.warn('[pft trading worker] Twelve Data disconnected', {
       code: event.code,
       reason: event.reason,
@@ -222,12 +255,15 @@ async function start() {
   await refreshTargets()
   targetRefreshTimer = setInterval(() => void refreshTargets(), TARGET_REFRESH_MS)
   connect()
+  heartbeatLoop.start()
   console.info('[pft trading worker] Started')
 }
 
 async function stop(signal: string) {
   if (stopping) return
   stopping = true
+  recordStopped(heartbeatState)
+  heartbeatLoop.stop()
   console.info(`[pft trading worker] Shutting down (${signal})`)
   if (targetRefreshTimer) clearInterval(targetRefreshTimer)
   if (reconnectTimer) clearTimeout(reconnectTimer)

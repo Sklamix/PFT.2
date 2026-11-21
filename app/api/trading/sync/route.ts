@@ -1,4 +1,3 @@
-import { NextResponse } from 'next/server'
 import { TERMINAL_SYMBOLS } from '@/lib/constants/symbols'
 import { readAccount, syncAccount } from '@/lib/trading/engine'
 import { handleError, readJson, respond } from '@/lib/trading/http'

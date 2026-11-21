@@ -233,7 +233,6 @@ export function calculateRiskEquitySnapshot(input: RiskEquitySnapshotInput): Ris
   )
 
   const trailingLimit = roundMoney(startingBalance.times(toDecimal(input.maxTrailingDrawdown)))
-  const drawdownBase = input.drawdownMode === 'static' ? startingBalance : peakEquity
   const oldTrailingPeak = roundMoney(Prisma.Decimal.max(peakEquity, displayEquity))
   const oldDrawdownBase = input.drawdownMode === 'static' ? startingBalance : oldTrailingPeak
   const oldTrailingFloor = roundMoney(oldDrawdownBase.minus(trailingLimit))

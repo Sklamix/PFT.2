@@ -67,6 +67,7 @@ export type RiskMetrics = {
   trailingDrawdownUsd: number
   trailingDrawdownLimitUsd: number
   trailingUsedRatio: number
+  riskEquity: number
   /** Explicit FX/spec valuation state for open positions. */
   valuation: ValuationSummary
 }

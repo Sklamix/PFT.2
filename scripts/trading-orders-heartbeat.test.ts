@@ -21,7 +21,7 @@ import { createHeartbeatLoop } from '../lib/ops/market-candles-heartbeat'
 const NOW = new Date('2026-11-06T14:47:00.000Z')
 
 // ---------------------------------------------------------------------------
-// Pure unit tests (no database) — always run.
+// Pure unit tests (no database) вЂ” always run.
 // ---------------------------------------------------------------------------
 
 test('initial connection state is connecting', () => {
@@ -32,7 +32,7 @@ test('initial connection state is connecting', () => {
   assert.equal(s.processingErrorCount, 0)
 })
 
-test('connecting → connected (recordConnection)', () => {
+test('connecting в†’ connected (recordConnection)', () => {
   const s = createTradingOrdersState()
   recordConnection(s, NOW)
   assert.equal(s.connectionState, 'connected')
@@ -40,7 +40,7 @@ test('connecting → connected (recordConnection)', () => {
   assert.equal(s.lastErrorCategory, null)
 })
 
-test('connected → reconnecting (recordReconnect)', () => {
+test('connected в†’ reconnecting (recordReconnect)', () => {
   const s = createTradingOrdersState()
   recordConnection(s, NOW)
   recordReconnect(s)
@@ -49,7 +49,7 @@ test('connected → reconnecting (recordReconnect)', () => {
   assert.equal(s.lastErrorCategory, 'connection')
 })
 
-test('→ stopped (recordStopped)', () => {
+test('в†’ stopped (recordStopped)', () => {
   const s = createTradingOrdersState()
   recordConnection(s, NOW)
   recordStopped(s)
@@ -154,23 +154,25 @@ test('heartbeat loop recovers after a heartbeat failure', async () => {
 })
 
 // ---------------------------------------------------------------------------
-// Integration tests — real PostgreSQL against the isolated test database.
+// Integration tests вЂ” real PostgreSQL against the isolated test database.
 // ---------------------------------------------------------------------------
 
-const FORBIDDEN_TEST_DATABASE_URLS = [/ep-jolly-resonance/i]
+import { assertGateAllowsExecution, resolveObservabilityTestDb, assertClientIsTestDb, embeddedObservabilitySkipReason } from './observability-db-gate'
+import { createTestPrismaClient } from './test-prisma-adapter'
+import { cleanupThenDisconnect } from './test-cleanup'
 
-function resolveTestUrl(env: Record<string, string | undefined> = process.env): string | null {
-  if (env.OBSERVABILITY_TEST_DB !== '1') return null
-  const url = env.OBSERVABILITY_TEST_DB_URL?.trim()
-  if (!url || !/^postgres(ql)?:\/\//i.test(url)) return null
-  if (FORBIDDEN_TEST_DATABASE_URLS.some((p) => p.test(url))) return null
-  if (!/\/pft_dbtest(\?|$)/.test(url)) return null
-  return url
+// Shared fail-closed identity gate (scripts/observability-db-gate.ts): exact
+// owner-approved hostname allowlist, production denylist, /pft_dbtest URL path,
+// sslmode=verify-full enforcement and the canonical/legacy env policy.
+const GATE = resolveObservabilityTestDb(process.env)
+assertGateAllowsExecution(GATE)
+const TEST_URL = GATE.action === 'use' ? GATE.url : null
+const skip = embeddedObservabilitySkipReason(GATE)
+
+/** Client on the gated URL; asserts live DB identity BEFORE any business op. */
+async function gatedDb(): Promise<PrismaClient> {
+  return assertClientIsTestDb(createTestPrismaClient(TEST_URL!).prisma)
 }
-
-const TEST_URL = resolveTestUrl()
-const DB_OK = TEST_URL !== null
-const skip = DB_OK ? false : 'requires OBSERVABILITY_TEST_DB=1 and OBSERVABILITY_TEST_DB_URL (isolated pft_dbtest)'
 
 async function cleanup(client: PrismaClient): Promise<void> {
   await client.systemHeartbeat.deleteMany({ where: { componentKey: TRADING_ORDERS_COMPONENT_KEY } })
@@ -178,7 +180,7 @@ async function cleanup(client: PrismaClient): Promise<void> {
 }
 
 test('integration: heartbeat creates component + heartbeat with correct meta', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     const s = createTradingOrdersState()
@@ -201,12 +203,17 @@ test('integration: heartbeat creates component + heartbeat with correct meta', {
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'trading-orders-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: TRADING_ORDERS_COMPONENT_KEY } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: repeated heartbeat updates the same row in place', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     const s = createTradingOrdersState()
@@ -225,12 +232,17 @@ test('integration: repeated heartbeat updates the same row in place', { skip }, 
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'trading-orders-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: TRADING_ORDERS_COMPONENT_KEY } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: enabled=false is not overwritten by heartbeat', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     await client.systemComponent.create({
@@ -250,12 +262,17 @@ test('integration: enabled=false is not overwritten by heartbeat', { skip }, asy
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'trading-orders-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: TRADING_ORDERS_COMPONENT_KEY } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })
 
 test('integration: metadata reflects a disconnected/reconnecting state', { skip }, async () => {
-  const client = new PrismaClient({ datasources: { db: { url: TEST_URL! } } })
+  const client = await gatedDb()
   try {
     await cleanup(client)
     const s = createTradingOrdersState()
@@ -271,6 +288,11 @@ test('integration: metadata reflects a disconnected/reconnecting state', { skip 
 
     await cleanup(client)
   } finally {
-    await client.$disconnect()
+    await cleanupThenDisconnect({
+      label: 'trading-orders-heartbeat',
+      cleanup: () => cleanup(client),
+      residual: () => client.systemComponent.count({ where: { key: TRADING_ORDERS_COMPONENT_KEY } }),
+      disconnect: () => client.$disconnect(),
+    })
   }
 })

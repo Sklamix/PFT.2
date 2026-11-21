@@ -139,17 +139,32 @@ export async function getResetEligibility(accountId: string, db: Db = prisma): P
   }
 }
 
+/**
+ * Serializes reset eligibility (the 30-day single-reset limit) with provisioning and
+ * archival. Every path uses the same lock order: User row, then TradingAccount rows.
+ */
+async function lockTraderForReset(tx: Prisma.TransactionClient, userId: string) {
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE
+  `
+  if (rows.length === 0) throw new ResetError('Trader not found.', 'not_found')
+}
+
 /** Admin-granted reset after a breach. Paid resets go through `resetAccountForPayment`. */
 export async function resetAccount(accountId: string, actorId: string) {
-  const eligibility = await getResetEligibility(accountId)
   const account = await prisma.tradingAccount.findUniqueOrThrow({
     where: { id: accountId },
     select: { userId: true, displayId: true },
   })
 
   try {
-    return await prisma.$transaction((tx) =>
-      provisionReset(tx, {
+    return await prisma.$transaction(async (tx) => {
+      // Same lock order as provisioning/archival (User -> TradingAccount). The reset
+      // limit must be evaluated under this lock; otherwise two concurrent resets can
+      // both read zero prior resets and each provision a fresh account.
+      await lockTraderForReset(tx, account.userId)
+      const eligibility = await getResetEligibility(accountId, tx)
+      return provisionReset(tx, {
         accountId,
         userId: account.userId,
         displayId: account.displayId,
@@ -157,8 +172,8 @@ export async function resetAccount(accountId: string, actorId: string) {
         eligibility,
         actorId,
         requestReview: true,
-      }),
-    )
+      })
+    })
   } catch (error) {
     if (error instanceof ResetError) throw error
     if (error instanceof Error) throw new ResetError(error.message, 'provisioning')
@@ -180,6 +195,11 @@ export async function resetAccountForPayment(
     providerOrderId: string
   },
 ) {
+  // Serialize with every other reset/provisioning for this trader BEFORE the reset
+  // limit is evaluated. Without the lock, two concurrently delivered paid invoices
+  // both read "no reset in the last 30 days" and each provision a fresh account.
+  await lockTraderForReset(tx, input.userId)
+
   const account = await tx.tradingAccount.findUnique({
     where: { id: input.accountId },
     select: { userId: true, displayId: true },

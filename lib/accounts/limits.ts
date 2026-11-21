@@ -96,6 +96,28 @@ export async function checkAccountLimits(
   return { ok: true, count, allocation, relatedUserIds: usage.relatedUserIds }
 }
 
+/**
+ * D6: serializes allocation checks for every identity signal that groups traders
+ * (user, phone, IP+device). Callers already hold the User row lock; this closes the
+ * cross-user race where two related accounts provision concurrently and both pass the
+ * limit check. Advisory locks are transaction-scoped and taken in a fixed order.
+ */
+export async function lockAllocationCluster(tx: Prisma.TransactionClient, userId: string) {
+  const user = await tx.user.findUnique({
+    where: { id: userId },
+    select: { phone: true, lastLoginIp: true, lastDeviceHash: true },
+  })
+  const keys = [`limit:user:${userId}`]
+  const phone = user?.phone?.trim()
+  const ip = user?.lastLoginIp?.trim()
+  const device = user?.lastDeviceHash?.trim()
+  if (phone) keys.push(`limit:phone:${phone}`)
+  if (ip && device) keys.push(`limit:device:${ip}:${device}`)
+  for (const key of keys) {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`
+  }
+}
+
 export function accountLimitError(usage: AccountLimitUsage) {
   return new AccountLimitError(
     usage.message ?? 'Account limit exceeded.',

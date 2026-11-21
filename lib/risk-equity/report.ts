@@ -48,17 +48,12 @@ export async function getRiskEquityReport(recentWindowDays = 7): Promise<RiskEqu
 
   const [
     stateGroups,
-    evalStats,
     skipReasons,
     breachRules,
     recentBreaches,
   ] = await Promise.all([
     prisma.tradingAccount.groupBy({
       by: ['riskEquityState'],
-      _count: { _all: true },
-    }),
-    prisma.riskEquityShadowEvaluation.aggregate({
-      where: { evaluatedAt: { gte: since } },
       _count: { _all: true },
     }),
     prisma.riskEquityShadowEvaluation.groupBy({
@@ -101,7 +96,6 @@ export async function getRiskEquityReport(recentWindowDays = 7): Promise<RiskEqu
   const successful =
     comparisonCount('SAME') + comparisonCount('DIFFERENT') + comparisonCount('NOT_COMPARABLE')
   const skipped = skipReasons.reduce((sum, group) => sum + group._count._all, 0)
-  const totalEvaluations = evalStats._count._all
 
   return {
     phase: 'phase-1-shadow-only',

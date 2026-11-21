@@ -49,7 +49,7 @@ export async function authenticateTrader(email: string, password: string): Promi
   })
   if (!user || user.role !== 'TRADER' || !hasUsablePassword(user.passwordHash)) return null
   if (user.archivedAt != null) return null
-  if (!verifyPassword(password, user.passwordHash)) return null
+  if (!(await verifyPassword(password, user.passwordHash))) return null
   return { sub: user.id, email: user.email, name: user.name, tokenVersion: user.tokenVersion }
 }
 
@@ -105,7 +105,7 @@ export async function setPasswordWithToken(token: string, password: string): Pro
   const { count } = await prisma.user.updateMany({
     where: { id: user.id, passwordTokenHash: hash },
     data: {
-      passwordHash: hashPassword(password),
+      passwordHash: await hashPassword(password),
       passwordTokenHash: null,
       passwordTokenExpiresAt: null,
       tokenVersion: { increment: 1 },

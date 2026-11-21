@@ -325,7 +325,7 @@ export async function applyBreach(
   const entry = BREACH_MATRIX[input.kind]
   const now = new Date()
   let voidedTrades = 0
-  let cancelledPayouts = 0
+  const cancelledPayouts = 0
   let protectedPayoutIds: string[] = []
 
   // Reuse the event created by the engine (already atomic with its BREACHED transition)
@@ -371,7 +371,7 @@ export async function applyBreach(
 
   const stored = await loadBreachEvent(tx, eventId)
   const occurredAt = stored?.occurredAt ?? null
-  const timeSource = stored?.timeSource ?? null
+  const _timeSource = stored?.timeSource ?? null
   const requiresManualReview = stored?.requiresManualReview ?? occurredAt == null
   const breachEvent = { id: eventId }
 

@@ -92,6 +92,7 @@ export type DecimalRiskMetrics = {
   trailingDrawdownUsd: Prisma.Decimal
   trailingDrawdownLimitUsd: Prisma.Decimal
   trailingUsedRatio: Prisma.Decimal
+  riskEquity: Prisma.Decimal
   valuation: ValuationSummary
 }
 
@@ -398,6 +399,7 @@ export function measureRiskDecimal(inputs: DecimalRiskInputs, positions: Valued[
     trailingUsedRatio: trailingDrawdownLimitUsd.greaterThan(0)
       ? Prisma.Decimal.min(toDecimal(1), trailingDrawdownUsd.dividedBy(trailingDrawdownLimitUsd))
       : toDecimal(0),
+    riskEquity,
     valuation,
   }
 }
@@ -420,6 +422,7 @@ export function toRiskMetrics(metrics: DecimalRiskMetrics): RiskMetrics {
     trailingDrawdownUsd: moneyNumber(metrics.trailingDrawdownUsd),
     trailingDrawdownLimitUsd: moneyNumber(metrics.trailingDrawdownLimitUsd),
     trailingUsedRatio: Number(metrics.trailingUsedRatio.toFixed(6)),
+    riskEquity: moneyNumber(metrics.riskEquity),
     valuation: metrics.valuation,
   }
 }
@@ -451,10 +454,10 @@ export function detectBreachDecimal(metrics: DecimalRiskMetrics): Breach | null 
       reason: `Max daily loss breached: equity ${metrics.equity.toFixed(2)} is ${metrics.dailyLossUsd.toFixed(2)} below day-start ${metrics.dayStartEquity.toFixed(2)} (limit ${metrics.dailyLossLimitUsd.toFixed(2)})`,
     }
   }
-  if (metrics.trailingDrawdownLimitUsd.greaterThan(0) && metrics.equity.lessThanOrEqualTo(metrics.trailingFloor)) {
+  if (metrics.trailingDrawdownLimitUsd.greaterThan(0) && metrics.riskEquity.lessThanOrEqualTo(metrics.trailingFloor)) {
     return {
       rule: 'MAX_TRAILING_DRAWDOWN',
-      reason: `Max trailing drawdown breached: equity ${metrics.equity.toFixed(2)} fell to/below floor ${metrics.trailingFloor.toFixed(2)} (peak ${metrics.peakEquity.toFixed(2)})`,
+      reason: `Max trailing drawdown breached: risk equity ${metrics.riskEquity.toFixed(2)} fell to/below floor ${metrics.trailingFloor.toFixed(2)} (peak ${metrics.peakEquity.toFixed(2)})`,
     }
   }
   return null
@@ -477,6 +480,7 @@ export function detectBreach(metrics: RiskMetrics): Breach | null {
     trailingDrawdownUsd: toDecimal(metrics.trailingDrawdownUsd),
     trailingDrawdownLimitUsd: toDecimal(metrics.trailingDrawdownLimitUsd),
     trailingUsedRatio: toDecimal(metrics.trailingUsedRatio),
+    riskEquity: toDecimal(metrics.riskEquity),
     valuation: metrics.valuation,
   })
 }

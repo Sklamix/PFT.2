@@ -212,16 +212,22 @@ export async function decideAppeal(input: {
 
   const note = input.note.trim()
   return prisma.$transaction(async (tx) => {
+    // Claim the OPEN appeal atomically before any side effect. Two admins deciding the
+    // same appeal concurrently must not both succeed (e.g. uphold + overturn).
+    const claimed = await tx.accountAppeal.updateMany({
+      where: { id: appeal.id, status: 'OPEN' },
+      data: {
+        status: input.decision === 'uphold' ? 'UPHELD' : 'OVERTURNED',
+        decisionNote: note,
+        decidedById: input.actorId,
+        decidedAt: new Date(),
+      },
+    })
+    if (claimed.count !== 1) {
+      throw new AppealError('This appeal has already been decided.', 'already_decided')
+    }
+
     if (input.decision === 'uphold') {
-      const updated = await tx.accountAppeal.update({
-        where: { id: appeal.id },
-        data: {
-          status: 'UPHELD',
-          decisionNote: note,
-          decidedById: input.actorId,
-          decidedAt: new Date(),
-        },
-      })
       await tx.auditLog.create({
         data: {
           actorId: input.actorId,
@@ -231,22 +237,13 @@ export async function decideAppeal(input: {
           metadata: { appealId: appeal.id },
         },
       })
-      return updated
+      return tx.accountAppeal.findUniqueOrThrow({ where: { id: appeal.id } })
     }
 
     const restored = await restoreBreachedAccount(tx, {
       accountId: input.accountId,
       actorId: input.actorId,
       reason: `Appeal overturned: ${note}`,
-    })
-    const updated = await tx.accountAppeal.update({
-      where: { id: appeal.id },
-      data: {
-        status: 'OVERTURNED',
-        decisionNote: note,
-        decidedById: input.actorId,
-        decidedAt: new Date(),
-      },
     })
     await tx.auditLog.create({
       data: {
@@ -257,6 +254,6 @@ export async function decideAppeal(input: {
         metadata: { appealId: appeal.id, ...restored },
       },
     })
-    return updated
+    return tx.accountAppeal.findUniqueOrThrow({ where: { id: appeal.id } })
   })
 }

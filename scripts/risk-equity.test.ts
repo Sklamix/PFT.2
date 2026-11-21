@@ -1,4 +1,4 @@
-﻿import test from 'node:test'
+import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -21,7 +21,7 @@ import { RISK_EQUITY_MODEL_VERSION } from '../lib/risk-equity/constants'
 const D = (value: Prisma.Decimal | number | string) => new Prisma.Decimal(value)
 
 // ---------------------------------------------------------------------------
-// Eligibility gate вЂ” fail closed everywhere
+// Eligibility gate — fail closed everywhere
 // ---------------------------------------------------------------------------
 
 test('gate: SHADOW account with valid baseline allows shadow, never enforcement', () => {
@@ -45,7 +45,7 @@ test('gate: ENFORCE request through the new model is downgraded to shadow-only',
   })
   assert.equal(result.canEnforce, false)
   // Shadow evaluation remains allowed (non-invasive), but the enforce request
-  // itself is never honored вЂ” it is flagged for the shadow report.
+  // itself is never honored — it is flagged for the shadow report.
   assert.equal(result.canEvaluateShadow, true)
   assert.equal(result.reason, 'PHASE_1_SHADOW_ONLY')
   assert.equal(result.requestedMode, 'enforce')
@@ -92,7 +92,7 @@ test('gate: no state combination ever yields enforcement in Phase 1', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Payout add-back вЂ” evidence based, no double counting
+// Payout add-back — evidence based, no double counting
 // ---------------------------------------------------------------------------
 
 const payout = (id: string, amount: string, status: string, balanceReserved = false): PayoutEvidenceRow => ({
@@ -152,7 +152,7 @@ test('add-back: disbursed payout with debit evidence adds to paidAddBack exactly
   assert.equal(result.reservedAddBack.plus(result.paidAddBack).toFixed(2), '250.00')
 })
 
-test('add-back: released (credited) open payout is excluded вЂ” money is back in balance', () => {
+test('add-back: released (credited) open payout is excluded — money is back in balance', () => {
   const result = calculatePayoutAddBack(
     [payout('p1', '100.00', 'PENDING', true)],
     [
@@ -200,7 +200,7 @@ test('add-back: reserved and paid payouts sum without cross-counting', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Risk Equity snapshot вЂ” display values unchanged, precision preserved
+// Risk Equity snapshot — display values unchanged, precision preserved
 // ---------------------------------------------------------------------------
 
 const snapshotInput = (overrides?: Partial<Parameters<typeof calculateRiskEquitySnapshot>[0]>) =>
@@ -443,7 +443,7 @@ test('baseline init: clean account creates baseline and promotes UNCLASSIFIED ->
   assert.ok(kinds.includes('update'))
 })
 
-test('baseline init: is idempotent вЂ” existing baseline is never overwritten', async () => {
+test('baseline init: is idempotent — existing baseline is never overwritten', async () => {
   const existing = baselineRow()
   const { tx, created } = fakeTx({ account: cleanAccount({ riskEquityBaseline: existing }), existingBaseline: existing })
   const result = await ensureRiskEquityBaseline(tx, { accountId: 'a1', source: 'RESET' })
@@ -455,7 +455,7 @@ test('baseline init: is idempotent вЂ” existing baseline is never overwritte
 
 test('baseline init: concurrent init race (P2002) reuses the existing baseline', async () => {
   const existing = baselineRow()
-  const { tx, created } = fakeTx({
+  const { tx } = fakeTx({
     account: cleanAccount(),
     existingBaseline: existing,
     failCreateWithUnique: true,
@@ -481,7 +481,7 @@ test('baseline init: invalid data stays UNCLASSIFIED and records a diagnostic', 
 test('baseline init: EXCLUDED/SHADOW accounts keep their existing state', async () => {
   for (const state of ['EXCLUDED', 'SHADOW']) {
     const existing = baselineRow()
-    const { tx, created } = fakeTx({
+    const { tx } = fakeTx({
       account: cleanAccount({ riskEquityState: state, riskEquityBaseline: existing }),
       existingBaseline: existing,
     })
@@ -492,13 +492,13 @@ test('baseline init: EXCLUDED/SHADOW accounts keep their existing state', async 
 })
 
 test('baseline init: missing account fails closed', async () => {
-  const { tx, created } = fakeTx({ account: null })
+  const { tx } = fakeTx({ account: null })
   const result = await ensureRiskEquityBaseline(tx, { accountId: 'missing', source: 'PROVISIONING' })
   assert.equal(result.ok, false)
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.2 hardening — static source checks (no DB required)
+// Phase 1.2 hardening � static source checks (no DB required)
 // ---------------------------------------------------------------------------
 
 const readSource = (relativePath: string): string =>
@@ -534,7 +534,7 @@ test('hardening: shadow runner never mutates accounts, payouts or ledger', () =>
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.5.16 — idempotency / concurrency (shadow evaluation persistence)
+// Phase 1.5.16 � idempotency / concurrency (shadow evaluation persistence)
 // ---------------------------------------------------------------------------
 
 type EvalAccount = Parameters<typeof evaluateAccountShadow>[1]
@@ -640,7 +640,7 @@ test('idempotency: identical skip reason deduplicates (P2002)', async () => {
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.5.16 — breach boundary inclusivity & numeric edge cases
+// Phase 1.5.16 � breach boundary inclusivity & numeric edge cases
 // ---------------------------------------------------------------------------
 
 test('breach boundary: daily loss exactly at limit is inclusive', () => {
@@ -747,7 +747,7 @@ test('add-back: ledger evidence with a mismatched payout ref is ignored', () => 
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.5.17 — fingerprint covers payout/ledger evidence
+// Phase 1.5.17 � fingerprint covers payout/ledger evidence
 // ---------------------------------------------------------------------------
 
 test('fingerprint: identical evidence (reordered) yields the same fingerprint', async () => {
@@ -854,7 +854,7 @@ test('fingerprint: changing evidence without changing equity creates a new evalu
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.5.17 — strict baseline metadata validation
+// Phase 1.5.17 � strict baseline metadata validation
 // ---------------------------------------------------------------------------
 
 const validBaselineRecord = (overrides: Record<string, unknown> = {}) => ({
@@ -911,7 +911,7 @@ test('shadow eval: baseline with wrong modelVersion is not evaluated (fail-close
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.5.18 — integration: account-state skip paths & batch error isolation
+// Phase 1.5.18 � integration: account-state skip paths & batch error isolation
 // ---------------------------------------------------------------------------
 
 test('integration: UNCLASSIFIED account is skipped, not evaluated', async () => {
@@ -986,7 +986,7 @@ test('hardening: shadow pipeline never references applyBreach or enforcement', (
 })
 
 // ---------------------------------------------------------------------------
-// Phase 1.5.19 — fingerprint evidence filter alignment with calculation
+// Phase 1.5.19 � fingerprint evidence filter alignment with calculation
 // ---------------------------------------------------------------------------
 
 const strayLedger = (overrides: Record<string, unknown>) =>
@@ -1088,7 +1088,7 @@ test('fingerprint: non-relevant ledger change does not create a new evaluation (
   assert.equal(creates.length, 1, 'stray evidence must not produce a second row')
 })
 
-test('fingerprint: no valid evidence is lost — every calculation-relevant entry is fingerprinted', async () => {
+test('fingerprint: no valid evidence is lost � every calculation-relevant entry is fingerprinted', async () => {
   const state = {
     payouts: [payout('p1', '100.00', 'PENDING', true), payout('p2', '50.00', 'DISBURSED')],
     ledger: [] as LedgerEvidenceRow[],
