@@ -3,6 +3,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, KeyRound, Loader2, Lock, LogOut, ShieldAlert, ShieldCheck } from 'lucide-react'
+import Link from 'next/link'
 import { Field, INPUT_CLASS, Notice, Panel } from './ui'
 import { cn } from '@/lib/utils'
 
@@ -230,15 +231,22 @@ export function SecurityPanel({
           </Field>
 
           <div className="flex items-center justify-between gap-3 sm:col-span-2">
-            <button
-              type="button"
-              onClick={() => setReveal((value) => !value)}
-              className="inline-flex items-center gap-2 text-xs text-muted-foreground transition hover:text-foreground"
-              aria-pressed={reveal}
-            >
-              {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-              {reveal ? 'Hide passwords' : 'Show passwords'}
-            </button>
+            <span className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setReveal((value) => !value)}
+                className="inline-flex items-center gap-2 text-xs text-muted-foreground transition hover:text-foreground"
+                aria-pressed={reveal}
+              >
+                {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                {reveal ? 'Hide passwords' : 'Show passwords'}
+              </button>
+              {hasPassword ? (
+                <Link href="/login" className="inline-flex items-center gap-2 text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline">
+                  Forgot your password?
+                </Link>
+              ) : null}
+            </span>
             <button
               type="submit"
               disabled={!canSubmit}
