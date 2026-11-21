@@ -245,6 +245,7 @@ model User {
   supportTickets  SupportTicket[] @relation("SupportTrader")
   assignedTickets SupportTicket[] @relation("SupportAssignee")
   supportMessages SupportMessage[] @relation("SupportMessageSender")
+  aiSupportRequests AiSupportRequest[]
 }
 
 /// One login fingerprint. Used for new-device, country-change and sharing alerts.
@@ -316,6 +317,15 @@ model TradingAccount {
   riskReviewReason     String?
   /// Set while a payout provider execution is in flight; blocks new/increased exposure (risk reduction stays allowed).
   payoutExecutionAt    DateTime?
+  /// Two-phase inactivity closure claim. While set, new payout requests are refused so a
+  /// closure can never race an irreversible position close. A stale claim is recoverable.
+  inactivityClosureClaimedAt DateTime?
+  inactivityClosureClaimedBy String?
+  /// Monotonic fencing generation; each successful claim increments it so an old
+  /// worker can never finalize a workflow it no longer owns.
+  inactivityClosureGeneration Int @default(0)
+  /// Lease deadline extended by heartbeat while the owning worker is alive.
+  inactivityClosureLeaseUntil DateTime?
   maxDailyLoss         Float          @default(0.05)
   maxTrailingDrawdown  Float          @default(0.10)
   profitTarget         Float          @default(0.10)
@@ -354,6 +364,7 @@ model TradingAccount {
   @@index([backupForAccountId])
   @@index([archivedAt])
   @@index([riskReviewAt])
+  @@index([inactivityClosureClaimedAt])
 }
 
 /// Immutable starting point for the Phase 1 Risk Equity shadow model. One row per
@@ -455,6 +466,8 @@ model Order {
   account          TradingAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   provider         String      @default("cryptomus")
   providerOrderId  String      @unique
+  /** Checkout intent that produced this order (D7 dedupe/conflict detection). */
+  checkoutIntentKey String?
   amount           Decimal     @db.Decimal(12, 2)
   currency         String      @default("USD")
   status           OrderStatus @default(PENDING)
@@ -473,7 +486,65 @@ model Order {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
+  paymentRecovery PaymentRecovery?
+
   @@index([status])
+  @@index([checkoutIntentKey])
+}
+
+/// One active (or last completed) checkout intent per customer identity + product.
+/// The unique `key` is the database-level dedupe guarantee behind D7.
+enum CheckoutIntentStatus {
+  CREATING
+  READY
+  FAILED
+}
+
+model CheckoutIntent {
+  id         String               @id @default(cuid())
+  key        String               @unique
+  email      String
+  userId     String?
+  orderId    String?
+  status     CheckoutIntentStatus @default(CREATING)
+  paymentUrl String?
+  attempts   Int                  @default(0)
+  expiresAt  DateTime
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([orderId])
+}
+
+/// Paid-order provisioning recovery queue (D5). The order itself stays PAID; this row
+/// tracks why provisioning is incomplete and what the owner may do next.
+enum PaymentRecoveryStatus {
+  OPEN
+  RETRYING
+  MANUAL_REVIEW
+  REFUND_REVIEW
+  RESOLVED
+}
+
+model PaymentRecovery {
+  id                String                @id @default(cuid())
+  orderId           String                @unique
+  order             Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status            PaymentRecoveryStatus @default(OPEN)
+  reason            String?
+  errorCode         String?
+  attempts          Int                   @default(0)
+  maxAttempts       Int                   @default(5)
+  nextAttemptAt     DateTime?
+  lastAttemptAt     DateTime?
+  lastError         String?
+  resolvedAccountId String?
+  updatedBy         String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([status, nextAttemptAt])
 }
 
 model Trade {
@@ -830,6 +901,24 @@ model SupportMessage {
   @@index([ticketId, createdAt])
 }
 
+/// Durable request claims and results for cross-instance AI chat idempotency.
+model AiSupportRequest {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyHash        String   @db.Char(64)
+  requestHash    String   @db.Char(64)
+  status         String   @default("IN_PROGRESS")
+  result         Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  completedAt    DateTime?
+  expiresAt      DateTime?
+
+  @@unique([userId, keyHash])
+  @@index([expiresAt])
+}
+
 /// Durable idempotency records for signed inbound webhooks.
 model WebhookEvent {
   id         String   @id
@@ -954,6 +1043,9 @@ model AccountLedgerBaseline {
   amount               Decimal   @db.Decimal(18, 2)
   currency             String    @default("USD")
   capturedAt           DateTime  @default(now())
+  /** Deterministic ledger watermark (D9): entries after this cursor are post-baseline. */
+  ledgerWatermarkAt    DateTime?
+  ledgerWatermarkId    String?
   source               String
   version              Int       @default(1)
   historyComplete      Boolean   @default(false)
