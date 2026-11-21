@@ -43,11 +43,16 @@ const EXECUTION_MARKERS: ReadonlyArray<readonly [string, string]> = [
   ['ledger-baseline-watermark.sql', 'ledgerWatermarkAt'],
   ['inactivity-closure-claim.sql', 'inactivityClosureClaimedAt'],
   ['ai-support-idempotency.sql', 'AiSupportRequest'],
+  ['observability-schema.sql', 'SystemComponent'],
+  ['observability-watermark-key.sql', 'lastResolvedOrderKey" TEXT COLLATE'],
 ]
 
 /** Which migration a postcondition belongs to (the first match wins). */
 function conditionOwner(sql: string): string | null {
   if (sql.includes('btrim') || sql.includes('User_email_lower_key')) return 'checkout-identity.sql'
+  if (sql.includes('lastResolvedOrderKey') || sql.includes('leaseExpiresAt') || sql.includes('_state_finishedAt_scheduledSlotKey')) return 'observability-watermark-key.sql'
+  if (sql.includes('SystemExecution') || sql.includes('SystemHealthIncident') || sql.includes('SystemIncident') || sql.includes('SystemComponent') || sql.includes('SystemHeartbeat') || sql.includes('ComponentGroup') || sql.includes('ComponentKind') || sql.includes('LivenessState') || sql.includes('ExecutionState') || sql.includes('IncidentType') || sql.includes('IncidentStatus') || sql.includes('IncidentSeverity') || sql.includes('IncidentEventKind'))
+    return 'observability-schema.sql'
   if (sql.includes('AccountAppeal')) return 'account-appeals.sql'
   if (sql.includes('AccountStatus') || sql.includes('riskFlaggedAt')) return 'risk-flags-and-backups.sql'
   if (sql.includes('AccessEvent')) return 'session-risk.sql'
@@ -202,6 +207,8 @@ test('the production manifest carries the four P1 migrations and the six new one
       'ledger-baseline-watermark.sql',
       'inactivity-closure-claim.sql',
       'ai-support-idempotency.sql',
+      'observability-schema.sql',
+      'observability-watermark-key.sql',
     ],
   )
   for (const migration of PRODUCTION_MIGRATIONS) {

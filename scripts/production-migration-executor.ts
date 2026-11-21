@@ -333,6 +333,66 @@ export const PRODUCTION_MIGRATIONS: readonly ProductionMigration[] = [
       constraintExists('AiSupportRequest', 'AiSupportRequest_userId_fkey'),
     ],
   },
+  {
+    // The six System* tables declared in prisma/schema.prisma never had a
+    // migration file: they only ever existed in the isolated pft_dbtest
+    // database. This file is that missing DDL (additive, idempotent,
+    // strictly operational — never references financial entities).
+    file: 'observability-schema.sql',
+    postconditions: [
+      tableExists('SystemComponent'),
+      tableExists('SystemHeartbeat'),
+      tableExists('SystemExecution'),
+      tableExists('SystemHealthIncident'),
+      tableExists('SystemIncidentWatermark'),
+      tableExists('SystemIncidentEvent'),
+      enumHasValues('ComponentGroup', ['SCHEDULER', 'VERCEL', 'WORKER', 'MARKET_DATA', 'DATABASE', 'RISK_ENGINE', 'EMAIL']),
+      enumHasValues('ComponentKind', ['SCHEDULER', 'APP', 'WORKER', 'JOB', 'PROVIDER']),
+      enumHasValues('LivenessState', ['HEALTHY', 'STALE', 'FAILED', 'UNKNOWN']),
+      enumHasValues('ExecutionState', ['STARTED', 'RUNNING', 'SUCCEEDED', 'PARTIAL_SUCCESS', 'FAILED', 'TIMED_OUT']),
+      enumHasValues('IncidentType', [
+        'HEARTBEAT_STALE',
+        'PROCESS_FAILED',
+        'PROCESS_TIMED_OUT',
+        'MARKET_STALE',
+        'MARKET_CONNECTION_FAILED',
+        'DB_UNAVAILABLE',
+        'EMAIL_DOWN',
+        'BATCH_PARTIAL_FAILURE',
+        'PROVIDER_FALLBACK_BROKEN',
+      ]),
+      enumHasValues('IncidentStatus', ['OPEN', 'ACKNOWLEDGED', 'RESOLVED', 'SUPPRESSED']),
+      enumHasValues('IncidentSeverity', ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']),
+      enumHasValues('IncidentEventKind', ['FAILURE', 'RECOVERY']),
+      constraintExists('SystemHeartbeat', 'SystemHeartbeat_pkey'),
+      constraintExists('SystemHeartbeat', 'SystemHeartbeat_componentKey_fkey'),
+      constraintExists('SystemExecution', 'SystemExecution_pkey'),
+      constraintExists('SystemExecution', 'SystemExecution_componentKey_fkey'),
+      constraintExists('SystemHealthIncident', 'SystemHealthIncident_pkey'),
+      constraintExists('SystemHealthIncident', 'SystemHealthIncident_componentKey_fkey'),
+      constraintExists('SystemIncidentWatermark', 'SystemIncidentWatermark_pkey'),
+      constraintExists('SystemIncidentEvent', 'SystemIncidentEvent_pkey'),
+      indexExists('SystemExecution_componentKey_scheduledSlotKey_key', true),
+      indexExists('SystemExecution_componentKey_startedAt_idx'),
+      indexExists('SystemExecution_runId_idx'),
+      indexExists('SystemHealthIncident_activeKey_key', true),
+      indexExists('SystemHealthIncident_componentKey_status_idx'),
+      indexExists('SystemHealthIncident_openedAt_idx'),
+      indexExists('SystemIncidentEvent_componentKey_incidentType_eventKind_eve_key', true),
+      indexExists('SystemIncidentEvent_componentKey_incidentType_processedAt_idx'),
+    ],
+  },
+  {
+    // Phase 1.8.1 watermark ordering key + health-evaluator candidate
+    // indexes. Must run AFTER observability-schema.sql (it alters
+    // SystemIncidentWatermark and indexes SystemExecution).
+    file: 'observability-watermark-key.sql',
+    postconditions: [
+      columnExists('SystemIncidentWatermark', 'lastResolvedOrderKey'),
+      indexExists('SystemExecution_componentKey_state_finishedAt_scheduledSlotKey_idx'),
+      indexExists('SystemExecution_componentKey_state_leaseExpiresAt_scheduledSlotKey_idx'),
+    ],
+  },
 ] as const
 
 export function parseProductionMode(argv: readonly string[]): ProductionMode {
