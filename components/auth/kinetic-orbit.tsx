@@ -77,9 +77,9 @@ export function KineticOrbit() {
       context.clearRect(0, 0, width, height)
 
       const zoneGlow = context.createRadialGradient(centerX, centerY, 0, centerX, centerY, outerRadius * 1.2)
-      zoneGlow.addColorStop(0, 'rgba(163, 230, 53, 0.055)')
-      zoneGlow.addColorStop(0.58, 'rgba(163, 230, 53, 0.035)')
-      zoneGlow.addColorStop(1, 'rgba(163, 230, 53, 0)')
+      zoneGlow.addColorStop(0, 'rgba(67, 136, 255, 0.055)')
+      zoneGlow.addColorStop(0.58, 'rgba(67, 136, 255, 0.035)')
+      zoneGlow.addColorStop(1, 'rgba(67, 136, 255, 0)')
       context.fillStyle = zoneGlow
       context.fillRect(centerX - outerRadius * 1.2, centerY - outerRadius * 1.2, outerRadius * 2.4, outerRadius * 2.4)
 
@@ -87,8 +87,8 @@ export function KineticOrbit() {
         const progress = 1 - pulse
         const flashRadius = 8 + progress * 30
         const flash = context.createRadialGradient(pulseX, pulseY, 0, pulseX, pulseY, flashRadius)
-        flash.addColorStop(0, `rgba(190, 242, 100, ${(1 - progress) * 0.32})`)
-        flash.addColorStop(1, 'rgba(163, 230, 53, 0)')
+        flash.addColorStop(0, `rgba(85, 214, 232, ${(1 - progress) * 0.32})`)
+        flash.addColorStop(1, 'rgba(67, 136, 255, 0)')
         context.fillStyle = flash
         context.beginPath()
         context.arc(pulseX, pulseY, flashRadius, 0, Math.PI * 2)
@@ -104,9 +104,9 @@ export function KineticOrbit() {
       const dotX = centerX + x
       const dotY = centerY + y
       const dotGlow = context.createRadialGradient(dotX, dotY, 0, dotX, dotY, innerRadius * 2.2)
-      dotGlow.addColorStop(0, 'rgba(163, 230, 53, 0.24)')
-      dotGlow.addColorStop(0.42, 'rgba(163, 230, 53, 0.1)')
-      dotGlow.addColorStop(1, 'rgba(163, 230, 53, 0)')
+      dotGlow.addColorStop(0, 'rgba(67, 136, 255, 0.24)')
+      dotGlow.addColorStop(0.42, 'rgba(67, 136, 255, 0.1)')
+      dotGlow.addColorStop(1, 'rgba(67, 136, 255, 0)')
       context.fillStyle = dotGlow
       context.beginPath()
       context.arc(dotX, dotY, innerRadius * 2.2, 0, Math.PI * 2)
@@ -120,9 +120,9 @@ export function KineticOrbit() {
         dotY,
         innerRadius,
       )
-      ballFill.addColorStop(0, 'rgba(190, 242, 100, 0.34)')
-      ballFill.addColorStop(0.55, 'rgba(163, 230, 53, 0.18)')
-      ballFill.addColorStop(1, 'rgba(163, 230, 53, 0.025)')
+      ballFill.addColorStop(0, 'rgba(85, 214, 232, 0.34)')
+      ballFill.addColorStop(0.55, 'rgba(67, 136, 255, 0.18)')
+      ballFill.addColorStop(1, 'rgba(67, 136, 255, 0.025)')
       context.beginPath()
       context.arc(dotX, dotY, innerRadius, 0, Math.PI * 2)
       context.fillStyle = ballFill
@@ -210,7 +210,7 @@ export function KineticOrbit() {
         aria-pressed={animationEnabled}
         title={animationEnabled ? 'Pause background animation' : 'Play background animation'}
         onClick={() => setAnimationEnabled((enabled) => !enabled)}
-        className="fixed right-3 bottom-3 z-20 grid size-8 place-items-center rounded-full border border-white/10 bg-[#080b0f]/40 text-slate-500 opacity-55 transition hover:border-lime-300/30 hover:text-lime-200 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime-300/60"
+        className="fixed right-3 bottom-3 z-20 grid size-8 place-items-center rounded-full border border-white/10 bg-background/40 text-muted-foreground opacity-55 transition hover:border-primary/30 hover:text-highlight hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
       >
         {animationEnabled ? <Pause aria-hidden="true" className="size-3" /> : <Play aria-hidden="true" className="size-3" />}
       </button>
