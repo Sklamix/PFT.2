@@ -119,7 +119,7 @@ export function DashboardPreview() {
                     <p className="text-xs text-slate-500">Starting balance: {formatCurrency(EQUITY_START)}</p>
                     <p className="text-xs text-slate-500">
                       Your 80% share:{' '}
-                      <span className="font-mono font-semibold text-primary">{formatCurrency(profit * 0.9)}</span>
+                      <span className="font-mono font-semibold text-primary">{formatCurrency(profit * 0.8)}</span>
                     </p>
                   </div>
                 </div>

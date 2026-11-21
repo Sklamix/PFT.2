@@ -25,7 +25,7 @@ const PLATFORMS = ['PFT Web Terminal']
 
 export function Hero() {
   return (
-    <section id="top" className="relative isolate min-h-[100svh] overflow-hidden border-b border-white/5 bg-[#02040a]">
+    <section id="top" className="relative isolate min-h-[100svh] overflow-hidden border-b border-white/5 bg-background">
       {/* Background layer (z-0): dark cosmos + technical grid */}
       <div className="pointer-events-none absolute inset-0 z-0">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_78%_44%,rgba(37,99,235,0.16),transparent_34%),radial-gradient(circle_at_56%_68%,rgba(14,165,233,0.09),transparent_28%)]" />
@@ -36,24 +36,12 @@ export function Hero() {
       {/* Glow layer (z-10): cropped Sun + dual orange-gold flare + astronaut backlight */}
       <div className="pointer-events-none absolute inset-0 z-10">
         <div
-          className="absolute -top-40 -left-40 size-[30rem] rounded-full"
-          style={{
-            background:
-              'radial-gradient(circle at 62% 62%, rgba(255,246,214,1) 0%, rgba(255,205,112,0.95) 24%, rgba(255,150,46,0.6) 46%, rgba(255,122,26,0.2) 62%, transparent 74%)',
-            boxShadow: '0 0 140px 48px rgba(255,150,58,0.45)',
-          }}
-        />
-        <div
-          className="absolute -top-44 -left-44 size-[46rem] rounded-full blur-[80px]"
-          style={{ background: 'radial-gradient(circle, rgba(255,196,96,0.42) 0%, rgba(255,122,26,0.2) 42%, transparent 70%)' }}
-        />
-        <div
-          className="absolute -top-28 -left-28 size-[36rem] rounded-full mix-blend-screen blur-2xl"
-          style={{ background: 'radial-gradient(circle, rgba(255,226,154,0.6) 0%, rgba(255,140,34,0.28) 40%, transparent 68%)' }}
+          className="absolute -top-48 -left-48 size-[40rem] rounded-full blur-[90px]"
+          style={{ background: 'radial-gradient(circle, rgba(67,136,255,0.28) 0%, rgba(85,214,232,0.12) 42%, transparent 70%)' }}
         />
         <div
           className="absolute top-[62%] left-[92%] size-[24rem] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[60px]"
-          style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.5) 0%, rgba(14,165,233,0.22) 40%, transparent 70%)' }}
+          style={{ background: 'radial-gradient(circle, rgba(85,214,232,0.32) 0%, rgba(14,165,233,0.14) 40%, transparent 70%)' }}
         />
       </div>
 
@@ -63,7 +51,7 @@ export function Hero() {
       </div>
 
       {/* Legibility gradient (z-[25]): keeps the left text readable over the scene */}
-      <div className="pointer-events-none absolute inset-0 z-[25] bg-[linear-gradient(90deg,rgba(2,4,10,0.86)_0%,rgba(2,4,10,0.72)_26%,rgba(2,4,10,0.3)_54%,transparent_78%)] max-lg:bg-[linear-gradient(180deg,#02040a_0%,rgba(2,4,10,0.82)_34%,rgba(2,4,10,0.12)_70%,#02040a_100%)]" />
+      <div className="pointer-events-none absolute inset-0 z-[25] bg-[linear-gradient(90deg,rgba(7,11,22,0.86)_0%,rgba(7,11,22,0.72)_26%,rgba(7,11,22,0.3)_54%,transparent_78%)] max-lg:bg-[linear-gradient(180deg,rgb(7,11,22)_0%,rgba(7,11,22,0.82)_34%,rgba(7,11,22,0.12)_70%,rgb(7,11,22)_100%)]" />
 
       <div className="relative z-30 mx-auto flex min-h-[calc(100svh-4rem)] max-w-7xl flex-col justify-center px-4 pt-[clamp(4.25rem,8.5vh,7rem)] pb-[clamp(2.25rem,4.5vh,3.5rem)] sm:px-6 lg:px-8 2xl:max-w-[1600px]">
         <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-[48rem]">
@@ -74,15 +62,15 @@ export function Hero() {
 
           <h1 className="mt-[clamp(0.85rem,min(1.4vw,1.8vh),1.5rem)] text-balance text-[clamp(3rem,min(5.2vw,8.3vh),6.75rem)] font-semibold leading-[0.92] tracking-[-0.045em] text-white">
             Trade up to
-            <span className="mt-2 block bg-linear-to-r from-primary via-sky-300 to-highlight bg-clip-text text-transparent">
+            <span className="mt-2 block text-primary">
               $200,000.
             </span>
-            <span className="mt-2 block text-[0.58em] font-medium leading-tight tracking-[-0.02em] text-slate-300">
+            <span className="mt-2 block text-[0.58em] font-medium leading-tight tracking-[-0.02em] text-foreground/85">
               Keep 80% of the upside.
             </span>
           </h1>
 
-          <p className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] max-w-xl text-pretty text-[clamp(1rem,1.15vw,1.35rem)] leading-[1.7] text-slate-400 xl:max-w-2xl">
+          <p className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] max-w-xl text-pretty text-[clamp(1rem,1.15vw,1.35rem)] leading-[1.7] text-muted-foreground xl:max-w-2xl">
             Institutional-grade evaluations for disciplined traders. No calendar pressure, instant credentials, and
             payouts available every 7 days.
           </p>
@@ -91,7 +79,7 @@ export function Hero() {
             {HIGHLIGHTS.map(({ icon: Icon, label }) => (
               <li
                 key={label}
-                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-[clamp(0.65rem,0.9vw,1rem)] py-[clamp(0.35rem,0.5vw,0.55rem)] text-[clamp(0.65rem,0.8vw,0.85rem)] text-slate-300 backdrop-blur-md"
+                className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-[clamp(0.65rem,0.9vw,1rem)] py-[clamp(0.35rem,0.5vw,0.55rem)] text-[clamp(0.65rem,0.8vw,0.85rem)] text-foreground/85 backdrop-blur-md"
               >
                 <Icon className="size-[clamp(0.8rem,1vw,1.05rem)] text-primary" aria-hidden="true" />
                 {label}
@@ -109,14 +97,13 @@ export function Hero() {
             </a>
             <a
               href="/auth/login"
-              className="home-button inline-flex h-[clamp(2.6rem,min(3.2vw,5.8vh),3.4rem)] items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.035] px-[clamp(1.5rem,2vw,2.4rem)] text-[clamp(0.62rem,0.75vw,0.82rem)] font-bold uppercase tracking-[0.18em] text-white backdrop-blur-md transition hover:border-primary/50 hover:bg-primary/10"
+              className="home-button inline-flex h-[clamp(2.6rem,min(3.2vw,5.8vh),3.4rem)] items-center justify-center px-2 text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline sm:px-4 self-center"
             >
-              Get Started
-              <ArrowRight className="size-[clamp(0.9rem,1vw,1.15rem)] text-primary transition-transform group-hover:translate-x-1" />
+              Already have credentials? Log in
             </a>
           </div>
 
-          <div className="mt-[clamp(1rem,min(1.4vw,1.8vh),1.4rem)] flex flex-wrap items-center gap-x-5 gap-y-2 text-[clamp(0.65rem,0.75vw,0.82rem)] text-slate-500">
+          <div className="mt-[clamp(1rem,min(1.4vw,1.8vh),1.4rem)] flex flex-wrap items-center gap-x-5 gap-y-2 text-[clamp(0.65rem,0.75vw,0.82rem)] text-muted-foreground/85">
             <span className="inline-flex items-center gap-1.5">
               <Sparkles className="size-[clamp(0.8rem,1vw,1.05rem)] text-primary" />
               80% profit split · weekly payouts
@@ -138,17 +125,17 @@ export function Hero() {
           ].map(([value, label]) => (
             <div key={label} className="rounded-xl border border-white/10 bg-black/20 px-[clamp(0.7rem,1vw,1.1rem)] py-[clamp(0.5rem,0.7vw,0.75rem)] backdrop-blur-md">
               <p className="font-mono text-[clamp(1.1rem,1.5vw,1.8rem)] font-semibold text-white">{value}</p>
-              <p className="mt-0.5 text-[clamp(0.5rem,0.6vw,0.7rem)] uppercase tracking-wider text-slate-500">{label}</p>
+              <p className="mt-0.5 text-[clamp(0.5rem,0.6vw,0.7rem)] uppercase tracking-wider text-muted-foreground/85">{label}</p>
             </div>
           ))}
         </div>
 
         <div id="platforms" className="mt-[clamp(0.5rem,1vh,0.9rem)] flex flex-wrap items-center gap-2">
-          <span className="text-[clamp(0.5rem,0.6vw,0.7rem)] uppercase tracking-[0.18em] text-slate-600">Platforms</span>
+          <span className="text-[clamp(0.5rem,0.6vw,0.7rem)] uppercase tracking-[0.18em] text-muted-foreground/70">Platforms</span>
           {PLATFORMS.map((platform) => (
             <span
               key={platform}
-              className="rounded-full border border-white/10 bg-white/[0.025] px-[clamp(0.5rem,0.7vw,0.8rem)] py-1 font-mono text-[clamp(0.5rem,0.6vw,0.7rem)] text-slate-400"
+              className="rounded-full border border-white/10 bg-white/[0.025] px-[clamp(0.5rem,0.7vw,0.8rem)] py-1 font-mono text-[clamp(0.5rem,0.6vw,0.7rem)] text-muted-foreground"
             >
               {platform}
             </span>

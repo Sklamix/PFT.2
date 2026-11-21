@@ -46,13 +46,13 @@ function PayoutCard({
           {payout.traderName}
           <BadgeCheck className="size-3.5 text-highlight" aria-label="Verified payout" />
         </p>
-        <p className="mt-0.5 truncate text-[11px] text-slate-500">
+        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
           {compactUsd.format(payout.accountSize)} account · {payout.payoutMethod}
         </p>
       </div>
       <div className="text-right">
         <p className="font-mono text-[15px] font-semibold tabular-nums text-highlight">{usd.format(payout.payoutAmount)}</p>
-        <p className="mt-0.5 text-[9px] uppercase tracking-[0.18em] text-slate-600">paid</p>
+        <p className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">paid</p>
       </div>
     </li>
   )
@@ -129,7 +129,7 @@ export function PayoutProofs() {
                 className="relative flex flex-col-reverse gap-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3.5 backdrop-blur-md"
               >
                 <span className="absolute top-3.5 right-3.5 size-1.5 rounded-full bg-primary shadow-[0_0_10px_2px_rgba(59,130,246,0.45)]" />
-                <dt className="text-[10px] uppercase tracking-[0.14em] text-slate-500">{tile.label}</dt>
+                <dt className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{tile.label}</dt>
                 <dd className="font-mono text-[clamp(1.15rem,1.35vw,1.55rem)] font-semibold tabular-nums text-white">
                   {tile.value}
                 </dd>
@@ -141,8 +141,8 @@ export function PayoutProofs() {
         {cards.length > 0 ? (
           <>
             <div className="mt-10 flex items-center justify-between gap-4">
-              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-slate-500">Recent payouts</p>
-              <p className="hidden items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-slate-600 sm:flex">
+              <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Recent payouts</p>
+              <p className="hidden items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground/80 sm:flex">
                 <span className="size-1.5 rounded-full bg-highlight" />
                 Crypto · bank wire
               </p>

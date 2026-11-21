@@ -49,7 +49,7 @@ export function SiteHeader() {
 
   return (
     <>
-    <header className="sticky top-0 z-50 border-b border-white/5 bg-[#02040a]/55 backdrop-blur-2xl">
+    <header className="sticky top-0 z-50 border-b border-white/5 bg-background/55 backdrop-blur-2xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6 lg:px-8 2xl:max-w-[1600px]">
         <BrandLogo />
 
@@ -78,7 +78,7 @@ export function SiteHeader() {
               showCta ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-1 opacity-0',
             )}
           >
-            Get Started <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
+            Log in <span className="transition-transform group-hover:translate-x-0.5" aria-hidden="true">→</span>
           </a>
           <button
             type="button"
@@ -118,7 +118,7 @@ export function SiteHeader() {
       aria-hidden={!showCta}
       tabIndex={showCta ? 0 : -1}
       className={cn(
-        'home-floating-cta group fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] inline-flex h-12 items-center gap-2 rounded-full border border-primary/40 bg-[#07101c]/90 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_8px_32px_-10px_rgba(59,130,246,0.9)] backdrop-blur-xl transition-all duration-300 hover:border-primary hover:bg-primary/15',
+        'home-floating-cta group fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[max(1rem,env(safe-area-inset-bottom))] z-[60] inline-flex h-12 items-center gap-2 rounded-full border border-primary/40 bg-card/90 px-5 text-[11px] font-bold uppercase tracking-[0.16em] text-white shadow-[0_8px_32px_-10px_rgba(59,130,246,0.9)] backdrop-blur-xl transition-all duration-300 hover:border-primary hover:bg-primary/15',
         showCta ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0',
       )}
     >

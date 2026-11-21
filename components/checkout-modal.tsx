@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Apple,
   Bitcoin,
-  Check,
   CreditCard,
   Info,
   Loader2,
@@ -127,7 +126,7 @@ function isValidEmail(value: string) {
 }
 
 const fieldClass =
-  'h-11 w-full rounded-lg border border-[#1E293B] bg-[#0B0F19] px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary/50 focus:ring-3 focus:ring-primary/20'
+  'h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-primary/50 focus:ring-3 focus:ring-primary/20'
 
 export function CheckoutModal({
   open,
@@ -183,14 +182,7 @@ export function CheckoutModal({
     setHasFrozenBackup(false)
   }
 
-  function applyPromo() {
-    const code = promoCode.trim()
-    if (!code) {
-      setPromoStatus('invalid')
-      return
-    }
-    setPromoStatus('applied')
-  }
+
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -284,13 +276,13 @@ export function CheckoutModal({
     >
       <DialogContent
         inline={presentation === 'inline'}
-        overlayClassName="z-[80] bg-[#0B0F19]/70 backdrop-blur-md supports-backdrop-filter:backdrop-blur-md duration-200"
+        overlayClassName="z-[80] bg-background/70 backdrop-blur-md supports-backdrop-filter:backdrop-blur-md duration-200"
         className={presentation === 'inline'
           ? 'overflow-hidden rounded-2xl border border-border bg-card text-foreground'
-          : 'z-[80] max-h-[min(92vh,880px)] w-full gap-0 overflow-hidden border-[#1E293B] bg-[#0B0F19] p-0 text-foreground shadow-[0_24px_80px_-24px_rgba(16,185,129,0.25)] duration-200 sm:max-w-lg'}
+          : 'z-[80] max-h-[min(92vh,880px)] w-full gap-0 overflow-hidden border-border bg-background p-0 text-foreground shadow-[0_24px_80px_-24px_rgba(16,185,129,0.25)] duration-200 sm:max-w-lg'}
       >
         <form onSubmit={handleSubmit} className={presentation === 'inline' ? 'flex flex-col' : 'flex max-h-[min(92vh,880px)] flex-col'}>
-          <DialogHeader className="border-b border-[#1E293B] px-5 pt-5 pb-4 sm:px-6">
+          <DialogHeader className="border-b border-border px-5 pt-5 pb-4 sm:px-6">
             <div className="flex items-start justify-between gap-3 pr-8">
               <div>
                 <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Checkout</p>
@@ -393,7 +385,7 @@ export function CheckoutModal({
                     Select country
                   </option>
                   {COUNTRIES.map((item) => (
-                    <option key={item} value={item} className="bg-[#0B0F19] text-foreground">
+                    <option key={item} value={item} className="bg-background text-foreground">
                       {item}
                     </option>
                   ))}
@@ -418,18 +410,16 @@ export function CheckoutModal({
                   />
                   <button
                     type="button"
-                    onClick={applyPromo}
-                    className="inline-flex h-11 shrink-0 items-center rounded-lg border border-[#1E293B] bg-[#0F172A] px-3 text-sm font-medium text-foreground transition-colors hover:border-highlight/40 hover:bg-accent"
+                    disabled={!promoCode.trim()}
+                    className="inline-flex h-11 shrink-0 items-center rounded-lg border border-border bg-card px-3 text-sm font-medium text-muted-foreground transition-colors hover:border-highlight/40 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Apply
+                    Add code
                   </button>
                 </div>
-                {promoStatus === 'applied' && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-xs text-primary">
-                    <Check className="size-3.5" aria-hidden="true" />
-                    Code noted — eligible discounts are applied on the invoice.
-                  </p>
-                )}
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Codes are applied on the invoice if active — the exact total is confirmed by the payment provider
+                  before you pay.
+                </p>
                 {promoStatus === 'invalid' && (
                   <p className="mt-1.5 text-xs text-destructive">Enter a promo code before applying.</p>
                 )}
@@ -446,7 +436,7 @@ export function CheckoutModal({
                     'cursor-pointer rounded-xl border p-3.5 transition-colors',
                     paymentMethod === 'crypto'
                       ? 'border-primary/50 bg-primary/5 shadow-[0_0_24px_-16px] shadow-primary'
-                      : 'border-[#1E293B] bg-[#0F172A]/60 hover:border-muted-foreground/30',
+                      : 'border-border bg-card/60 hover:border-muted-foreground/30',
                   )}
                 >
                   <div className="flex items-start gap-3">
@@ -470,7 +460,7 @@ export function CheckoutModal({
                         {CRYPTO_ASSETS.map((asset) => (
                           <li
                             key={asset.ticker}
-                            className="inline-flex items-center gap-1.5 rounded-md border border-[#1E293B] bg-[#0B0F19] px-2 py-1 font-mono text-[11px] text-foreground"
+                            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 font-mono text-[11px] text-foreground"
                           >
                             {asset.ticker === 'BTC' ? (
                               <Bitcoin className="size-3 text-highlight" aria-hidden="true" />
@@ -488,7 +478,7 @@ export function CheckoutModal({
 
                 <label
                   aria-disabled="true"
-                  className="cursor-not-allowed rounded-xl border border-[#1E293B] bg-[#0F172A]/40 p-3.5 opacity-70"
+                  className="cursor-not-allowed rounded-xl border border-border bg-card/40 p-3.5 opacity-70"
                 >
                   <div className="flex items-start gap-3">
                     <input type="radio" name="payment-method" value="card" disabled className="mt-1" />
@@ -512,7 +502,7 @@ export function CheckoutModal({
                 'relative rounded-xl border p-3.5 transition-colors',
                 hasFrozenBackup
                   ? 'border-primary/50 bg-primary/5 shadow-[0_0_24px_-16px] shadow-primary'
-                  : 'border-[#1E293B] bg-[#0F172A]/50 hover:border-primary/30',
+                  : 'border-border bg-card/50 hover:border-primary/30',
               )}
             >
               <Tooltip>
@@ -521,12 +511,12 @@ export function CheckoutModal({
                   aria-label="Frozen Backup Rules"
                   className="absolute top-3 right-3 rounded-md p-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Info className="h-4 w-4 text-slate-400 hover:text-white" />
+                  <Info className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                 </TooltipTrigger>
                 <TooltipContent
                   side="left"
                   align="start"
-                  className="flex max-w-[280px] flex-col items-start gap-2 border border-[#1E293B] bg-[#0F172A] px-3 py-2.5 text-left text-xs text-slate-300 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.8)]"
+                  className="flex max-w-[280px] flex-col items-start gap-2 border border-border bg-card px-3 py-2.5 text-left text-xs text-muted-foreground shadow-[0_12px_40px_-16px_rgba(0,0,0,0.8)]"
                 >
                   <p className="font-semibold text-white">Frozen Backup Rules</p>
                   <ul className="space-y-1.5 leading-relaxed">
@@ -563,7 +553,7 @@ export function CheckoutModal({
               </label>
             </div>
 
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#1E293B] bg-[#0F172A]/50 px-3 py-3">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card/50 px-3 py-3">
               <input
                 type="checkbox"
                 checked={agreed}
@@ -604,7 +594,7 @@ export function CheckoutModal({
             </p>
           </div>
 
-          <div className="border-t border-[#1E293B] bg-[#0F172A]/80 px-5 py-4 sm:px-6">
+          <div className="border-t border-border bg-card/80 px-5 py-4 sm:px-6">
             <button
               type="submit"
               disabled={submitting}

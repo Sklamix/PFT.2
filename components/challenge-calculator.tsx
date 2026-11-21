@@ -120,7 +120,7 @@ export function ChallengeCalculator({
   const activeDailyLoss = type === 'two-step' ? dailyLossType : rules.dailyDrawdown
   const dailyAmount = (size * activeDailyLoss) / 100
   const overallAmount = (size * rules.overallDrawdown) / 100
-  const projectedPayout = phase1Amount * 0.9
+  const projectedPayout = phase1Amount * 0.8
 
   useEffect(() => {
     if (!toast) return
@@ -415,7 +415,7 @@ export function ChallengeCalculator({
                   Start Challenge — {fee == null ? 'Loading price…' : formatPrice(fee)}
                   <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
                 </button>
-                <p className="mt-3 text-center text-xs text-slate-500">Card, Apple Pay & crypto accepted</p>
+                <p className="mt-3 text-center text-xs text-slate-500">Crypto payments accepted — card processing in review</p>
               </div>
             </aside>
           </div>
