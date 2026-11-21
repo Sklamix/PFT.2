@@ -198,6 +198,8 @@ model User {
   /// may grant or modify this; it is assigned via a one-time reviewed SQL statement.
   canConfirmPayouts Boolean @default(false)
   lastLoginIp   String?
+  lastLoginUserAgent String?
+  failedLoginCount Int @default(0)
   lastDeviceHash String?
   activeSessionId String?
   riskFlaggedAt DateTime?
@@ -246,6 +248,7 @@ model User {
   assignedTickets SupportTicket[] @relation("SupportAssignee")
   supportMessages SupportMessage[] @relation("SupportMessageSender")
   aiSupportRequests AiSupportRequest[]
+  pushSubscriptions PushSubscription[]
 }
 
 /// One login fingerprint. Used for new-device, country-change and sharing alerts.
@@ -1475,4 +1478,20 @@ model SystemIncidentEvent {
   @@index([componentKey, incidentType, processedAt])
 
   @@map("SystemIncidentEvent")
+}
+
+/// A browser push subscription for a staff device (the support PWA). Push
+/// payloads carry only the ticket reference, never message bodies.
+model PushSubscription {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint   String   @unique
+  p256dh      String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
 }

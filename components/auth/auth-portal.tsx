@@ -16,6 +16,7 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [stage, setStage] = useState<'email' | 'password' | 'code'>('email')
+  const [codeFlow, setCodeFlow] = useState<'login' | 'step-up'>('login')
   const [busy, setBusy] = useState(false)
   const [resendIn, setResendIn] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -43,6 +44,7 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
       if (data.method === 'password') {
         setStage('password')
       } else {
+        setCodeFlow('login')
         await requestCode()
       }
     } catch (reason) {
@@ -65,6 +67,7 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
       if (!response.ok) throw new Error(data.error || 'Unable to sign in.')
       if (data.stepUp) {
         // Suspicious sign-in (new IP or repeated failures): fall back to the code step.
+        setCodeFlow('step-up')
         setStage('code')
         setResendIn(60)
         setPassword('')
@@ -103,12 +106,33 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
     }
   }
 
+  async function resendStepUpCode() {
+    if (resendIn > 0) return
+    setBusy(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/auth/step-up-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Unable to send a code.')
+      setResendIn(60)
+      setInfo('If this email can use PFT sign-in, a code has been sent to it.')
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to send a code.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function verifyCode(event: FormEvent) {
     event.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      const response = await fetch('/api/auth/verify-code', {
+      const response = await fetch(codeFlow === 'step-up' ? '/api/auth/verify-step-up' : '/api/auth/verify-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, code }),
@@ -192,8 +216,13 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
                   <button type="button" onClick={() => { setStage('email'); setPassword(''); setError(null); setInfo(null) }} className="text-muted-foreground hover:text-white">
                     Change email
                   </button>
-                  <button type="button" onClick={() => void requestCode()} disabled={busy || resendIn > 0} className="text-primary hover:text-highlight disabled:opacity-50">
-                    {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Sign in with an email code instead'}
+                  <button
+                    type="button"
+                    onClick={() => { setCodeFlow('login'); void requestCode() }}
+                    disabled={busy || resendIn > 0}
+                    className="text-primary hover:text-highlight disabled:opacity-50"
+                  >
+                    Sign in with an email code instead
                   </button>
                 </div>
               </form>
@@ -225,7 +254,12 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
                   <button type="button" onClick={() => { setStage('email'); setError(null); setInfo(null) }} className="text-muted-foreground hover:text-white">
                     Change email
                   </button>
-                  <button type="button" onClick={() => void requestCode()} disabled={busy || resendIn > 0} className="text-primary hover:text-highlight disabled:opacity-50">
+                  <button
+                    type="button"
+                    onClick={() => (codeFlow === 'step-up' ? void resendStepUpCode() : void requestCode())}
+                    disabled={busy || resendIn > 0}
+                    className="text-primary hover:text-highlight disabled:opacity-50"
+                  >
                     {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Send a new code'}
                   </button>
                 </div>

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { applyTraderCookie, issueTraderSession } from '@/lib/trader/auth'
 import { authenticateTrader } from '@/lib/trader/accounts'
 import { isRateLimited, resetRateLimit } from '@/lib/trader/rate-limit'
+import { issueStepUpEmailCode } from '@/lib/trader/email-codes'
+import { getLoginRiskContext, isLoginRisky, recordFailedLogin, recordSuccessfulLogin } from '@/lib/trader/login-risk'
 import { clientIp } from '@/lib/security/client-ip'
 import { recordActivity } from '@/lib/admin/activity'
 
@@ -23,9 +25,27 @@ export async function POST(request: Request) {
     }
 
     const session = await authenticateTrader(email, password)
-    if (!session) return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
+    if (!session) {
+      if (process.env.DATABASE_URL) await recordFailedLogin(email)
+      return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
+    }
+
+    // Suspicious password sign-in (a never-seen IP prefix or repeated failures
+    // since the last success) does not get a cookie right away: a STEP_UP code
+    // must be verified first. Conservative thresholds, see lib/trader/login-risk.
+    if (process.env.DATABASE_URL) {
+      const risk = await getLoginRiskContext(email)
+      if (risk && isLoginRisky(risk, clientIp(request))) {
+        const issued = await issueStepUpEmailCode(email)
+        if (!issued.ok) {
+          return NextResponse.json({ error: 'Unable to send a verification code right now.' }, { status: 503 })
+        }
+        return NextResponse.json({ stepUp: true })
+      }
+    }
 
     const issued = await issueTraderSession(session, request)
+    if (process.env.DATABASE_URL) await recordSuccessfulLogin(issued.sub, request)
     await Promise.all([resetRateLimit(key), resetRateLimit(ipKey)])
     void recordActivity({ actorId: issued.sub, action: 'TRADER_LOGIN', request, metadata: { method: 'password' } })
     return applyTraderCookie(NextResponse.json({ trader: issued }), issued)
