@@ -393,6 +393,31 @@ export const PRODUCTION_MIGRATIONS: readonly ProductionMigration[] = [
       indexExists('SystemExecution_componentKey_state_leaseExpiresAt_scheduledSlotKey_idx'),
     ],
   },
+  {
+    // The model is declared in prisma/schema.prisma but never had a migration:
+    // the table only existed in the isolated pft_dbtest database. Created
+    // WITHOUT the two watermark columns — ledger-baseline-watermark.sql, which
+    // must be applied right after this file, owns them. DDL taken verbatim
+    // from the live pft_dbtest catalog.
+    file: 'account-ledger-baseline.sql',
+    postconditions: [
+      tableExists('AccountLedgerBaseline'),
+      columnExists('AccountLedgerBaseline', 'id'),
+      columnExists('AccountLedgerBaseline', 'accountId'),
+      columnExists('AccountLedgerBaseline', 'amount'),
+      columnExists('AccountLedgerBaseline', 'currency'),
+      columnExists('AccountLedgerBaseline', 'capturedAt'),
+      columnExists('AccountLedgerBaseline', 'source'),
+      columnExists('AccountLedgerBaseline', 'version'),
+      columnExists('AccountLedgerBaseline', 'historyComplete'),
+      columnExists('AccountLedgerBaseline', 'reconciliationStatus'),
+      columnExists('AccountLedgerBaseline', 'createdAt'),
+      constraintExists('AccountLedgerBaseline', 'AccountLedgerBaseline_pkey'),
+      constraintExists('AccountLedgerBaseline', 'AccountLedgerBaseline_accountId_fkey'),
+      indexExists('AccountLedgerBaseline_accountId_version_key', true),
+      indexExists('AccountLedgerBaseline_accountId_capturedAt_idx'),
+    ],
+  },
 ] as const
 
 export function parseProductionMode(argv: readonly string[]): ProductionMode {

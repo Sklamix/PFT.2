@@ -45,6 +45,7 @@ const EXECUTION_MARKERS: ReadonlyArray<readonly [string, string]> = [
   ['ai-support-idempotency.sql', 'AiSupportRequest'],
   ['observability-schema.sql', 'SystemComponent'],
   ['observability-watermark-key.sql', 'lastResolvedOrderKey" TEXT COLLATE'],
+  ['account-ledger-baseline.sql', 'AccountLedgerBaseline_pkey'],
 ]
 
 /** Which migration a postcondition belongs to (the first match wins). */
@@ -60,6 +61,7 @@ function conditionOwner(sql: string): string | null {
   if (sql.includes('CheckoutIntent')) return 'checkout-intent.sql'
   if (sql.includes('PaymentRecovery')) return 'payment-recovery.sql'
   if (sql.includes('ledgerWatermark')) return 'ledger-baseline-watermark.sql'
+  if (sql.includes('AccountLedgerBaseline')) return 'account-ledger-baseline.sql'
   if (sql.includes('inactivityClosure')) return 'inactivity-closure-claim.sql'
   if (sql.includes('AiSupportRequest')) return 'ai-support-idempotency.sql'
   return null
@@ -209,6 +211,7 @@ test('the production manifest carries the four P1 migrations and the six new one
       'ai-support-idempotency.sql',
       'observability-schema.sql',
       'observability-watermark-key.sql',
+      'account-ledger-baseline.sql',
     ],
   )
   for (const migration of PRODUCTION_MIGRATIONS) {
