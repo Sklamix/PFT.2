@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { ArrowLeft, Inbox, Loader2, RefreshCw, Send, UserCheck, UserMinus } from 'lucide-react'
+import { ArrowLeft, Inbox, Loader2, RefreshCw, Send, ShieldAlert, UserCheck, UserMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { SupportAgentPanel } from '@/components/admin/support-agent-panel'
 import { cn } from '@/lib/utils'
 
 const CATEGORIES = ['GENERAL', 'CHALLENGE', 'PAYOUT', 'KYC', 'ACCOUNT', 'TECHNICAL', 'RULES'] as const
@@ -36,6 +37,11 @@ type StaffTicketDetail = {
     pageSize: number
     total: number
   }
+}
+
+type EscalatedItem = {
+  escalation: { publicId: string; requestedAction: string; reason: string; raisedAt: string }
+  ticket: { publicId: string; subject: string; category: string; status: string; priority: string; trader: { name: string; email: string } } | null
 }
 
 type SupportMetrics = {
@@ -129,6 +135,34 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [busyAction, setBusyAction] = useState<string | null>(null)
+
+  const [escalatedOnly, setEscalatedOnly] = useState(false)
+  const [escalated, setEscalated] = useState<EscalatedItem[] | null>(null)
+  const [escalatedError, setEscalatedError] = useState<string | null>(null)
+
+  const loadEscalations = useCallback(
+    async () => {
+      setLoading(true)
+      setEscalatedError(null)
+      try {
+        const { status: code, data } = await api<{ items: EscalatedItem[] }>('/api/admin/support/escalations')
+        if (code !== 200 || !('items' in data)) {
+          setEscalatedError(errorText(code, data as { error?: string }))
+          return
+        }
+        setEscalated(data.items)
+      } catch {
+        setEscalatedError('Network error. Retry to load the escalations.')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (escalatedOnly) void loadEscalations()
+  }, [escalatedOnly, loadEscalations])
 
   const loadList = useCallback(
     async (nextPage: number) => {
@@ -300,7 +334,24 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
           labels={{ me: 'Assigned to me', unassigned: 'Unassigned' }}
         />
         <Filter label="Sort" value={sort} onChange={(value) => setSort(value as 'updated' | 'priority')} options={['updated', 'priority'] as const} labels={{ updated: 'Last update', priority: 'Priority' }} />
-        <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={() => void loadList(page)} disabled={loading}>
+        <Button
+          variant={escalatedOnly ? 'default' : 'outline'}
+          size="sm"
+          className="h-8 gap-1.5"
+          aria-pressed={escalatedOnly}
+          onClick={() => setEscalatedOnly((value) => !value)}
+        >
+          <ShieldAlert className="size-3.5" />
+          Escalated
+          {escalated && escalated.length > 0 ? <span className="font-mono text-[10px]">{escalated.length}</span> : null}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5"
+          onClick={() => (escalatedOnly ? void loadEscalations() : void loadList(page))}
+          disabled={loading}
+        >
           {loading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
           Refresh
         </Button>
@@ -309,10 +360,50 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
         ) : null}
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[420px_minmax(0,1fr)]">
+      <div className="grid gap-3 xl:grid-cols-[420px_minmax(0,1fr)_340px]">
         <section className={cn('min-w-0 overflow-hidden rounded-xl border border-border bg-card', selectedId ? 'hidden xl:block' : 'block')}>
           <div className="max-h-[calc(100dvh-260px)] overflow-y-auto">
-            {loading ? (
+            {escalatedOnly ? (
+              loading ? (
+                <p className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading escalations…</p>
+              ) : escalatedError ? (
+                <div className="p-4 text-xs text-destructive">
+                  <p>{escalatedError}</p>
+                  <Button variant="outline" size="sm" className="mt-2" onClick={() => void loadEscalations()}>Retry</Button>
+                </div>
+              ) : escalated === null || escalated.length === 0 ? (
+                <div className="p-8 text-center">
+                  <ShieldAlert className="mx-auto size-5 text-muted-foreground" />
+                  <p className="mt-2 text-xs text-muted-foreground">No active escalations.</p>
+                </div>
+              ) : (
+                <ul className="divide-y divide-border/60">
+                  {escalated.map((item) => (
+                    <li key={item.escalation.publicId}>
+                      <button
+                        type="button"
+                        onClick={() => item.ticket && openTicket(item.ticket.publicId)}
+                        className={cn(
+                          'w-full px-3 py-3 text-left transition-colors hover:bg-secondary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                          selectedId === item.escalation.publicId && 'bg-primary/10',
+                        )}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{item.ticket?.subject ?? item.escalation.publicId}</span>
+                          <span className="shrink-0 rounded-full border border-warning/30 bg-warning/10 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wide text-warning">
+                            {item.escalation.requestedAction}
+                          </span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.escalation.reason}</p>
+                        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/80">
+                          {item.ticket ? `${item.ticket.trader.email} · ` : ''}raised {formatTime(item.escalation.raisedAt)}
+                        </p>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : loading ? (
               <p className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading queue…</p>
             ) : listError ? (
               <div className="p-4 text-xs text-destructive">
@@ -356,7 +447,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
               </ul>
             )}
           </div>
-          <div className="flex items-center justify-between border-t border-border px-3 py-2 text-[10px] text-muted-foreground">
+          <div className={cn('flex items-center justify-between border-t border-border px-3 py-2 text-[10px] text-muted-foreground', escalatedOnly && 'hidden')}>
             <Button variant="ghost" size="xs" disabled={page <= 1 || loading} onClick={() => void loadList(page - 1)}>Previous</Button>
             <span className="font-mono">{total === 0 ? '0' : `${page} / ${totalPages}`}</span>
             <Button variant="ghost" size="xs" disabled={page >= totalPages || loading} onClick={() => void loadList(page + 1)}>Next</Button>
@@ -516,6 +607,24 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
                 ) : null}
               </div>
             </>
+          )}
+        </section>
+
+        <section
+          className={cn(
+            'min-w-0 self-start rounded-xl border border-border bg-card',
+            selectedId ? 'block' : 'hidden xl:block',
+          )}
+          aria-label="Support agent panel"
+        >
+          {selectedId ? (
+            <SupportAgentPanel ticketId={selectedId} />
+          ) : (
+            <div className="flex flex-col items-center justify-center p-10 text-center">
+              <Inbox className="size-6 text-muted-foreground" />
+              <p className="mt-3 text-sm text-foreground">Agent panel</p>
+              <p className="mt-1 max-w-sm text-xs text-muted-foreground">Snapshot, assist chat and history appear here when a ticket is open.</p>
+            </div>
           )}
         </section>
       </div>

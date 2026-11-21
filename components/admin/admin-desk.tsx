@@ -112,7 +112,21 @@ export function AdminDesk({ user }: { user: AdminSession }) {
   const [deleteConfirmEmail, setDeleteConfirmEmail] = useState('')
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
-  const [section, setSection] = useState<SectionId>('monitor')
+  // Section can come from a deep link, e.g. an escalation's "Open section" button.
+  const [section, setSection] = useState<SectionId>(() => {
+    if (typeof window === 'undefined') return 'monitor'
+    const found = SECTIONS.find((item) => item.id === window.location.hash.slice(1))
+    return (found?.id ?? 'monitor') as SectionId
+  })
+
+  useEffect(() => {
+    const onHash = () => {
+      const found = SECTIONS.find((item) => item.id === window.location.hash.slice(1))
+      if (found) setSection(found.id)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
 
   const load = useCallback(async () => {
     // One optional panel (abuse, readiness, appeals) must never blank the whole
@@ -381,7 +395,10 @@ export function AdminDesk({ user }: { user: AdminSession }) {
             key={item.id}
             size="sm"
             variant={section === item.id ? 'default' : 'ghost'}
-            onClick={() => setSection(item.id)}
+            onClick={() => {
+              setSection(item.id)
+              window.history.replaceState(null, '', `#${item.id}`)
+            }}
           >
             {item.label}
             {item.id === 'reviews' && actionReviews.length + overrideApprovals.length + appeals.length > 0
