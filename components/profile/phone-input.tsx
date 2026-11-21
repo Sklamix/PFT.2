@@ -18,13 +18,11 @@ export function PhoneInput({
   onCountryChange,
   value,
   onChange,
-  error,
 }: {
   country: string
   onCountryChange: (code: string) => void
   value: string
   onChange: (digits: string) => void
-  error?: string | null
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -92,7 +90,6 @@ export function PhoneInput({
         className={cn(
           'mt-2 flex h-11 w-full overflow-hidden rounded-lg border border-white/10 bg-[#090d12] transition',
           'focus-within:border-lime-400/70 focus-within:ring-2 focus-within:ring-lime-400/10',
-          error && 'border-rose-400/50',
         )}
       >
         <button
@@ -131,7 +128,6 @@ export function PhoneInput({
         {value && !valid && <span className="text-rose-300">Enter a valid phone number for the selected country.</span>}
         {valid && preview && <span className="text-slate-500">International: <span className="text-slate-300">{preview}</span></span>}
         {!value && <span className="text-slate-500">Digits only; the country code is stored separately.</span>}
-        {error && !value && <span className="text-rose-300">{error}</span>}
       </div>
 
       {open && (

@@ -14,7 +14,7 @@ export async function authorizeAccount(accountId: string) {
 }
 
 export async function authorizePosition(positionId: string) {
-  const { session, error } = await requireTrader()
+  const { error } = await requireTrader()
   if (error) return { session: null, error }
   const accountId = await tradingRepo.positionAccountId(positionId)
   if (!accountId) return { session: null, error: NextResponse.json({ error: 'Position not found' }, { status: 404 }) }

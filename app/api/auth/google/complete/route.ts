@@ -13,9 +13,9 @@ export async function GET(request: Request) {
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, email: true, name: true, role: true, profileCompletedAt: true, tokenVersion: true },
+    select: { id: true, email: true, name: true, role: true, profileCompletedAt: true, tokenVersion: true, archivedAt: true },
   })
-  if (!user || user.role !== 'TRADER') {
+  if (!user || user.role !== 'TRADER' || user.archivedAt != null) {
     return NextResponse.redirect(new URL('/auth/login?error=google', request.url))
   }
 

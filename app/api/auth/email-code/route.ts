@@ -1,7 +1,9 @@
 import { createHmac, randomInt } from 'crypto'
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { sendEmail } from '@/lib/email/resend'
+import { sendEmail, isDevMailpitActive } from '@/lib/email/resend'
+import { isRateLimited } from '@/lib/trader/rate-limit'
+import { clientIp } from '@/lib/security/client-ip'
 
 const CODE_TTL_MS = 10 * 60_000
 const RESEND_INTERVAL_MS = 60_000
@@ -33,8 +35,16 @@ export async function POST(request: Request) {
     if (!process.env.DATABASE_URL) {
       return NextResponse.json({ error: 'Email sign-in requires a configured database.' }, { status: 503 })
     }
-    if (!process.env.RESEND_API_KEY) {
+    if (!process.env.RESEND_API_KEY && !isDevMailpitActive()) {
       return NextResponse.json({ error: 'Email sign-in is temporarily unavailable.' }, { status: 503 })
+    }
+    // Per-IP cap on top of the per-email resend throttle: prevents using the
+    // endpoint to email-bomb many addresses or burn the provider quota.
+    if (await isRateLimited(`email-code-ip:${clientIp(request)}`, 30, 15 * 60_000)) {
+      return NextResponse.json(
+        { error: 'Too many code requests. Try again later.' },
+        { status: 429, headers: { 'Retry-After': '900' } },
+      )
     }
 
     const existingUser = await prisma.user.findUnique({ where: { email }, select: { role: true } })

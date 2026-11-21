@@ -23,6 +23,14 @@ type Profile = {
 const FIELD_CLASS =
   'mt-2 h-11 w-full rounded-lg border border-white/10 bg-[#090d12] px-3 text-sm text-white outline-none focus:border-lime-400/70 focus:ring-2 focus:ring-lime-400/10'
 
+/** Maps a form error message to the field it belongs to (or null for general errors). */
+function errorField(message: string | null): 'name' | 'nickname' | null {
+  if (!message) return null
+  if (/first and last name/i.test(message)) return 'name'
+  if (/\bnickname\b/i.test(message)) return 'nickname'
+  return null
+}
+
 export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
   const router = useRouter()
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -112,6 +120,11 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
     }
   }
 
+  const field = errorField(error)
+  const nameError = field === 'name' ? error : null
+  const nicknameError = field === 'nickname' ? error : null
+  const generalError = field ? null : error
+
   return (
     <main className="min-h-dvh bg-[#080b0f] px-4 py-10 text-white sm:px-6">
       <div className="mx-auto w-full max-w-2xl">
@@ -140,10 +153,12 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
               <label className="text-sm text-slate-300 sm:col-span-2">
                 First and last name
                 <input value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" required minLength={2} maxLength={100} className={FIELD_CLASS} />
+                {nameError && <span className="mt-1 block text-xs text-rose-300">{nameError}</span>}
               </label>
               <label className="text-sm text-slate-300">
                 Nickname
                 <input value={nickname} onChange={(event) => setNickname(event.target.value)} autoComplete="nickname" required minLength={2} maxLength={30} className={FIELD_CLASS} />
+                {nicknameError && <span className="mt-1 block text-xs text-rose-300">{nicknameError}</span>}
               </label>
               <label className="text-sm text-slate-300">
                 Date of birth
@@ -187,10 +202,9 @@ export function ProfileForm({ mode }: { mode: 'setup' | 'settings' }) {
                 onCountryChange={setPhoneCountry}
                 value={phoneDigits}
                 onChange={setPhoneDigits}
-                error={error}
               />
 
-              {error && <p role="alert" className="text-sm text-rose-400 sm:col-span-2">{error}</p>}
+              {generalError && <p role="alert" className="text-sm text-rose-400 sm:col-span-2">{generalError}</p>}
               {saved && mode === 'settings' && <p role="status" className="text-sm text-lime-300 sm:col-span-2">Profile saved.</p>}
               <div className="flex flex-col gap-3 pt-2 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-slate-500">Your profile information is stored securely with your account.</p>

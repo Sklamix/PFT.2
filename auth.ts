@@ -1,6 +1,7 @@
 import NextAuth from 'next-auth'
 import Google from 'next-auth/providers/google'
 import { prisma } from '@/lib/prisma'
+import { isActiveTraderUser } from '@/lib/trader/session-policy'
 
 const googleClientId = process.env.AUTH_GOOGLE_ID
 const googleClientSecret = process.env.AUTH_GOOGLE_SECRET
@@ -22,9 +23,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const email = user.email.trim().toLowerCase()
       const existing = await prisma.user.findUnique({
         where: { email },
-        select: { id: true, role: true, tokenVersion: true },
+        select: { id: true, role: true, tokenVersion: true, archivedAt: true },
       })
-      if (existing && existing.role !== 'TRADER') return false
+      // Staff accounts and archived traders must never obtain a trader session.
+      if (existing && !isActiveTraderUser(existing)) return false
 
       const trader = existing
         ? await prisma.user.update({
@@ -60,10 +62,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.sub) {
         const current = await prisma.user.findUnique({
           where: { id: token.sub },
-          select: { tokenVersion: true, role: true },
+          select: { tokenVersion: true, role: true, archivedAt: true },
         })
         const tokenVersion = typeof token.tokenVersion === 'number' ? token.tokenVersion : 0
-        if (!current || current.role !== 'TRADER' || current.tokenVersion !== tokenVersion) return null
+        if (!current || !isActiveTraderUser(current) || current.tokenVersion !== tokenVersion) return null
       }
       return token
     },

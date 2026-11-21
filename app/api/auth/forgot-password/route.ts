@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { sendPasswordResetEmail } from '@/lib/email/password-reset'
 import { findTraderByEmail, issuePasswordToken } from '@/lib/trader/accounts'
 import { isRateLimited } from '@/lib/trader/rate-limit'
+import { clientIp } from '@/lib/security/client-ip'
 
 const RESET_TTL_MS = 60 * 60_000
 const GENERIC = { ok: true, message: 'If an account exists for that email, a reset link is on its way.' }
@@ -11,6 +12,10 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as { email?: unknown } | null
     const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : ''
     if (!email.includes('@')) return NextResponse.json({ error: 'Enter a valid email' }, { status: 400 })
+    // Per-IP cap before the per-email bucket: caps reset-email abuse across many addresses.
+    if (await isRateLimited(`forgot-ip:${clientIp(request)}`, 20, 15 * 60_000)) {
+      return NextResponse.json(GENERIC, { status: 429, headers: { 'Retry-After': '900' } })
+    }
     if (await isRateLimited(`forgot:${email}`, 3, 15 * 60_000)) return NextResponse.json(GENERIC)
 
     const trader = await findTraderByEmail(email)

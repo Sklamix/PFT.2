@@ -1,3 +1,6 @@
+// Intentional control-character ranges: this sanitizer strips control chars from
+// user-supplied redirect targets (defense against header/log injection).
+// eslint-disable-next-line no-control-regex
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
 
 /**

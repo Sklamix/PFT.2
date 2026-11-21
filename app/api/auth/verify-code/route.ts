@@ -34,7 +34,10 @@ export async function POST(request: Request) {
 
     const [record, existingUser] = await Promise.all([
       prisma.emailLoginCode.findUnique({ where: { email } }),
-      prisma.user.findUnique({ where: { email }, select: { id: true, role: true } }),
+      prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: { id: true, role: true },
+      }),
     ])
     const now = new Date()
     if (!record || record.expiresAt <= now || record.attempts >= MAX_ATTEMPTS) {
@@ -61,10 +64,14 @@ export async function POST(request: Request) {
         where: { email, codeHash: record.codeHash, attempts: { lt: MAX_ATTEMPTS }, expiresAt: { gt: now } },
       })
       if (consumed.count !== 1) return { user: null, conflict: false }
-      const existing = await tx.user.findUnique({ where: { email }, select: { role: true } })
+      const existing = await tx.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: { id: true, role: true },
+      })
       if (existing && existing.role !== 'TRADER') return { user: null, conflict: false }
       if (purpose === 'REGISTER' && existing) return { user: null, conflict: true }
       if (purpose === 'LOGIN' && !existing) return { user: null, conflict: false }
+      const updateUserId = existing?.id ?? ''
 
       const user = purpose === 'REGISTER'
         ? await tx.user.create({
@@ -84,11 +91,12 @@ export async function POST(request: Request) {
               phone: true,
               country: true,
               tokenVersion: true,
+              archivedAt: true,
             },
           })
         : await tx.user.update({
-            where: { email },
-            data: { emailVerifiedAt: now },
+            where: { id: updateUserId },
+            data: { emailVerifiedAt: now, email },
             select: {
               id: true,
               email: true,
@@ -98,6 +106,7 @@ export async function POST(request: Request) {
               phone: true,
               country: true,
               tokenVersion: true,
+              archivedAt: true,
             },
           })
 
@@ -111,6 +120,9 @@ export async function POST(request: Request) {
     }
     const user = result.user
     if (!user) return NextResponse.json({ error: 'This code is invalid or already used.' }, { status: 400 })
+    if (user.archivedAt != null) {
+      return NextResponse.json({ error: 'This account has been archived. Contact support.' }, { status: 403 })
+    }
 
     const issued = await issueTraderSession(
       {

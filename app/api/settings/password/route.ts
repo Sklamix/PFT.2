@@ -46,14 +46,14 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Account not found.' }, { status: 404 })
 
   // Verify against the existing local credential store; no parallel auth system is introduced.
-  if (!verifyPassword(currentPassword, user.passwordHash)) {
+  if (!(await verifyPassword(currentPassword, user.passwordHash))) {
     return NextResponse.json({ error: 'Current password is incorrect.' }, { status: 401 })
   }
-  if (verifyPassword(newPassword, user.passwordHash)) {
+  if (await verifyPassword(newPassword, user.passwordHash)) {
     return NextResponse.json({ error: 'Choose a password you have not used before.' }, { status: 400 })
   }
 
-  const passwordHash = hashPassword(newPassword)
+  const passwordHash = await hashPassword(newPassword)
   const nextSessionId = randomBytes(24).toString('base64url')
 
   try {

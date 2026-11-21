@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'crypto'
+import { createHmac, randomBytes, scrypt, timingSafeEqual } from 'crypto'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { ADMIN_COOKIE } from '@/lib/admin/constants'
@@ -16,16 +16,97 @@ function sessionSecret() {
   return 'pft-dev-admin-session-secret'
 }
 
-export function hashPassword(password: string) {
-  const salt = randomBytes(16)
-  const hash = scryptSync(password, salt, 64)
+/**
+ * PHASE 1.99: asynchronous scrypt with EXPLICIT parameters.
+ *
+ * Compatibility contract (identical to the previous synchronous implementation):
+ *   - stored format: `saltHex:hashHex`
+ *   - salt: 16 random bytes, hex encoded
+ *   - derived key: 64 bytes, hex encoded
+ *   - scrypt parameters: N=16384, r=8, p=1, maxmem=32 MiB
+ *
+ * Those are exactly Node's `scryptSync` defaults, now written out so the async
+ * and the legacy implementation cannot drift. `crypto.scrypt` with the same
+ * options yields byte-identical output, therefore every hash stored before
+ * PHASE 1.99 still verifies and NO password reset is required.
+ */
+export const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 32 * 1024 * 1024 }
+const SCRYPT_KEY_LENGTH = 64
+const SALT_BYTES = 16
+
+/**
+ * Bounded concurrency. `crypto.scrypt` executes on the libuv thread pool (4
+ * threads by default) and each in-flight call holds ~16 MiB (128 * N * r).
+ * The cap is 4, so at most ~64 MiB of scrypt memory is live at any time and the
+ * pending queue cannot grow without bound during a login burst.
+ */
+const MAX_CONCURRENT_SCRYPT = 4
+let activeScrypt = 0
+let peakScrypt = 0
+const scryptWaiters: Array<() => void> = []
+
+/** Test/diagnostic view of the scrypt concurrency guard. */
+export function scryptConcurrencyStats(): {
+  active: number
+  peak: number
+  limit: number
+  waiting: number
+} {
+  return {
+    active: activeScrypt,
+    peak: peakScrypt,
+    limit: MAX_CONCURRENT_SCRYPT,
+    waiting: scryptWaiters.length,
+  }
+}
+
+async function acquireScryptSlot(): Promise<void> {
+  if (activeScrypt < MAX_CONCURRENT_SCRYPT) {
+    activeScrypt += 1
+    peakScrypt = Math.max(peakScrypt, activeScrypt)
+    return
+  }
+  // The slot is handed over by releaseScryptSlot(); `activeScrypt` stays unchanged.
+  await new Promise<void>((resolve) => { scryptWaiters.push(resolve) })
+}
+
+function releaseScryptSlot(): void {
+  const next = scryptWaiters.shift()
+  if (next) {
+    next()
+    return
+  }
+  activeScrypt = Math.max(0, activeScrypt - 1)
+}
+
+function deriveKey(password: string, salt: Buffer): Promise<Buffer> {
+  return new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, SCRYPT_KEY_LENGTH, { ...SCRYPT_PARAMS }, (error, derivedKey) => {
+      if (error) reject(error)
+      else resolve(derivedKey)
+    })
+  })
+}
+
+async function deriveKeyBounded(password: string, salt: Buffer): Promise<Buffer> {
+  await acquireScryptSlot()
+  try {
+    return await deriveKey(password, salt)
+  } finally {
+    releaseScryptSlot()
+  }
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(SALT_BYTES)
+  const hash = await deriveKeyBounded(password, salt)
   return `${salt.toString('hex')}:${hash.toString('hex')}`
 }
 
-export function verifyPassword(password: string, stored: string) {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [saltHex, hashHex] = stored.split(':')
   if (!saltHex || !hashHex) return false
-  const actual = scryptSync(password, Buffer.from(saltHex, 'hex'), 64)
+  const actual = await deriveKeyBounded(password, Buffer.from(saltHex, 'hex'))
   const expected = Buffer.from(hashHex, 'hex')
   if (actual.length !== expected.length) return false
   return timingSafeEqual(actual, expected)
