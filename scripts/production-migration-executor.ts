@@ -343,6 +343,27 @@ export function parseProductionMode(argv: readonly string[]): ProductionMode {
   throw new ProductionRefusal(`unknown mode '${value}' (expected 'pre', 'baseline' or 'apply')`)
 }
 
+/**
+ * `--only file1.sql,file2.sql` narrows the run to the named migrations. One
+ * blocked migration (e.g. a base table that does not exist yet) must not hold
+ * back the independent ones behind it in the deploy order.
+ */
+export function parseOnlyFiles(argv: readonly string[]): string[] | undefined {
+  const index = argv.indexOf('--only')
+  if (index === -1) return undefined
+  const value = argv[index + 1]
+  if (!value) throw new ProductionRefusal('--only needs a comma-separated list of migration file names')
+  const files = value.split(',').map((file) => file.trim()).filter(Boolean)
+  if (files.length === 0) throw new ProductionRefusal('--only needs at least one migration file name')
+  const known = new Set(PRODUCTION_MIGRATIONS.map((migration) => migration.file))
+  for (const file of files) {
+    if (!known.has(file)) {
+      throw new ProductionRefusal(`unknown migration '${file}' in --only (not part of the manifest)`)
+    }
+  }
+  return files
+}
+
 // ---------------------------------------------------------------------------
 // The fail-closed gate
 // ---------------------------------------------------------------------------
@@ -550,6 +571,7 @@ export async function runProductionMigrations(
   env: Record<string, string | undefined> = process.env,
   deps: ProductionDeps = {},
   mode: ProductionMode = 'apply',
+  only?: readonly string[],
 ): Promise<number> {
   const log = deps.log ?? ((line: string) => console.log(line))
   let plan: ProductionPlan
@@ -558,6 +580,11 @@ export async function runProductionMigrations(
   } catch (error) {
     log(`PRODUCTION_REFUSED=${sanitizeError(error)}`)
     return PRODUCTION_EXIT.refused
+  }
+  if (only && only.length > 0) {
+    const wanted = new Set(only)
+    plan = { ...plan, migrations: plan.migrations.filter((migration) => wanted.has(migration.file)) }
+    log(`PRODUCTION_ONLY=${[...wanted].join(',')}`)
   }
 
   const rootDir = deps.rootDir ?? process.cwd()

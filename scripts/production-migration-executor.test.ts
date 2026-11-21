@@ -5,6 +5,7 @@ import {
   PRODUCTION_MIGRATIONS,
   ProductionRefusal,
   extractMigrationBody,
+  parseOnlyFiles,
   parseProductionMode,
   resolveProductionPlan,
   runProductionMigrations,
@@ -242,6 +243,30 @@ test('the mode parser accepts only pre, baseline and apply', () => {
   assert.equal(parseProductionMode(['--mode', 'apply']), 'apply')
   assert.equal(parseProductionMode([]), 'apply')
   assert.throws(() => parseProductionMode(['--mode', 'destroy']), /unknown mode/)
+})
+
+test('--only narrows the run to the named migrations', async () => {
+  assert.deepEqual(parseOnlyFiles(['--only', 'checkout-intent.sql,ai-support-idempotency.sql']), [
+    'checkout-intent.sql',
+    'ai-support-idempotency.sql',
+  ])
+  assert.equal(parseOnlyFiles([]), undefined)
+  assert.throws(() => parseOnlyFiles(['--only', 'not-in-manifest.sql']), /unknown migration/)
+})
+
+test('a run narrowed by --only touches only the selected migrations', async () => {
+  const state = newState()
+  const logs: string[] = []
+  const code = await runProductionMigrations(
+    env(),
+    { createClient: () => fakeClient(state), log: (line) => logs.push(line) },
+    'apply',
+    ['ai-support-idempotency.sql'],
+  )
+  assert.equal(code, 0)
+  assert.equal(state.queries.filter((q) => q.trim() === 'BEGIN').length, 1)
+  assert.ok(logs.some((line) => line.includes('PRODUCTION_APPLIED=ai-support-idempotency.sql')))
+  assert.ok(!logs.some((line) => line.includes('PRODUCTION_APPLIED=checkout-intent.sql')))
 })
 
 test('without the opt-in the executor opens no connection at all', async () => {
