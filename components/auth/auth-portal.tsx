@@ -43,6 +43,7 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
       if (!response.ok) throw new Error(data.error || 'Unable to check the sign-in method.')
       if (data.method === 'password') {
         setStage('password')
+        setBusy(false)
       } else {
         setCodeFlow('login')
         await requestCode()
@@ -72,6 +73,7 @@ export function AuthPortal({ googleEnabled }: { googleEnabled: boolean }) {
         setResendIn(60)
         setPassword('')
         setInfo('For your safety we sent a six-digit code to your email. Enter it to finish signing in.')
+        setBusy(false)
         return
       }
       router.replace('/dashboard')
