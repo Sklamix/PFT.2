@@ -44,7 +44,7 @@
     "worker:trading-orders": "tsx workers/trading-orders.ts",
     "worker:market-candles": "tsx workers/market-candles.ts",
     "worker:gold-candles": "tsx workers/market-candles.ts",
-    "test:unit": "npm run test:preflight && npm run test:gate-readiness && npm run test:isolation && npm run test:readiness && npm run test:migration-executor && npm run test:runtime-smoke && npm run test:hardening && npm run test:finance && npm run test:payments && npm run test:risk-equity && npm run test:trading && npm run test:auth && npm run test:archive && npm run test:security && npm run test:instruments && npm run test:app-url && npm run test:email-transport && npm run test:email-sender && npm run test:diagnostics && npm run test:webhook-ipn && npm run test:auth-routes && npm run test:ai-support && npm run test:observability",
+    "test:unit": "npm run test:preflight && npm run test:gate-readiness && npm run test:isolation && npm run test:readiness && npm run test:migration-executor && npm run test:production-migrations && npm run test:runtime-smoke && npm run test:hardening && npm run test:finance && npm run test:payments && npm run test:risk-equity && npm run test:trading && npm run test:auth && npm run test:archive && npm run test:security && npm run test:instruments && npm run test:app-url && npm run test:email-transport && npm run test:email-sender && npm run test:diagnostics && npm run test:webhook-ipn && npm run test:auth-routes && npm run test:ai-support && npm run test:observability",
     "test:all:db-free": "npm run test:unit",
     "test:integration:db": "node scripts/db-gated-runner.cjs",
     "test:observability:db": "node --import tsx --test scripts/observability.test.ts scripts/incident-integration.test.ts scripts/market-conditions-observability.test.ts scripts/economic-calendar-observability.test.ts scripts/stats-recalculate-observability.test.ts scripts/trading-cron-observability.test.ts scripts/market-candles-heartbeat.test.ts scripts/trading-orders-heartbeat.test.ts scripts/cf-worker-heartbeat.test.ts",
@@ -52,7 +52,8 @@
     "test:isolation": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/db-isolation-184.test.ts",
     "test:runtime-smoke": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/prisma-proxy-195.test.ts scripts/app-runtime-smoke-195.test.ts",
     "test:readiness": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/db-readiness-193.test.ts scripts/db-injection-194.test.ts scripts/auth-failclosed-196a.test.ts scripts/deployment-hardening-196a.test.ts",
-    "test:migration-executor": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/migration-executor-197b.test.ts scripts/migration-preflight-197c.test.ts"
+    "test:migration-executor": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/migration-executor-197b.test.ts scripts/migration-preflight-197c.test.ts",
+    "test:production-migrations": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/production-migration-executor.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
