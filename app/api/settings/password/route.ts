@@ -49,10 +49,17 @@ export async function POST(request: Request) {
   })
   if (!user) return NextResponse.json({ error: 'Account not found.' }, { status: 404 })
 
-  // Two paths: accounts with a password prove it; accounts without one (created
-  // via an email code or Google) prove ownership with a STEP_UP email code.
+  // Two proofs: the current password (known to the account owner) or a STEP_UP
+  // email code (single-use, sent to the account address). The code path serves
+  // accounts without a password (created via an email code or Google) and
+  // password accounts whose owner forgot the current password while signed in.
   const passwordAccount = hasUsablePassword(user.passwordHash)
-  if (passwordAccount) {
+  const useEmailProof = verificationCode.length > 0
+  if (useEmailProof) {
+    if (!/^\d{6}$/.test(verificationCode)) {
+      return NextResponse.json({ error: 'Enter the six-digit code sent to your email.' }, { status: 400 })
+    }
+  } else if (passwordAccount) {
     if (!currentPassword) return NextResponse.json({ error: 'Enter your current password.' }, { status: 400 })
     // Verify against the existing local credential store; no parallel auth system is introduced.
     if (!(await verifyPassword(currentPassword, user.passwordHash))) {
@@ -62,17 +69,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Choose a password you have not used before.' }, { status: 400 })
     }
   } else {
-    if (!verificationCode) return NextResponse.json({ error: 'Enter the verification code sent to your email.' }, { status: 400 })
-    if (!/^\d{6}$/.test(verificationCode)) {
-      return NextResponse.json({ error: 'Enter the six-digit code sent to your email.' }, { status: 400 })
-    }
+    return NextResponse.json({ error: 'Enter the verification code sent to your email.' }, { status: 400 })
   }
 
-  const submittedHash = passwordAccount ? null : Buffer.from(emailCodeHash(user.email, verificationCode, 'STEP_UP'), 'hex')
+  const submittedHash = useEmailProof ? Buffer.from(emailCodeHash(user.email, verificationCode, 'STEP_UP'), 'hex') : null
   const passwordHash = await hashPassword(newPassword)
   const nextSessionId = randomBytes(24).toString('base64url')
   const now = new Date()
-  const recordEmail = passwordAccount ? '' : user.email
+  const recordEmail = useEmailProof ? user.email : ''
 
   try {
     // Rotating tokenVersion invalidates every other signed cookie; the fresh

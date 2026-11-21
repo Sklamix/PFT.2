@@ -3,7 +3,6 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, KeyRound, Loader2, Lock, LogOut, ShieldAlert, ShieldCheck } from 'lucide-react'
-import Link from 'next/link'
 import { Field, INPUT_CLASS, Notice, Panel } from './ui'
 import { cn } from '@/lib/utils'
 
@@ -54,6 +53,7 @@ export function SecurityPanel({
   const [currentPassword, setCurrentPassword] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
+  const [codeMode, setCodeMode] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [reveal, setReveal] = useState(false)
@@ -65,9 +65,12 @@ export function SecurityPanel({
 
   const score = useMemo(() => passwordScore(newPassword), [newPassword])
   const hasPassword = security.hasPassword
+  // Email-code proof serves accounts without a password and password accounts
+  // whose owner forgot the current password while signed in.
+  const emailProof = !hasPassword || codeMode
   const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword
   const canSubmit =
-    (hasPassword ? currentPassword.length > 0 : verificationCode.length === 6) &&
+    (emailProof ? (codeSent && verificationCode.length === 6) : currentPassword.length > 0) &&
     newPassword.length >= 8 &&
     newPassword === confirmPassword &&
     !busy
@@ -99,9 +102,9 @@ export function SecurityPanel({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          hasPassword
-            ? { currentPassword, newPassword, confirmPassword }
-            : { code: verificationCode, newPassword, confirmPassword },
+          emailProof
+            ? { code: verificationCode, newPassword, confirmPassword }
+            : { currentPassword, newPassword, confirmPassword },
         ),
       })
       const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string }
@@ -109,6 +112,7 @@ export function SecurityPanel({
       setCurrentPassword('')
       setVerificationCode('')
       setCodeSent(false)
+      setCodeMode(false)
       setNewPassword('')
       setConfirmPassword('')
       setSuccess(data.message ?? 'Password updated.')
@@ -142,7 +146,53 @@ export function SecurityPanel({
     <div className="flex flex-col gap-4">
       <Panel title="Password" description="Use at least 8 characters. Changing it signs out every other device.">
         <form onSubmit={(event) => void changePassword(event)} className="grid gap-4 sm:grid-cols-2">
-          {hasPassword ? (
+          {emailProof ? (
+            <div className="sm:col-span-2 flex items-start gap-3 rounded-md border border-border/70 bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">
+              <KeyRound className="mt-0.5 size-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                {hasPassword ? (
+                  <>
+                    <p className="font-medium text-foreground">Forgot your current password?</p>
+                    <p className="mt-1">
+                      Verify with a six-digit code emailed to your address instead, then choose a new password. Changing
+                      it still signs out every other device.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium text-foreground">You do not have a password yet.</p>
+                    <p className="mt-1">
+                      Your account signs in with email codes. To set one, we email a six-digit verification code to your
+                      address — enter it below together with the new password.
+                    </p>
+                  </>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void requestStepUpCode()}
+                  disabled={busy}
+                  className="mt-2 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-foreground transition hover:border-primary/50 hover:text-primary disabled:opacity-60"
+                >
+                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
+                  {codeSent ? 'Send a new code' : 'Email a verification code'}
+                </button>
+                {hasPassword ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCodeMode(false)
+                      setCodeSent(false)
+                      setVerificationCode('')
+                      setError(null)
+                    }}
+                    className="ml-2 text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
+                  >
+                    Use current password instead
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
             <Field label="Current password" className="sm:col-span-2">
               <input
                 type={reveal ? 'text' : 'password'}
@@ -153,28 +203,8 @@ export function SecurityPanel({
                 required
               />
             </Field>
-          ) : (
-            <div className="sm:col-span-2 flex items-start gap-3 rounded-md border border-border/70 bg-secondary/30 p-3 text-xs leading-relaxed text-muted-foreground">
-              <KeyRound className="mt-0.5 size-4 shrink-0 text-primary" />
-              <div className="min-w-0">
-                <p className="font-medium text-foreground">You do not have a password yet.</p>
-                <p className="mt-1">
-                  Your account signs in with email codes. To set one, we email a six-digit verification code to your
-                  address — enter it below together with the new password.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void requestStepUpCode()}
-                  disabled={busy}
-                  className="mt-2 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-foreground transition hover:border-primary/50 hover:text-primary disabled:opacity-60"
-                >
-                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
-                  {codeSent ? 'Send a new code' : 'Email a verification code'}
-                </button>
-              </div>
-            </div>
           )}
-          {!hasPassword && codeSent ? (
+          {emailProof && codeSent ? (
             <Field label="Verification code">
               <input
                 type="text"
@@ -241,11 +271,6 @@ export function SecurityPanel({
                 {reveal ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                 {reveal ? 'Hide passwords' : 'Show passwords'}
               </button>
-              {hasPassword ? (
-                <Link href="/login" className="inline-flex items-center gap-2 text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline">
-                  Forgot your password?
-                </Link>
-              ) : null}
             </span>
             <button
               type="submit"

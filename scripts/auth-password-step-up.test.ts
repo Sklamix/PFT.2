@@ -67,6 +67,10 @@ test('password sign-in hardening wiring', () => {
   assert.match(password, /\$transaction/, 'code consumption and the password update must be atomic')
   assert.match(password, /tokenVersion: user\.tokenVersion \+ 1/, 'the password change keeps rotating tokenVersion')
   assert.match(password, /activeSessionId: nextSessionId/, 'the password change keeps pinning the active session')
+
+  const stepUpRequest = read('app/api/settings/password/request-step-up/route.ts')
+  assert.doesNotMatch(stepUpRequest, /You already have a password/, 'a signed-in trader who forgot the password must still be able to request a STEP_UP code')
+  assert.match(stepUpRequest, /STEP_UP/, 'the settings step-up endpoint issues STEP_UP-purpose codes')
 })
 
 test('existing REGISTER/LOGIN code flows keep their purpose handling', () => {

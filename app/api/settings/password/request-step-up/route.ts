@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
-import { hasUsablePassword } from '@/lib/trader/accounts'
 import { isRateLimited } from '@/lib/trader/rate-limit'
 import { issueStepUpEmailCode } from '@/lib/trader/email-codes'
 import { clientIp } from '@/lib/security/client-ip'
@@ -11,9 +10,11 @@ export const dynamic = 'force-dynamic'
 const GENERIC_ERROR = 'Unable to send a verification code right now.'
 
 /**
- * Traders created through an email code or Google have no usable password; this
- * endpoint sends a STEP_UP code to their own address so /api/settings/password
- * can accept a first password without the (impossible) current-password check.
+ * Sends a STEP_UP code to the signed-in trader's own address so
+ * /api/settings/password can accept a new password without the current-password
+ * check. Serves accounts without a usable password (created via an email code or
+ * Google) and password accounts whose owner forgot the current password — the
+ * session cookie plus single-use email proof is sufficient.
  */
 export async function POST(request: Request) {
   const { session, error } = await requireTrader()
@@ -26,9 +27,6 @@ export async function POST(request: Request) {
     })
     if (!user || user.archivedAt != null) {
       return NextResponse.json({ error: 'Account not found.' }, { status: 404 })
-    }
-    if (hasUsablePassword(user.passwordHash)) {
-      return NextResponse.json({ error: 'You already have a password. Use it to change it.' }, { status: 400 })
     }
     if (!process.env.DATABASE_URL) {
       return NextResponse.json({ error: GENERIC_ERROR }, { status: 503 })
