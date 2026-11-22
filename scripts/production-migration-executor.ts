@@ -298,13 +298,6 @@ export const PRODUCTION_MIGRATIONS: readonly ProductionMigration[] = [
     ],
   },
   {
-    file: 'ledger-baseline-watermark.sql',
-    postconditions: [
-      columnExists('AccountLedgerBaseline', 'ledgerWatermarkAt'),
-      columnExists('AccountLedgerBaseline', 'ledgerWatermarkId'),
-    ],
-  },
-  {
     file: 'inactivity-closure-claim.sql',
     postconditions: [
       columnExists('TradingAccount', 'inactivityClosureClaimedAt'),
@@ -416,6 +409,110 @@ export const PRODUCTION_MIGRATIONS: readonly ProductionMigration[] = [
       constraintExists('AccountLedgerBaseline', 'AccountLedgerBaseline_accountId_fkey'),
       indexExists('AccountLedgerBaseline_accountId_version_key', true),
       indexExists('AccountLedgerBaseline_accountId_capturedAt_idx'),
+    ],
+  },
+  {
+    // D9 watermark cursor. Must run AFTER account-ledger-baseline.sql (the
+    // table it alters must exist) and before anything that reads the cursor.
+    file: 'ledger-baseline-watermark.sql',
+    postconditions: [
+      columnExists('AccountLedgerBaseline', 'ledgerWatermarkAt'),
+      columnExists('AccountLedgerBaseline', 'ledgerWatermarkId'),
+    ],
+  },
+  {
+    // The financial core was applied to production out of band (before the
+    // production executor existed), so the schema is already there but the
+    // history never learned about it. The postconditions describe exactly what
+    // the file creates, so `--mode baseline` can record it truthfully.
+    file: 'financial-core.sql',
+    postconditions: [
+      tableExists('CommissionPlan'),
+      tableExists('AccountLedgerBaseline'),
+      tableExists('AccountLedgerEntry'),
+      tableExists('PayoutLegacyCutoverEvidence'),
+      tableExists('FxReconciliation'),
+      columnExists('Payout', 'requestKey'),
+      columnExists('Payout', 'executionKey'),
+      columnExists('Payout', 'transactionRef'),
+      columnExists('Payout', 'executionPolicy'),
+      columnExists('User', 'canConfirmPayouts'),
+      columnExists('TradingAccount', 'archivedAt'),
+      columnExists('TradingAccount', 'peakEquityDecimal'),
+      columnExists('Position', 'idempotencyKey'),
+      columnExists('TradeHistory', 'idempotencyKey'),
+      enumHasValues('CommissionModel', ['PER_LOT', 'PER_DEAL', 'PERCENT_NOTIONAL']),
+      enumHasValues('LedgerEntryType', [
+        'TRADE_PNL',
+        'ENTRY_COMMISSION',
+        'EXIT_COMMISSION',
+        'SWAP',
+        'ADJUSTMENT',
+        'REVERSAL',
+        'RECONCILIATION',
+        'PAYOUT_RESERVE',
+        'PAYOUT_RELEASE',
+      ]),
+      enumHasValues('FxReconciliationStatus', ['UNRESOLVED', 'RESOLVED', 'VOIDED']),
+      indexExists('CommissionPlan_one_active_per_instrument', true),
+      indexExists('AccountLedgerEntry_accountId_idempotencyKey_key', true),
+      indexExists('FxReconciliation_tradeHistoryId_key', true),
+      indexExists('PayoutLegacyCutoverEvidence_evidenceHash_key', true),
+      indexExists('Payout_userId_requestKey_key', true),
+      indexExists('Payout_executionKey_key', true),
+      indexExists('Payout_transactionRef_key', true),
+      indexExists('Position_tradingAccountId_idempotencyKey_key', true),
+      indexExists('PendingTradeOrder_tradingAccountId_idempotencyKey_key', true),
+      indexExists('TradeHistory_tradingAccountId_idempotencyKey_key', true),
+      constraintExists('CommissionPlan', 'CommissionPlan_instrumentId_fkey'),
+      constraintExists('AccountLedgerEntry', 'AccountLedgerEntry_accountId_fkey'),
+      constraintExists('AccountLedgerBaseline', 'AccountLedgerBaseline_accountId_fkey'),
+      constraintExists('FxReconciliation', 'FxReconciliation_tradeHistoryId_key'),
+      constraintExists('PayoutLegacyCutoverEvidence', 'PayoutLegacyCutoverEvidence_payoutId_fkey'),
+      {
+        label: 'trigger Payout_execution_immutable',
+        sql: `SELECT EXISTS (SELECT 1 FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+               WHERE NOT t.tgisinternal AND c.relname = 'Payout' AND t.tgname = 'Payout_execution_immutable') AS ok`,
+      },
+    ],
+    // `ALTER TYPE ... ADD VALUE` is only visible to the session after COMMIT.
+    postCommitConditions: [
+      enumHasValue('AccountStatus', 'ARCHIVED'),
+      enumHasValue('PayoutStatus', 'MANUALLY_PAID'),
+    ],
+  },
+  {
+    // Risk-equity shadow evaluation: also applied to production out of band.
+    file: 'risk-equity-shadow.sql',
+    postconditions: [
+      tableExists('RiskEquityBaseline'),
+      tableExists('RiskEquityShadowEvaluation'),
+      columnExists('TradingAccount', 'riskEquityState'),
+      enumHasValues('RiskEquityState', ['UNCLASSIFIED', 'EXCLUDED', 'SHADOW', 'ENFORCE']),
+      indexExists('RiskEquityBaseline_accountId_key', true),
+      indexExists('RiskEquityShadowEvaluation_accountId_inputHash_key', true),
+      indexExists('RiskEquityBaseline_capturedAt_idx'),
+      indexExists('RiskEquityShadowEvaluation_accountId_evaluatedAt_idx'),
+      indexExists('RiskEquityShadowEvaluation_hypotheticalBreach_idx'),
+      indexExists('RiskEquityShadowEvaluation_skippedReason_idx'),
+      indexExists('TradingAccount_riskEquityState_idx'),
+      constraintExists('RiskEquityBaseline', 'RiskEquityBaseline_accountId_fkey'),
+      constraintExists('RiskEquityShadowEvaluation', 'RiskEquityShadowEvaluation_accountId_fkey'),
+      constraintExists('RiskEquityShadowEvaluation', 'RiskEquityShadowEvaluation_baselineId_fkey'),
+    ],
+  },
+  {
+    // Canonical breach timing: also applied to production out of band.
+    file: 'account-breach-events.sql',
+    postconditions: [
+      tableExists('AccountBreachEvent'),
+      indexExists('AccountBreachEvent_dedupeKey_key', true),
+      indexExists('AccountBreachEvent_auditLogId_key', true),
+      indexExists('AccountBreachEvent_accountId_occurredAt_idx'),
+      indexExists('AccountBreachEvent_accountId_detectedAt_idx'),
+      indexExists('AccountBreachEvent_kind_idx'),
+      constraintExists('AccountBreachEvent', 'AccountBreachEvent_accountId_fkey'),
+      constraintExists('AccountBreachEvent', 'AccountBreachEvent_auditLogId_fkey'),
     ],
   },
 ] as const

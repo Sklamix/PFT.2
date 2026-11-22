@@ -40,12 +40,18 @@ const EXECUTION_MARKERS: ReadonlyArray<readonly [string, string]> = [
   ['checkout-identity.sql', 'User_email_lower_key'],
   ['checkout-intent.sql', 'CheckoutIntent'],
   ['payment-recovery.sql', 'PaymentRecovery'],
-  ['ledger-baseline-watermark.sql', 'ledgerWatermarkAt'],
+  // The marker must be a DDL fragment, not a bare column name: the comments of
+  // account-ledger-baseline.sql mention "ledgerWatermarkAt" while explaining
+  // that the table is created WITHOUT the watermark columns.
+  ['ledger-baseline-watermark.sql', 'ADD COLUMN IF NOT EXISTS "ledgerWatermarkAt"'],
   ['inactivity-closure-claim.sql', 'inactivityClosureClaimedAt'],
   ['ai-support-idempotency.sql', 'AiSupportRequest'],
   ['observability-schema.sql', 'SystemComponent'],
   ['observability-watermark-key.sql', 'lastResolvedOrderKey" TEXT COLLATE'],
   ['account-ledger-baseline.sql', 'AccountLedgerBaseline_pkey'],
+  ['financial-core.sql', 'LedgerEntryType'],
+  ['risk-equity-shadow.sql', 'RiskEquityShadowEvaluation'],
+  ['account-breach-events.sql', 'AccountBreachEvent'],
 ]
 
 /** Which migration a postcondition belongs to (the first match wins). */
@@ -61,9 +67,41 @@ function conditionOwner(sql: string): string | null {
   if (sql.includes('CheckoutIntent')) return 'checkout-intent.sql'
   if (sql.includes('PaymentRecovery')) return 'payment-recovery.sql'
   if (sql.includes('ledgerWatermark')) return 'ledger-baseline-watermark.sql'
-  if (sql.includes('AccountLedgerBaseline')) return 'account-ledger-baseline.sql'
   if (sql.includes('inactivityClosure')) return 'inactivity-closure-claim.sql'
   if (sql.includes('AiSupportRequest')) return 'ai-support-idempotency.sql'
+  // The three migrations that reached production out of band. Their conditions
+  // must stay tied to their own file, otherwise the executor would treat them
+  // as "already present" before they ever ran.
+  if (
+    sql.includes('AccountLedgerEntry') ||
+    sql.includes('CommissionPlan') ||
+    sql.includes('PayoutLegacyCutoverEvidence') ||
+    sql.includes('FxReconciliation') ||
+    sql.includes('CommissionModel') ||
+    sql.includes('LedgerEntryType') ||
+    sql.includes('FxReconciliationStatus') ||
+    sql.includes('Payout_execution') ||
+    sql.includes('Payout_userId_requestKey_key') ||
+    sql.includes('Payout_executionKey_key') ||
+    sql.includes('Payout_transactionRef_key') ||
+    sql.includes('Payout_executionPolicy_idx') ||
+    sql.includes('canConfirmPayouts') ||
+    sql.includes('peakEquityDecimal') ||
+    sql.includes('archivedAt') ||
+    sql.includes('Position_tradingAccountId_idempotencyKey_key') ||
+    sql.includes('PendingTradeOrder_tradingAccountId_idempotencyKey_key') ||
+    sql.includes('TradeHistory_tradingAccountId_idempotencyKey_key')
+  )
+    return 'financial-core.sql'
+  if (
+    sql.includes('RiskEquityBaseline') ||
+    sql.includes('RiskEquityShadowEvaluation') ||
+    sql.includes('RiskEquityState') ||
+    sql.includes('riskEquityState')
+  )
+    return 'risk-equity-shadow.sql'
+  if (sql.includes('AccountBreachEvent')) return 'account-breach-events.sql'
+  if (sql.includes('AccountLedgerBaseline')) return 'account-ledger-baseline.sql'
   return null
 }
 
@@ -100,8 +138,11 @@ function fakeClient(state: FakeState, database = 'neondb', host = PROD_HOST): Pr
         return { rows: [{ usr: 'neondb_owner', session_usr: 'neondb_owner', db: database, port: 5432, version: 180000 }] }
       }
       if (text.includes(`FROM "${PRODUCTION_HISTORY_TABLE}"`)) return { rows: state.history }
-      if (text.includes('to_regclass')) return { rows: [{ ok: true }] }
       const isCondition = text.includes(' AS ok')
+      // `to_regclass` answers a condition (the table exists), but a migration
+      // body may contain `to_regclass` too — that body must still be recorded
+      // as executed, so the marker scan below has to run for it.
+      if (text.includes('to_regclass') && isCondition) return { rows: [{ ok: true }] }
       if (!isCondition) {
         for (const [file, marker] of EXECUTION_MARKERS) {
           if (text.includes(marker)) state.executed.add(file)
@@ -195,7 +236,7 @@ test('the production gate requires the URL user to be the expected role', () => 
   )
 })
 
-test('the production manifest carries the four P1 migrations and the six new ones, in order', () => {
+test('the production manifest carries the four P1 migrations and the twelve new ones, in order', () => {
   assert.deepEqual(
     PRODUCTION_MIGRATIONS.map((migration) => migration.file),
     [
@@ -206,12 +247,15 @@ test('the production manifest carries the four P1 migrations and the six new one
       'checkout-identity.sql',
       'checkout-intent.sql',
       'payment-recovery.sql',
-      'ledger-baseline-watermark.sql',
       'inactivity-closure-claim.sql',
       'ai-support-idempotency.sql',
       'observability-schema.sql',
       'observability-watermark-key.sql',
       'account-ledger-baseline.sql',
+      'ledger-baseline-watermark.sql',
+      'financial-core.sql',
+      'risk-equity-shadow.sql',
+      'account-breach-events.sql',
     ],
   )
   for (const migration of PRODUCTION_MIGRATIONS) {
@@ -220,6 +264,15 @@ test('the production manifest carries the four P1 migrations and the six new one
       assert.match(condition.sql, /SELECT[\s\S]* AS ok/)
     }
   }
+})
+
+test('the watermark migration runs after the table it alters', () => {
+  const files = PRODUCTION_MIGRATIONS.map((migration) => migration.file)
+  assert.ok(files.indexOf('account-ledger-baseline.sql') < files.indexOf('ledger-baseline-watermark.sql'))
+  // financial-core.sql also creates AccountLedgerBaseline, so it must not run
+  // before the dedicated table migration: the executor would then treat the
+  // latter as "already present" and stop the run.
+  assert.ok(files.indexOf('account-ledger-baseline.sql') < files.indexOf('financial-core.sql'))
 })
 
 test('a unique index is recognized case-insensitively (pg_indexes stores "CREATE UNIQUE INDEX")', () => {
