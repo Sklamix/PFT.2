@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { BrandLogo } from '@/components/brand-logo'
+import { AgentSection, EscalationsSection } from './AgentPanel'
 
 type TicketSummary = {
   publicId: string
@@ -62,6 +63,7 @@ export default function StaffApp() {
   const [reply, setReply] = useState('')
   const [replyBusy, setReplyBusy] = useState(false)
   const [pushState, setPushState] = useState<'unknown' | 'on' | 'off' | 'unsupported'>('unknown')
+  const [showEscalations, setShowEscalations] = useState(false)
 
   const meSubRef = useRef<string | null>(null)
 
@@ -79,6 +81,19 @@ export default function StaffApp() {
   }, [])
 
   useEffect(() => void loadSession(), [loadSession])
+
+  // Surface any crash in the WebView instead of a blank screen.
+  useEffect(() => {
+    const report = (message: string) => alert(`Помилка сторінки: ${message}`)
+    const onError = (event: ErrorEvent) => report(event.message)
+    const onRejection = (event: PromiseRejectionEvent) => report(String(event.reason))
+    window.addEventListener('error', onError)
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => {
+      window.removeEventListener('error', onError)
+      window.removeEventListener('unhandledrejection', onRejection)
+    }
+  }, [])
 
   const loadTickets = useCallback(async () => {
     setListLoading(true)
@@ -159,10 +174,19 @@ export default function StaffApp() {
   }
 
   async function openByRef(ref: string) {
-    const response = await fetch(`/api/admin/support/tickets/${encodeURIComponent(ref)}`, { cache: 'no-store' })
-    if (!response.ok) return
-    const data = await response.json()
-    setOpenTicket(data)
+    try {
+      const response = await fetch(`/api/admin/support/tickets/${encodeURIComponent(ref)}`, { cache: 'no-store' })
+      if (!response.ok) {
+        alert(`Не вдалося завантажити тикет: server ${response.status}`)
+        return
+      }
+      const data = await response.json()
+      // The API returns messages paginated: { items: [...] }
+      const messages = Array.isArray(data.messages) ? data.messages : data.messages?.items ?? []
+      setOpenTicket({ ticket: data.ticket, messages })
+    } catch (err) {
+      alert(`Помилка мережі: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   async function sendReply(event: FormEvent) {
@@ -307,6 +331,7 @@ export default function StaffApp() {
               )
             })}
           </div>
+          <AgentSection publicId={t.publicId} />
           <form onSubmit={sendReply} className="sticky bottom-4 mt-6 flex gap-2">
             <textarea
               value={reply}
@@ -346,13 +371,22 @@ export default function StaffApp() {
             </button>
           ))}
         </div>
-        <div className="mt-2">
+        <div className="mt-2 flex items-center justify-between">
           <button onClick={() => void enablePush()} className="text-xs text-muted-foreground underline">
             {pushState === 'on' ? 'Пуші увімкнено ✓' : 'Увімкнути push-повідомлення'}
+          </button>
+          <button
+            onClick={() => setShowEscalations(!showEscalations)}
+            className={`rounded-full px-3 py-1 text-xs ${showEscalations ? 'bg-amber-500/20 text-amber-400' : 'border border-border text-muted-foreground'}`}
+          >
+            Ескалації
           </button>
         </div>
       </header>
       <main className="mx-auto max-w-2xl px-4 py-4">
+        {showEscalations && <EscalationsSection onOpenTicket={(ref) => void openByRef(ref)} />}
+        {!showEscalations && (
+        <>
         {listLoading && tickets.length === 0 && <p className="text-sm text-muted-foreground">Завантаження…</p>}
         {!listLoading && tickets.length === 0 && <p className="text-sm text-muted-foreground">Тикетів немає.</p>}
         <ul className="space-y-2">
@@ -373,6 +407,8 @@ export default function StaffApp() {
             </li>
           ))}
         </ul>
+        </>
+        )}
       </main>
     </div>
   )
