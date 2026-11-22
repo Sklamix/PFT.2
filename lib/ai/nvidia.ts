@@ -146,8 +146,14 @@ export async function generateWithNvidia(
       throw new AiUnavailableError('unavailable', { status: response.status, code: 'INVALID_BODY', model, provider: 'nvidia' })
     }
 
-    const choice = (payload as { choices?: { message?: { content?: unknown }; finish_reason?: unknown }[] })?.choices?.[0]
-    const content = typeof choice?.message?.content === 'string' ? choice.message.content : ''
+    const choice = (payload as { choices?: { message?: { content?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[] })?.choices?.[0]
+    const rawContent = choice?.message?.content
+    const rawReasoning = choice?.message?.reasoning_content
+    // Reasoning models (e.g. nemotron-3.5-lightning) may return the answer in
+    // reasoning_content with content=null even when thinking is disabled.
+    const content = typeof rawContent === 'string' && rawContent.trim()
+      ? rawContent
+      : (typeof rawReasoning === 'string' ? rawReasoning : '')
     const finishReason = typeof choice?.finish_reason === 'string' ? choice.finish_reason.slice(0, 40) : null
     if (finishReason === 'length') {
       // Truncated output cannot be trusted; the trader gets a human instead.

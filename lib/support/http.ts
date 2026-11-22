@@ -55,6 +55,22 @@ function describeError(error: unknown) {
   if (error && typeof error === 'object' && 'code' in error) {
     const code = (error as { code?: unknown }).code
     const meta = (error as { meta?: { target?: unknown } }).meta
+    // AiUnavailableError carries a `code`, so surface its safe discriminator
+    // fields (reason/provider/model/status) for diagnosing provider outages.
+    if (error instanceof Error && 'reason' in error && 'provider' in error) {
+      const ai = error as unknown as { reason?: unknown; provider?: unknown; model?: unknown; status?: unknown }
+      return {
+        kind: 'ai',
+        reason: typeof ai.reason === 'string' ? ai.reason : null,
+        detail: typeof (error as { detail?: unknown }).detail === 'string' ? (error as unknown as { detail: string }).detail : null,
+        contentLength: typeof (error as { contentLength?: unknown }).contentLength === 'number' ? (error as unknown as { contentLength: number }).contentLength : null,
+        finishReason: typeof (error as { finishReason?: unknown }).finishReason === 'string' ? (error as unknown as { finishReason: string }).finishReason : null,
+        provider: typeof ai.provider === 'string' ? ai.provider : null,
+        model: typeof ai.model === 'string' ? ai.model : null,
+        status: typeof ai.status === 'number' ? ai.status : null,
+        code: typeof code === 'string' ? code : 'unknown',
+      }
+    }
     return { kind: 'prisma', code: typeof code === 'string' ? code : 'unknown', target: meta?.target ?? null }
   }
   if (error instanceof Error) return { kind: 'error', name: error.name }

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">PFT Support</string>
+    <string name="title_activity_main">PFT Support</string>
+    <string name="package_name">com.pft.support</string>
+    <string name="custom_url_scheme">com.pft.support</string>
+</resources>
