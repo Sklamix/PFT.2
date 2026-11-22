@@ -54,7 +54,7 @@ function tryParseJson(text: string): unknown | undefined {
  * The scan tracks string state and escapes, so braces inside string values and
  * nested objects are balanced correctly.
  */
-function extractJsonObject(text: string): string | null {
+export function extractJsonObject(text: string): string | null {
   const start = text.indexOf('{')
   if (start < 0) return null
 
@@ -147,8 +147,15 @@ export function parseAssistantResponse(text: string): AssistantResult {
 /**
  * Real Gemini generator. The API key is read on the server only; the client
  * never sees it. Errors are normalised so callers can escalate to a human.
+ *
+ * `deps.parse` lets a caller that speaks a different reply contract (the staff
+ * desk) reuse this generator with its own parser; the trader path keeps the
+ * strict default.
  */
-export const generateWithGemini: AssistantGenerator = async ({ systemInstruction, knowledge, history, message, signal }) => {
+export const generateWithGemini = async (
+  { systemInstruction, knowledge, history, message, signal }: Parameters<AssistantGenerator>[0],
+  deps: { parse?: (text: string) => AssistantResult } = {},
+): Promise<AssistantResult> => {
   const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL
   const apiKey = process.env.GEMINI_API_KEY?.trim()
   if (!apiKey) throw new AiUnavailableError('missing_key', { model })
@@ -185,7 +192,7 @@ export const generateWithGemini: AssistantGenerator = async ({ systemInstruction
       },
     })
     const text = typeof response.text === 'string' ? response.text : ''
-    return parseAssistantResponse(text)
+    return (deps.parse ?? parseAssistantResponse)(text)
   } catch (error) {
     if (error instanceof AiUnavailableError) {
       // Keep the parsed failure reason, annotate it with safe provider metadata.

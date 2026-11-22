@@ -1,7 +1,8 @@
-import { generateWithGemini, type AssistantGenerator } from './gemini'
+import { generateWithGemini, type AssistantGenerator, type AssistantResult } from './gemini'
 import { generateWithNvidia } from './nvidia'
 import type { AiProvider } from './errors'
 import { createAssistantProvider } from './provider-reliability'
+import { parseAgentReply, STAFF_JSON_CONTRACT } from './agent-reply'
 
 export type { AiProvider }
 
@@ -30,3 +31,23 @@ const assistantProvider = createAssistantProvider((input) =>
 
 export const generateAssistant: AssistantGenerator = assistantProvider.generate
 export const getAssistantCircuitState = assistantProvider.getCircuitState
+
+/**
+ * Staff-side generator. The desk asks for `{"reply": ...}` and works with a
+ * draft, so its parser keeps the model's own words when the reply is not JSON.
+ * The trader path is untouched and stays strict.
+ */
+const staffProvider = createAssistantProvider((input) => {
+  const parse = (text: string): AssistantResult => ({
+    answer: parseAgentReply(text).reply,
+    resolved: false,
+    category: 'GENERAL',
+    handoffReason: null,
+  })
+  return resolveProvider() === 'nvidia'
+    ? generateWithNvidia(input, { parse, contractPrompt: STAFF_JSON_CONTRACT })
+    : generateWithGemini(input, { parse })
+})
+
+export const generateStaffReply: AssistantGenerator = staffProvider.generate
+export const getStaffCircuitState = staffProvider.getCircuitState

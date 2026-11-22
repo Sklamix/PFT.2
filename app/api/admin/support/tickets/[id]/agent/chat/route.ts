@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { assertSameOrigin } from '@/lib/security/csrf'
-import { handleSupportError, readSupportJson, requireSupportRead } from '@/lib/support/http'
+import { handleSupportError, requireSupportRead } from '@/lib/support/http'
 import { enforceRateLimit } from '@/lib/support/http'
 import { buildTicketSnapshot } from '@/lib/ai/agent-tools'
 
@@ -57,7 +57,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const snapshot = await buildTicketSnapshot(id)
     if (!snapshot) return NextResponse.json({ error: 'Ticket not found.' }, { status: 404, headers: NO_STORE })
 
-    const { generateAssistant } = await import('@/lib/ai/provider')
+    const { generateStaffReply } = await import('@/lib/ai/provider')
 
     const systemInstruction = [
       'You are the PFT support agent assistant, working WITH a human support desk, never directly with traders.',
@@ -72,7 +72,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       `Ticket snapshot: ${JSON.stringify(snapshot)}`,
     ].join('\n')
 
-    const result = await generateAssistant({
+    const result = await generateStaffReply({
       systemInstruction,
       knowledge: '',
       history,
@@ -80,6 +80,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     })
     return NextResponse.json({ reply: result.answer }, { headers: NO_STORE })
   } catch (cause) {
+    const e = cause as { name?: unknown; message?: unknown; detail?: unknown; finishReason?: unknown; contentLength?: unknown }
+    console.error('[pft support:chat]', JSON.stringify({
+      name: typeof e.name === 'string' ? e.name : 'unknown',
+      message: typeof e.message === 'string' ? e.message.slice(0, 300) : null,
+      detail: e.detail ?? null,
+      finishReason: e.finishReason ?? null,
+      contentLength: e.contentLength ?? null,
+    }))
+    if (typeof e.name === 'string' && e.name === 'AiUnavailableError') {
+      // The model was unreachable or returned nothing at all. The desk gets a
+      // clear, actionable message instead of a generic "something went wrong".
+      return NextResponse.json(
+        { error: 'The assistant could not answer right now. Please retry in a moment.' },
+        { status: 502, headers: NO_STORE },
+      )
+    }
     return handleSupportError(cause)
   }
 }

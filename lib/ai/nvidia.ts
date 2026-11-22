@@ -36,6 +36,16 @@ const JSON_CONTRACT = [
 type NvidiaDeps = {
   fetchImpl?: typeof fetch
   timeoutMs?: number
+  /**
+   * Reply parser. The staff desk speaks its own contract (`{"reply": ...}`),
+   * so it passes its own parser; the trader path keeps the strict default.
+   */
+  parse?: (text: string) => AssistantResult
+  /**
+   * Contract block appended to the system prompt. The staff desk replaces the
+   * trader contract with its own; the trader path keeps the default.
+   */
+  contractPrompt?: string
 }
 
 type NvidiaMessage = { role: 'system' | 'user' | 'assistant'; content: string }
@@ -72,8 +82,8 @@ function buildMessages(input: {
   knowledge: string
   history: ChatTurn[]
   message: string
-}): NvidiaMessage[] {
-  const system = [input.systemInstruction, JSON_CONTRACT, `PFT FACTS:\n${input.knowledge}`].join('\n\n')
+}, contractPrompt: string): NvidiaMessage[] {
+  const system = [input.systemInstruction, contractPrompt, `PFT FACTS:\n${input.knowledge}`].join('\n\n')
   return [
     { role: 'system', content: system },
     ...input.history.map((turn) => ({ role: turn.role, content: turn.content })),
@@ -112,7 +122,7 @@ export async function generateWithNvidia(
       },
       body: JSON.stringify({
         model,
-        messages: buildMessages(input),
+        messages: buildMessages(input, deps.contractPrompt ?? JSON_CONTRACT),
         temperature: TEMPERATURE,
         max_tokens: MAX_OUTPUT_TOKENS,
         stream: false,
@@ -168,7 +178,7 @@ export async function generateWithNvidia(
     }
 
     try {
-      return parseAssistantResponse(content)
+      return (deps.parse ?? parseAssistantResponse)(content)
     } catch (error) {
       if (error instanceof AiUnavailableError) {
         // Safe diagnostics: size and finish reason only, never the content.
