@@ -1,0 +1,277 @@
+✖ live/1+2: section A snapshots the auto-grant exactly, before any self-grant (156.1572ms)
+✖ live/2+3: B delegates exactly, C restores the exact initial rows, grantor and options (76.3708ms)
+✖ live/4: section C without the stored snapshot refuses to invent the initial state (79.1939ms)
+✖ live/5: repeated section A is refused by the stale-snapshot guard (70.638ms)
+✖ live/6+7: corrupted grantor column and forged substitution both refuse in section B (60.7496ms)
+✖ live/8: an unrelated added membership stops section B (fail closed, not ignored) (62.6473ms)
+✖ live/9: widening an option of a role captured by the snapshot stops section B (73.2645ms)
+✖ live/10: a removed original membership cannot be re-created and section C refuses (72.0863ms)
+✖ live/conc: parallel section A executions produce one winner and consistent state (86.6303ms)
+✖ live/sec: pft_test_runtime cannot INSERT/UPDATE/DELETE/DROP the snapshot (79.656ms)
+✖ live/rollback: injected failure after widening leaves options, owned objects and snapshot unchanged (74.331ms)
+✖ live/idem: repeated B then C keeps the live set exactly equal to the snapshot (67.1409ms)
+✖ live/teardown: D+E remove every grant, both roles and the snapshot table (72.2068ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 0
+ℹ fail 13
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1459.1558
+
+✖ failing tests:
+
+test at scripts\provision-live-pg18.test.ts:45:161
+✖ live/1+2: section A snapshots the auto-grant exactly, before any self-grant (156.1572ms)
+  AssertionError [ERR_ASSERTION]: TLS=PASS protocol=TLSv1.3 cipher=STUB-DISPOSABLE-NO-TLS failures=none
+  TLS_FIRST_SQL=true
+  IDENTITY role=pft_it_owner (expected pft_it_owner)
+  FAILING_STATEMENT=GRANT pft_test_migrator TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+  POSTGRES_ERROR={"code":"0LP01","message":"ADMIN option cannot be granted back to your own grantor","detail":null,"hint":null,"where":null,"schema":null,"table":null,"column":null,"constraint":null,"routine":"AddRoleMems","severity":"ERROR","position":null,"internalPosition":null,"internalQuery":null,"file":"user.c","line":"1805"}
+  SECTION=A FAILED (rollback attempted)
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:174:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:46:1017
+✖ live/2+3: B delegates exactly, C restores the exact initial rows, grantor and options (76.3708ms)
+  AssertionError [ERR_ASSERTION]: TLS=PASS protocol=TLSv1.3 cipher=STUB-DISPOSABLE-NO-TLS failures=none
+  TLS_FIRST_SQL=true
+  IDENTITY role=pft_it_owner (expected pft_it_owner)
+  FAILING_STATEMENT=GRANT pft_test_migrator TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+  POSTGRES_ERROR={"code":"0LP01","message":"ADMIN option cannot be granted back to your own grantor","detail":null,"hint":null,"where":null,"schema":null,"table":null,"column":null,"constraint":null,"routine":"AddRoleMems","severity":"ERROR","position":null,"internalPosition":null,"internalQuery":null,"file":"user.c","line":"1805"}
+  SECTION=A FAILED (rollback attempted)
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:204:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:52:149
+✖ live/4: section C without the stored snapshot refuses to invent the initial state (79.1939ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:235:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:52:1051
+✖ live/5: repeated section A is refused by the stale-snapshot guard (70.638ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:253:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:52:1819
+✖ live/6+7: corrupted grantor column and forged substitution both refuse in section B (60.7496ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:268:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:372
+✖ live/8: an unrelated added membership stops section B (fail closed, not ignored) (62.6473ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:288:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:1018
+✖ live/9: widening an option of a role captured by the snapshot stops section B (73.2645ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:301:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:1700
+✖ live/10: a removed original membership cannot be re-created and section C refuses (72.0863ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:315:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:2642
+✖ live/conc: parallel section A executions produce one winner and consistent state (86.6303ms)
+  AssertionError [ERR_ASSERTION]: {"a":["TLS=PASS protocol=TLSv1.3 cipher=STUB-DISPOSABLE-NO-TLS failures=none","TLS_FIRST_SQL=true","IDENTITY role=pft_it_owner (expected pft_it_owner)","FAILING_STATEMENT=GRANT pft_test_migrator TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;","POSTGRES_ERROR={\"code\":\"0LP01\",\"message\":\"ADMIN option cannot be granted back to your own grantor\",\"detail\":null,\"hint\":null,\"where\":null,\"schema\":null,\"table\":null,\"column\":null,\"constraint\":null,\"routine\":\"AddRoleMems\",\"severity\":\"ERROR\",\"position\":null,\"internalPosition\":null,\"internalQuery\":null,\"file\":\"user.c\",\"line\":\"1805\"}","SECTION=A FAILED (rollback attempted)"],"b":["TLS=PASS protocol=TLSv1.3 cipher=STUB-DISPOSABLE-NO-TLS failures=none","TLS_FIRST_SQL=true","IDENTITY role=pft_it_owner (expected pft_it_owner)","FAILING_STATEMENT=GRANT pft_test_migrator TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;","POSTGRES_ERROR={\"code\":\"0LP01\",\"message\":\"ADMIN option cannot be granted back to your own grantor\",\"detail\":null,\"hint\":null,\"where\":null,\"schema\":null,\"table\":null,\"column\":null,\"constraint\":null,\"routine\":\"AddRoleMems\",\"severity\":\"ERROR\",\"position\":null,\"internalPosition\":null,\"internalQuery\":null,\"file\":\"user.c\",\"line\":\"1805\"}","SECTION=A FAILED (rollback attempted)"]}
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:339:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:3391
+✖ live/sec: pft_test_runtime cannot INSERT/UPDATE/DELETE/DROP the snapshot (79.656ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:352:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:4441
+✖ live/rollback: injected failure after widening leaves options, owned objects and snapshot unchanged (74.331ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:375:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:5493
+✖ live/idem: repeated B then C keeps the live set exactly equal to the snapshot (67.1409ms)
+  AssertionError [ERR_ASSERTION]: A: TLS=PASS protocol=TLSv1.3 cipher=STUB-DISPOSABLE-NO-TLS failures=none
+  TLS_FIRST_SQL=true
+  IDENTITY role=pft_it_owner (expected pft_it_owner)
+  FAILING_STATEMENT=GRANT pft_test_migrator TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+  POSTGRES_ERROR={"code":"0LP01","message":"ADMIN option cannot be granted back to your own grantor","detail":null,"hint":null,"where":null,"schema":null,"table":null,"column":null,"constraint":null,"routine":"AddRoleMems","severity":"ERROR","position":null,"internalPosition":null,"internalQuery":null,"file":"user.c","line":"1805"}
+  SECTION=A FAILED (rollback attempted)
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:397:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts\provision-live-pg18.test.ts:54:5959
+✖ live/teardown: D+E remove every grant, both roles and the snapshot table (72.2068ms)
+  AssertionError [ERR_ASSERTION]: A: TLS=PASS protocol=TLSv1.3 cipher=STUB-DISPOSABLE-NO-TLS failures=none
+  TLS_FIRST_SQL=true
+  IDENTITY role=pft_it_owner (expected pft_it_owner)
+  FAILING_STATEMENT=GRANT pft_test_migrator TO CURRENT_USER WITH ADMIN TRUE, INHERIT FALSE, SET FALSE;
+  POSTGRES_ERROR={"code":"0LP01","message":"ADMIN option cannot be granted back to your own grantor","detail":null,"hint":null,"where":null,"schema":null,"table":null,"column":null,"constraint":null,"routine":"AddRoleMems","severity":"ERROR","position":null,"internalPosition":null,"internalQuery":null,"file":"user.c","line":"1805"}
+  SECTION=A FAILED (rollback attempted)
+  
+  4 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\User\Documents\Типовий проєкт\scripts\provision-live-pg18.test.ts:410:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 4,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,11 +1,8 @@
-# PHASE 1.10.39 — files that must never be uploaded to a Vercel deployment.
-# Local secrets / machine-specific tooling / build artifacts only.
-.env*
-.agents/
-cloudflare/
+# Запобігає попаданню зайвого у завантаження Vercel (ліміт файлу — 100 МБ,
+# бекап БД містить купу конфіденційних даних, залишати тільки в репозиторії/локально).
+backup-before-db-push-2026-11-21.json
 backups/
-.wrangler/
-node_modules/
-.next/
-.vercel/
-tsconfig.tsbuildinfo
+support-app/
+live1.txt
+pull18.log
+.impeccable/

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Support Desk</string>
+    <string name="title_activity_main">Support Desk</string>
+    <string name="package_name">com.pft.supportdesk</string>
+    <string name="custom_url_scheme">com.pft.supportdesk</string>
+</resources>

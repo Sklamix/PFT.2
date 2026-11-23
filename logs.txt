@@ -1,0 +1,294 @@
+Vercel CLI 64.2.0 (Node.js 24.21.0)
+Resolving deployment "pft-app-prod-6vacf252r-andripigij-5023.vercel.app"
+Retrieving project…
+Runtime logs for andripigij-5023/pft-app-prod (deployment dpl_DaBt1PdxGtcVuo4fAg7DQB7QxLke), 2026-11-21 21:50:46 to 22:20:46 (UTC+02:00)
+Fetching runtime log entries…
+TIME          LEVEL    SERVICE/SOURCE    MESSAGE
+22:20:17.095  error    function          [pft admin] Error [PrismaClientKnownRequestError]: 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+                                             at async f (.next/server/chunks/_1zd42n1gs8laa._.js:1:1399)
+                                             at async X (.next/server/chunks/_1zd42n1gs8laa._.js:1:5241)
+                                             at async ee (.next/server/chunks/_1zd42n1gs8laa._.js:1:6233) {
+                                           code: 'P2022',
+                                           meta: { modelName: 'User', column: 'User.lastLoginUserAgent' },
+                                           clientVersion: '6.19.3'
+                                         }
+22:20:17.079  info     function          prisma:error 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+22:20:15.497  error    function          [pft admin] Error [PrismaClientKnownRequestError]: 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+                                             at async f (.next/server/chunks/_1zd42n1gs8laa._.js:1:1399)
+                                             at async X (.next/server/chunks/_1zd42n1gs8laa._.js:1:5241)
+                                             at async ee (.next/server/chunks/_1zd42n1gs8laa._.js:1:6233) {
+                                           code: 'P2022',
+                                           meta: { modelName: 'User', column: 'User.lastLoginUserAgent' },
+                                           clientVersion: '6.19.3'
+                                         }
+22:20:15.375  info     function          prisma:error 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+22:19:55.393  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:19:55.142  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:19:16.657  error    function          [pft admin] Error [PrismaClientKnownRequestError]: 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+                                             at async f (.next/server/chunks/_1zd42n1gs8laa._.js:1:1399)
+                                             at async X (.next/server/chunks/_1zd42n1gs8laa._.js:1:5241)
+                                             at async ee (.next/server/chunks/_1zd42n1gs8laa._.js:1:6233) {
+                                           code: 'P2022',
+                                           meta: { modelName: 'User', column: 'User.lastLoginUserAgent' },
+                                           clientVersion: '6.19.3'
+                                         }
+22:19:16.641  info     function          prisma:error 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+22:19:15.648  error    function          [pft admin] Error [PrismaClientKnownRequestError]: 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+                                             at async f (.next/server/chunks/_1zd42n1gs8laa._.js:1:1399)
+                                             at async X (.next/server/chunks/_1zd42n1gs8laa._.js:1:5241)
+                                             at async ee (.next/server/chunks/_1zd42n1gs8laa._.js:1:6233) {
+                                           code: 'P2022',
+                                           meta: { modelName: 'User', column: 'User.lastLoginUserAgent' },
+                                           clientVersion: '6.19.3'
+                                         }
+22:19:15.632  info     function          prisma:error 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+22:19:14.359  error    function          [pft admin] Error [PrismaClientKnownRequestError]: 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+                                             at async f (.next/server/chunks/_1zd42n1gs8laa._.js:1:1399)
+                                             at async X (.next/server/chunks/_1zd42n1gs8laa._.js:1:5241)
+                                             at async ee (.next/server/chunks/_1zd42n1gs8laa._.js:1:6233) {
+                                           code: 'P2022',
+                                           meta: { modelName: 'User', column: 'User.lastLoginUserAgent' },
+                                           clientVersion: '6.19.3'
+                                         }
+22:19:14.227  info     function          prisma:error 
+                                         Invalid `prisma.user.findFirst()` invocation:
+                                         
+                                         
+                                         The column `User.lastLoginUserAgent` does not exist in the current database.
+22:18:55.146  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:18:54.924  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:17:55.342  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:17:54.961  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:16:55.322  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:16:55.177  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:15:55.149  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:15:54.920  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:14:55.221  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:14:55.101  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:13:55.367  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+22:13:55.367  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+22:12:55.143  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:12:55.038  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:11:55.295  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:11:55.197  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:10:55.325  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:10:54.988  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:09:55.030  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:09:54.949  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:08:55.291  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:08:54.883  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:07:55.090  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:07:55.012  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:06:55.073  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:06:54.778  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+22:05:55.217  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async A (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:4603)
+                                             at async ee (.next/server/chunks/_0yxnmwla-ci2e._.js:55:4813)
+                                             at async et (.next/server/chunks/_0yxnmwla-ci2e._.js:55:7601)
+                                             at async Q (.next/server/chunks/_0yxnmwla-ci2e._.js:55:11303)
+22:05:54.858  warn     function          [pft market quotes] Gold spot quote unavailable Error: No fresh gold spot quote
+                                             at <unknown> (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:2970)
+                                             at async w (.next/server/chunks/lib_trading_market-quotes_ts_0c36fkly6y8_x._.js:1:3662)
+                                             at async p (.next/server/chunks/_10bvq1zigxmb-._.js:1:1189)
+                                             at async m (.next/server/chunks/_10bvq1zigxmb-._.js:1:2559)
+                                             at async X (.next/server/chunks/_10bvq1zigxmb-._.js:1:6326)
+                                             at async ee (.next/server/chunks/_10bvq1zigxmb-._.js:1:7318)
+> More runtime log entries matched.
+Next page:
+  `vercel logs --next eyJ2IjoxLCJldmVudCI6InZlcmNlbC5sb2ciLCJvd25lcklkIjoidGVhbV82c1RFQ0VKaWpJRklYQnpzdFpXQUNBSlgiLCJwcm9qZWN0SWRzIjpbInByal9iTFd5cGZ4UXVQRlVsOGVIdVhxWWRGbk13bUZCIl0sInRpbWVSYW5nZSI6eyJzdGFydCI6IjIwMjYtMTEtMjFUMTk6NTA6NDYuMjQyWiIsImVuZCI6IjIwMjYtMTEtMjFUMjA6MjA6NDYuMjQyWiJ9LCJmaWx0ZXIiOiIoZGVwbG95bWVudElkOlwiZHBsX0RhQnQxUGR4R3RjVnVvNGZBZzdEUUI3UXhMa2VcIikiLCJvcmRlciI6ImRlc2MiLCJjdXJzb3IiOiJleUoyWlhKemFXOXVJam94TENKbWFXNW5aWEp3Y21sdWRDSTZJblZPVVdjNFYwOUtWRmwxU1dkWk1EbEpZM05RVFZSdWFHaHpTVmh5ZGxNNVpuZEZWRGRmWDJwZlpITWlMQ0owYVcxbGMzUmhiWEFpT2lJeU1ESTJMVEV4TFRJeFZESXdPakExT2pVMExqZzFPRm9pTENKMGFXVkNjbVZoYTJWeWN5STZXMTBzSW05bVpuTmxkQ0k2TVgwIn0`

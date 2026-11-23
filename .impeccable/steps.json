@@ -1,0 +1,1 @@
+[{"fill":"input[type=email]:demo@pft.local"},{"fill":"input[type=password]:PFT-Demo-Trader!"},{"click":"form button[type=submit]"},{"wait":2000},{"click":"button[aria-label^=\"Open journal entry\"]"}]

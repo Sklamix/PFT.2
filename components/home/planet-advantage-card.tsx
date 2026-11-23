@@ -5,16 +5,19 @@ import { ArrowRight, X } from 'lucide-react'
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import type { PlanetSpot } from './planet-spots'
 
 const FOCUSABLE = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function PlanetAdvantageCard({
   spot,
+  compact = false,
   onClose,
   onNavigate,
 }: {
   spot: PlanetSpot
+  compact?: boolean
   onClose: () => void
   onNavigate: (href: PlanetSpot['href']) => void
 }) {
@@ -47,18 +50,24 @@ export function PlanetAdvantageCard({
       role="dialog"
       aria-modal="true"
       aria-labelledby={`planet-advantage-${spot.id}`}
-      className="relative w-full max-w-[520px] gap-0 overflow-hidden rounded-2xl border border-white/10 bg-card/90 py-0 shadow-[0_28px_90px_-35px_rgb(0_0_0/0.95)] ring-0 backdrop-blur-xl"
+      className={cn(
+        'relative w-full max-w-[520px] gap-0 overflow-hidden rounded-2xl border border-white/10 bg-card/90 py-0 shadow-[0_28px_90px_-35px_rgb(0_0_0/0.95)] ring-0 backdrop-blur-xl',
+        compact && 'rounded-xl',
+      )}
       onPointerDown={(event) => event.stopPropagation()}
       onKeyDown={trapFocus}
     >
       <span className="pointer-events-none absolute inset-x-[16%] top-0 h-px bg-linear-to-r from-transparent via-primary/80 to-transparent" />
-      <CardHeader className="gap-4 px-7 pt-8 pb-4 pr-16">
+      <CardHeader className={cn('gap-4 px-7 pt-8 pb-4 pr-16', compact && 'gap-2 px-5 pt-5 pb-3 pr-16')}>
         <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">{spot.label}</p>
         <CardTitle
           ref={titleRef}
           id={`planet-advantage-${spot.id}`}
           tabIndex={-1}
-          className="text-balance text-2xl leading-tight font-semibold tracking-[-0.02em] text-foreground outline-none sm:text-3xl"
+          className={cn(
+            'text-balance text-2xl leading-tight font-semibold tracking-[-0.02em] text-foreground outline-none sm:text-3xl',
+            compact && 'text-xl sm:text-xl',
+          )}
         >
           {spot.heading}
         </CardTitle>
@@ -69,19 +78,25 @@ export function PlanetAdvantageCard({
         size="icon"
         aria-label="Close advantage"
         onClick={onClose}
-        className="absolute top-4 right-4 rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+        className={cn(
+          'absolute top-4 right-4 rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground',
+          compact && 'top-3 right-3 size-11',
+        )}
       >
         <X className="size-4" />
       </Button>
-      <CardContent className="px-7 pb-8">
-        <p className="max-w-[62ch] text-base leading-7 text-foreground/80">{spot.body}</p>
+      <CardContent className={cn('px-7 pb-8', compact && 'px-5 pb-5')}>
+        <p className={cn('max-w-[62ch] text-base leading-7 text-foreground/80', compact && 'leading-6')}>{spot.body}</p>
         <a
           href={spot.href}
           onClick={(event) => {
             event.preventDefault()
             onNavigate(spot.href)
           }}
-          className="group mt-6 inline-flex items-center gap-2 rounded-lg text-sm font-semibold text-primary underline-offset-4 outline-none transition-colors hover:text-highlight focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+          className={cn(
+            'group mt-6 inline-flex items-center gap-2 rounded-lg text-sm font-semibold text-primary underline-offset-4 outline-none transition-colors hover:text-highlight focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-background',
+            compact && 'mt-4 min-h-11',
+          )}
         >
           {spot.ctaLabel}
           <ArrowRight className="size-4 transition-transform group-hover:translate-x-1 motion-reduce:transition-none" />

@@ -1,0 +1,14 @@
+{
+  "appId": "com.pft.supportdesk",
+  "appName": "Support Desk",
+  "webDir": "www",
+  "server": {
+    "url": "https://pft-app-prod.vercel.app/staff",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "backgroundColor": "#0b0b0f",
+    "allowMixedContent": false
+  }
+}

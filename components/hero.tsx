@@ -35,6 +35,7 @@ export function Hero() {
   const [activeSpotId, setActiveSpotId] = useState<PlanetSpotId | null>(null)
   const [showFirstVisitHint, setShowFirstVisitHint] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
+  const [desktopExplorer, setDesktopExplorer] = useState(false)
   const [planetController] = useState(() => new PlanetController())
   const lastTrigger = useRef<HTMLButtonElement | null>(null)
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -89,6 +90,17 @@ export function Hero() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [closeExplorer, mode])
 
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)')
+    const sync = () => setDesktopExplorer(desktop.matches)
+    const frame = requestAnimationFrame(sync)
+    desktop.addEventListener('change', sync)
+    return () => {
+      cancelAnimationFrame(frame)
+      desktop.removeEventListener('change', sync)
+    }
+  }, [])
+
   useEffect(
     () => () => {
       if (scrollTimer.current) clearTimeout(scrollTimer.current)
@@ -114,6 +126,8 @@ export function Hero() {
   )
 
   const focused = mode !== 'hero'
+  const contentHidden = focused && desktopExplorer
+  const contentPointerLocked = contentHidden || (!desktopExplorer && mode === 'detail')
 
   return (
     <section id="top" className="relative isolate min-h-[100svh] overflow-hidden border-b border-white/5 bg-background">
@@ -146,7 +160,7 @@ export function Hero() {
         />
       </div>
 
-      <div className="absolute inset-0 z-20" aria-hidden="true">
+      <div className="absolute inset-x-0 top-0 z-20 h-[100svh] lg:inset-0 lg:h-auto" aria-hidden="true">
         <HeroSpaceScene
           variant="solar"
           mode={mode}
@@ -161,13 +175,15 @@ export function Hero() {
       <div
         aria-hidden={!focused}
         className={cn(
-          'absolute inset-0 z-[26] hidden transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] lg:block motion-reduce:transition-none',
+          'absolute inset-x-0 top-0 z-[26] h-[100svh] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] lg:inset-0 lg:h-auto motion-reduce:transition-none',
           focused
             ? cn(
                 'pointer-events-auto opacity-100',
-                mode === 'detail'
-                  ? 'bg-[radial-gradient(circle_at_77%_50%,transparent_0%,rgba(7,11,22,0.28)_27%,rgba(7,11,22,0.78)_72%)]'
-                  : 'bg-[radial-gradient(circle_at_50%_50%,transparent_0%,rgba(7,11,22,0.25)_30%,rgba(7,11,22,0.76)_76%)]',
+                desktopExplorer
+                  ? mode === 'detail'
+                    ? 'bg-[radial-gradient(circle_at_77%_50%,transparent_0%,rgba(7,11,22,0.28)_27%,rgba(7,11,22,0.78)_72%)]'
+                    : 'bg-[radial-gradient(circle_at_50%_50%,transparent_0%,rgba(7,11,22,0.25)_30%,rgba(7,11,22,0.76)_76%)]'
+                  : 'bg-[radial-gradient(circle_at_50%_72%,transparent_0%,rgba(7,11,22,0.2)_22%,rgba(7,11,22,0.62)_72%)]',
               )
             : 'pointer-events-none opacity-0',
         )}
@@ -175,11 +191,12 @@ export function Hero() {
       />
 
       <div
-        inert={focused}
-        aria-hidden={focused}
+        inert={contentHidden}
+        aria-hidden={contentHidden}
         className={cn(
           'relative z-30 mx-auto flex min-h-[calc(100svh-4rem)] max-w-7xl flex-col justify-center px-4 pt-[clamp(4.25rem,8.5vh,7rem)] pb-[clamp(2.25rem,4.5vh,3.5rem)] transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:px-6 lg:px-8 2xl:max-w-[1600px] motion-reduce:transition-none',
-          focused && 'pointer-events-none translate-y-3 opacity-0',
+          contentPointerLocked && 'pointer-events-none',
+          contentHidden && 'translate-y-3 opacity-0',
         )}
       >
         <div className="max-w-2xl xl:max-w-3xl 2xl:max-w-[48rem]">
@@ -196,12 +213,12 @@ export function Hero() {
             </span>
           </h1>
 
-          <p className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] max-w-xl text-pretty text-[clamp(1rem,1.15vw,1.35rem)] leading-[1.7] text-muted-foreground xl:max-w-2xl">
+          <p className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] max-w-xl text-pretty text-[clamp(1rem,1.15vw,1.35rem)] leading-[1.7] text-muted-foreground [@media(max-height:760px)]:hidden xl:max-w-2xl">
             Institutional-grade evaluations for disciplined traders. No calendar pressure, instant credentials, and
             payouts available every 7 days.
           </p>
 
-          <ul className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] flex flex-wrap gap-2.5">
+          <ul className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] flex flex-wrap gap-2.5 [@media(max-height:760px)]:hidden">
             {HIGHLIGHTS.map(({ icon: Icon, label }) => (
               <li
                 key={label}
@@ -223,26 +240,63 @@ export function Hero() {
             </a>
             <a
               href="/auth/login"
-              className="home-button inline-flex h-[clamp(2.6rem,min(3.2vw,5.8vh),3.4rem)] items-center justify-center self-center px-2 text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline sm:px-4"
+              className="home-button hidden h-[clamp(2.6rem,min(3.2vw,5.8vh),3.4rem)] items-center justify-center self-center px-2 text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline sm:inline-flex sm:px-4"
             >
               Already have credentials? Log in
             </a>
           </div>
 
-          <div className="mt-[clamp(1rem,min(1.4vw,1.8vh),1.4rem)] flex flex-wrap items-center gap-x-5 gap-y-2 text-[clamp(0.65rem,0.75vw,0.82rem)] text-muted-foreground/85">
+          <div className="mt-[clamp(1rem,min(1.4vw,1.8vh),1.4rem)] hidden flex-wrap items-center gap-x-5 gap-y-2 text-[clamp(0.65rem,0.75vw,0.82rem)] text-muted-foreground/85 lg:flex">
             <span className="inline-flex items-center gap-1.5">
               <Sparkles className="size-[clamp(0.8rem,1vw,1.05rem)] text-primary" />
               80% profit split · weekly payouts
             </span>
-            <span className="hidden h-3 w-px bg-white/10 lg:block" />
-            <span className="hidden items-center gap-1.5 lg:inline-flex">
+            <span className="h-3 w-px bg-white/10" />
+            <span className="inline-flex items-center gap-1.5">
               <MousePointerClick className="size-[clamp(0.8rem,1vw,1.05rem)] text-primary" />
               Drag the planet · click a marker
             </span>
           </div>
+
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-foreground/75 backdrop-blur-md lg:hidden">
+            <MousePointerClick className="size-3.5 text-primary" />
+            Swipe the planet · tap a marker
+          </div>
+
+          <div
+            className={cn(
+              'relative mt-3 min-h-[20rem] transition-[min-height] duration-500 lg:hidden motion-reduce:transition-none',
+              mode === 'detail' && 'min-h-[21rem]',
+            )}
+          >
+            <div
+              aria-hidden={mode !== 'detail'}
+              className={cn(
+                'pointer-events-none absolute -inset-x-4 inset-y-0 z-[44] bg-background transition-opacity duration-500 motion-reduce:transition-none',
+                mode === 'detail' ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+            {!desktopExplorer && mode === 'detail' && activeSpot ? (
+              <div className="pointer-events-auto relative z-[45] pt-2">
+                <PlanetAdvantageCard
+                  spot={activeSpot}
+                  compact
+                  onClose={() => closeExplorer(true)}
+                  onNavigate={navigateToSection}
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <a
+            href="/auth/login"
+            className="home-button mx-auto -mt-3 inline-flex h-10 items-center justify-center text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline sm:hidden"
+          >
+            Already have credentials? Log in
+          </a>
         </div>
 
-        <div className="mt-auto grid max-w-3xl grid-cols-2 gap-[clamp(0.4rem,0.6vw,0.8rem)] pt-[clamp(0.9rem,min(2.2vw,2.6vh),1.5rem)] sm:grid-cols-4 xl:max-w-4xl 2xl:max-w-5xl">
+        <div className="mt-5 grid max-w-3xl grid-cols-2 gap-[clamp(0.4rem,0.6vw,0.8rem)] pt-[clamp(0.9rem,min(2.2vw,2.6vh),1.5rem)] sm:grid-cols-4 lg:mt-auto xl:max-w-4xl 2xl:max-w-5xl">
           {[
             ['$200K', 'Max simulated capital'],
             ['80%', 'Profit split'],
@@ -274,6 +328,7 @@ export function Hero() {
         activeSpot={activeSpotId}
         showFirstVisitHint={showFirstVisitHint}
         controller={planetController}
+        isDesktop={desktopExplorer}
         onPlanetClick={() => {
           dismissFirstVisitHint()
           if (mode === 'hero') setMode('focus')
@@ -290,7 +345,7 @@ export function Hero() {
           mode === 'detail' ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0',
         )}
       >
-        {activeSpot ? (
+        {desktopExplorer && activeSpot ? (
           <div className="mx-auto flex min-h-[calc(100svh-4rem)] max-w-7xl items-center px-4 pt-16 sm:px-6 lg:px-8 2xl:max-w-[1600px]">
             <div className="pointer-events-auto w-full max-w-[520px]" onPointerDown={(event) => event.stopPropagation()}>
               <PlanetAdvantageCard spot={activeSpot} onClose={() => closeExplorer(true)} onNavigate={navigateToSection} />

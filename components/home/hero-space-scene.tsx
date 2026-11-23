@@ -285,6 +285,7 @@ function Scene({
   const mobile = size.width < 768
   const aspect = size.width / Math.max(size.height, 1)
   const portrait = !mobile && aspect < 1.05
+  const compact = mobile || portrait
   const wide = size.width >= 1600
   const large = size.width >= 1200
   const scene = SCENES[variant]
@@ -299,15 +300,15 @@ function Scene({
 
   const earthZ = mobile || portrait ? -0.8 : wide ? -0.45 : -0.55
   const heroPoint: [number, number] = mobile
-    ? [0.52, 0.7]
+    ? [0.52, 0.78]
     : portrait
-      ? [0.58, 0.66]
+      ? [0.58, 0.72]
       : wide
         ? [0.72, 0.5]
         : large
           ? [0.74, 0.5]
           : [0.76, 0.5]
-  const targetPoint: [number, number] = mobile || portrait
+  const targetPoint: [number, number] = compact
     ? heroPoint
     : mode === 'focus'
       ? [0.5, 0.5]
@@ -324,7 +325,7 @@ function Scene({
           ? Math.min(size.height * 0.24, size.width * 0.11)
           : Math.min(size.height * 0.2, size.width * 0.13)
   const baseScale = earthRadiusPx / (2.62 * pixelsPerWorldUnitAt(earthZ))
-  const targetScale = baseScale * (mobile || portrait ? 1 : mode === 'focus' ? 1.2 : mode === 'detail' ? 1.08 : 1)
+  const targetScale = baseScale * (compact ? (mode === 'focus' ? 1.12 : 1) : mode === 'focus' ? 1.2 : mode === 'detail' ? 1.08 : 1)
   const motionScale = Math.min(1, 900 / Math.max(size.height, 1)) * 0.65 * (reducedMotion ? 0 : 1)
 
   return (

@@ -47,9 +47,12 @@ const ALLOWED_SQL_FILES = [
   'daily-loss-cet.sql',
   'economic-calendar-values.sql',
   'economic-events.sql',
-  'favorite-symbols.sql',
-  'financial-core-preflight.sql',
+  // financial-core first, its preflight assertions second: the preflight queries
+  // columns (Position.idempotencyKey …) that only financial-core creates, so on a
+  // partially fresh database the original order aborted the whole bootstrap.
   'financial-core.sql',
+  'financial-core-preflight.sql',
+  'favorite-symbols.sql',
   'gold-candle.sql',
   'inactivity-closure-claim.sql',
   'instrument-registry.sql',
@@ -76,6 +79,10 @@ const ALLOWED_SQL_FILES = [
   'trade-voids.sql',
   'trading-conditions.sql',
   'webhook-events.sql',
+  'push-subscriptions.sql',
+  'account-ledger-baseline.sql',
+  'ai-support-idempotency.sql',
+  'observability-schema.sql',
 ]
 
 /**
