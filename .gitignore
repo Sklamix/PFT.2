@@ -34,3 +34,6 @@ backup-before-db-push-*.json
 # Wrangler local state
 .wrangler/
 .neon
+
+# Local agent workspace notes (per-machine, like .agents/)
+.workbuddy-ai/
