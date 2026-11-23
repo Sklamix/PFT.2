@@ -107,7 +107,7 @@ export function PlanetHotspots({
       inert={!isDesktop && mode === 'detail'}
       aria-hidden={!isDesktop && mode === 'detail'}
       className={cn(
-        'pointer-events-none absolute inset-x-0 top-0 z-40 h-[100svh] transition-opacity duration-500 lg:inset-0 lg:h-auto motion-reduce:transition-none',
+        'pointer-events-none absolute inset-0 z-40 transition-opacity duration-500 motion-reduce:transition-none',
         !isDesktop && mode === 'detail' && 'opacity-0',
       )}
       aria-label="Planet advantages explorer"
@@ -171,9 +171,9 @@ export function PlanetHotspots({
             onOpenSpot(spot.id, event.currentTarget)
           }}
         >
-          <span className="absolute size-5 rounded-full bg-primary/20 blur-[5px] transition-transform duration-300 group-hover:scale-150 group-focus-visible:scale-150" />
-          <span className="absolute size-3 rounded-full border border-primary/40 motion-safe:animate-ping motion-safe:[animation-duration:2.4s]" />
-          <span className="relative size-2 rounded-full border border-white/70 bg-highlight shadow-[0_0_12px_var(--highlight)] transition-transform duration-300 group-hover:scale-150 group-focus-visible:scale-150" />
+          <span className="absolute size-6 rounded-full bg-primary/20 blur-[5px] transition-transform duration-300 group-hover:scale-150 group-focus-visible:scale-150 lg:size-5" />
+          <span className="absolute size-3.5 rounded-full border border-primary/40 motion-safe:animate-ping motion-safe:[animation-duration:2.4s] lg:size-3" />
+          <span className="relative size-2.5 rounded-full border border-white/70 bg-highlight shadow-[0_0_12px_var(--highlight)] transition-transform duration-300 group-hover:scale-150 group-focus-visible:scale-150 lg:size-2" />
         </button>
       ))}
     </div>

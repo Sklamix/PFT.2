@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, CalendarClock, Clock, KeyRound, MousePointerClick, Sparkles } from 'lucide-react'
 
 import { PlanetAdvantageCard } from '@/components/home/planet-advantage-card'
+import { PlanetAdvantageSheet } from '@/components/home/planet-advantage-sheet'
 import { PlanetController } from '@/components/home/planet-controller'
 import { PlanetHotspots } from '@/components/home/planet-hotspots'
 import { PLANET_SPOTS, type PlanetMode, type PlanetSpotId } from '@/components/home/planet-spots'
@@ -36,9 +37,11 @@ export function Hero() {
   const [showFirstVisitHint, setShowFirstVisitHint] = useState(false)
   const [reducedMotion, setReducedMotion] = useState(false)
   const [desktopExplorer, setDesktopExplorer] = useState(false)
+  const [mobileAnchor, setMobileAnchor] = useState<{ x: number; y: number; radius: number } | null>(null)
   const [planetController] = useState(() => new PlanetController())
   const lastTrigger = useRef<HTMLButtonElement | null>(null)
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const planetSlotRef = useRef<HTMLDivElement | null>(null)
 
   const activeSpot = useMemo(
     () => PLANET_SPOTS.find((spot) => spot.id === activeSpotId) ?? null,
@@ -101,6 +104,37 @@ export function Hero() {
     }
   }, [])
 
+  useEffect(() => {
+    if (desktopExplorer) return
+    const slot = planetSlotRef.current
+    const section = slot?.closest('section')
+    if (!slot || !section) return
+
+    const measure = () => {
+      const slotRect = slot.getBoundingClientRect()
+      const sectionRect = section.getBoundingClientRect()
+      if (slotRect.height === 0) return
+      setMobileAnchor({
+        x: slotRect.left - sectionRect.left + slotRect.width / 2,
+        // Sits slightly above the slot centre so the ring clears the fold on short phones.
+        y: slotRect.top - sectionRect.top + slotRect.height * 0.45,
+        radius: Math.min(slotRect.width, slotRect.height) * 0.42,
+      })
+    }
+
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(slot)
+    observer.observe(section)
+    // Web fonts settle after first paint and shift the slot; re-measure once they do.
+    document.fonts?.ready.then(measure).catch(() => {})
+    window.addEventListener('resize', measure)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [desktopExplorer])
+
   useEffect(
     () => () => {
       if (scrollTimer.current) clearTimeout(scrollTimer.current)
@@ -126,8 +160,10 @@ export function Hero() {
   )
 
   const focused = mode !== 'hero'
+  const sheetOpen = !desktopExplorer && mode === 'detail'
   const contentHidden = focused && desktopExplorer
-  const contentPointerLocked = contentHidden || (!desktopExplorer && mode === 'detail')
+  const contentInert = contentHidden || sheetOpen
+  const contentPointerLocked = contentInert
 
   return (
     <section id="top" className="relative isolate min-h-[100svh] overflow-hidden border-b border-white/5 bg-background">
@@ -160,30 +196,29 @@ export function Hero() {
         />
       </div>
 
-      <div className="absolute inset-x-0 top-0 z-20 h-[100svh] lg:inset-0 lg:h-auto" aria-hidden="true">
+      <div className="absolute inset-0 z-20" aria-hidden="true">
         <HeroSpaceScene
           variant="solar"
           mode={mode}
           activeSpot={activeSpotId}
           reducedMotion={reducedMotion}
           controller={planetController}
+          anchor={desktopExplorer ? null : mobileAnchor}
         />
       </div>
 
-      <div className="pointer-events-none absolute inset-0 z-[25] bg-[linear-gradient(90deg,rgba(7,11,22,0.86)_0%,rgba(7,11,22,0.72)_26%,rgba(7,11,22,0.3)_54%,transparent_78%)] max-lg:bg-[linear-gradient(180deg,rgb(7,11,22)_0%,rgba(7,11,22,0.82)_34%,rgba(7,11,22,0.12)_70%,rgb(7,11,22)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 z-[25] bg-[linear-gradient(90deg,rgba(7,11,22,0.86)_0%,rgba(7,11,22,0.72)_26%,rgba(7,11,22,0.3)_54%,transparent_78%)] max-lg:bg-[linear-gradient(180deg,rgb(7,11,22)_0%,rgba(7,11,22,0.84)_32%,rgba(7,11,22,0.08)_60%,rgba(7,11,22,0.45)_84%,rgb(7,11,22)_100%)]" />
 
       <div
-        aria-hidden={!focused}
+        aria-hidden={!contentHidden}
         className={cn(
-          'absolute inset-x-0 top-0 z-[26] h-[100svh] transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] lg:inset-0 lg:h-auto motion-reduce:transition-none',
-          focused
+          'absolute inset-0 z-[26] hidden transition-opacity duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] lg:block motion-reduce:transition-none',
+          contentHidden
             ? cn(
                 'pointer-events-auto opacity-100',
-                desktopExplorer
-                  ? mode === 'detail'
-                    ? 'bg-[radial-gradient(circle_at_77%_50%,transparent_0%,rgba(7,11,22,0.28)_27%,rgba(7,11,22,0.78)_72%)]'
-                    : 'bg-[radial-gradient(circle_at_50%_50%,transparent_0%,rgba(7,11,22,0.25)_30%,rgba(7,11,22,0.76)_76%)]'
-                  : 'bg-[radial-gradient(circle_at_50%_72%,transparent_0%,rgba(7,11,22,0.2)_22%,rgba(7,11,22,0.62)_72%)]',
+                mode === 'detail'
+                  ? 'bg-[radial-gradient(circle_at_77%_50%,transparent_0%,rgba(7,11,22,0.28)_27%,rgba(7,11,22,0.78)_72%)]'
+                  : 'bg-[radial-gradient(circle_at_50%_50%,transparent_0%,rgba(7,11,22,0.25)_30%,rgba(7,11,22,0.76)_76%)]',
               )
             : 'pointer-events-none opacity-0',
         )}
@@ -191,8 +226,8 @@ export function Hero() {
       />
 
       <div
-        inert={contentHidden}
-        aria-hidden={contentHidden}
+        inert={contentInert}
+        aria-hidden={contentInert}
         className={cn(
           'relative z-30 mx-auto flex min-h-[calc(100svh-4rem)] max-w-7xl flex-col justify-center px-4 pt-[clamp(4.25rem,8.5vh,7rem)] pb-[clamp(2.25rem,4.5vh,3.5rem)] transition-[opacity,transform] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] sm:px-6 lg:px-8 2xl:max-w-[1600px] motion-reduce:transition-none',
           contentPointerLocked && 'pointer-events-none',
@@ -218,7 +253,7 @@ export function Hero() {
             payouts available every 7 days.
           </p>
 
-          <ul className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] flex flex-wrap gap-2.5 [@media(max-height:760px)]:hidden">
+          <ul className="mt-[clamp(0.9rem,min(1.4vw,1.9vh),1.35rem)] hidden flex-wrap gap-2.5 sm:flex [@media(max-height:760px)]:hidden">
             {HIGHLIGHTS.map(({ icon: Icon, label }) => (
               <li
                 key={label}
@@ -258,42 +293,28 @@ export function Hero() {
             </span>
           </div>
 
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-foreground/75 backdrop-blur-md lg:hidden">
-            <MousePointerClick className="size-3.5 text-primary" />
-            Swipe the planet · tap a marker
+          <div className="mt-3 flex justify-center sm:hidden">
+            <a
+              href="/auth/login"
+              className="home-button inline-flex h-11 items-center justify-center px-2 text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
+            >
+              Already have credentials? Log in
+            </a>
+          </div>
+
+          <div className="mt-3 mb-1 flex justify-center lg:hidden [@media(max-height:559px)]:hidden [@media(min-width:768px)_and_(orientation:landscape)]:hidden">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-foreground/75 backdrop-blur-md">
+              <MousePointerClick className="size-3.5 text-primary" aria-hidden="true" />
+              Swipe to rotate · tap a marker
+            </span>
           </div>
 
           <div
-            className={cn(
-              'relative mt-3 min-h-[20rem] transition-[min-height] duration-500 lg:hidden motion-reduce:transition-none',
-              mode === 'detail' && 'min-h-[21rem]',
-            )}
-          >
-            <div
-              aria-hidden={mode !== 'detail'}
-              className={cn(
-                'pointer-events-none absolute -inset-x-4 inset-y-0 z-[44] bg-background transition-opacity duration-500 motion-reduce:transition-none',
-                mode === 'detail' ? 'opacity-100' : 'opacity-0',
-              )}
-            />
-            {!desktopExplorer && mode === 'detail' && activeSpot ? (
-              <div className="pointer-events-auto relative z-[45] pt-2">
-                <PlanetAdvantageCard
-                  spot={activeSpot}
-                  compact
-                  onClose={() => closeExplorer(true)}
-                  onNavigate={navigateToSection}
-                />
-              </div>
-            ) : null}
-          </div>
-
-          <a
-            href="/auth/login"
-            className="home-button mx-auto -mt-3 inline-flex h-10 items-center justify-center text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline sm:hidden"
-          >
-            Already have credentials? Log in
-          </a>
+            ref={planetSlotRef}
+            aria-hidden="true"
+            data-planet-slot=""
+            className="relative h-[min(36svh,16.5rem)] min-h-[12rem] lg:hidden [@media(max-height:559px)]:hidden [@media(min-width:768px)_and_(orientation:landscape)]:hidden"
+          />
         </div>
 
         <div className="mt-5 grid max-w-3xl grid-cols-2 gap-[clamp(0.4rem,0.6vw,0.8rem)] pt-[clamp(0.9rem,min(2.2vw,2.6vh),1.5rem)] sm:grid-cols-4 lg:mt-auto xl:max-w-4xl 2xl:max-w-5xl">
@@ -331,7 +352,8 @@ export function Hero() {
         isDesktop={desktopExplorer}
         onPlanetClick={() => {
           dismissFirstVisitHint()
-          if (mode === 'hero') setMode('focus')
+          // Focus mode only makes sense where there is room to centre the planet.
+          if (desktopExplorer && mode === 'hero') setMode('focus')
         }}
         onOpenSpot={openSpot}
         onInteract={dismissFirstVisitHint}
@@ -353,6 +375,10 @@ export function Hero() {
           </div>
         ) : null}
       </div>
+
+      {sheetOpen && activeSpot ? (
+        <PlanetAdvantageSheet spot={activeSpot} onClose={() => closeExplorer(true)} onNavigate={navigateToSection} />
+      ) : null}
     </section>
   )
 }

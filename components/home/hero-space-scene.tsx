@@ -273,6 +273,7 @@ function Scene({
   activeSpot,
   reducedMotion,
   controller,
+  anchor,
 }: {
   variant: HeroSceneVariant
   pointer: RefObject<{ x: number; y: number }>
@@ -280,6 +281,7 @@ function Scene({
   activeSpot: string | null
   reducedMotion: boolean
   controller: PlanetController
+  anchor: { x: number; y: number; radius: number } | null
 }) {
   const { size, camera } = useThree()
   const mobile = size.width < 768
@@ -308,22 +310,31 @@ function Scene({
         : large
           ? [0.74, 0.5]
           : [0.76, 0.5]
-  const targetPoint: [number, number] = compact
-    ? heroPoint
-    : mode === 'focus'
-      ? [0.5, 0.5]
-      : mode === 'detail'
-        ? [0.77, 0.5]
-        : heroPoint
-  const earthRadiusPx = mobile
-    ? Math.min(size.height * 0.15, size.width * 0.28)
-    : portrait
-      ? Math.min(size.height * 0.19, size.width * 0.22)
-      : wide
-        ? Math.min(size.height * 0.26, size.width * 0.13)
-        : large
-          ? Math.min(size.height * 0.24, size.width * 0.11)
-          : Math.min(size.height * 0.2, size.width * 0.13)
+  const anchorPoint: [number, number] | null =
+    anchor && compact
+      ? [anchor.x / Math.max(size.width, 1), anchor.y / Math.max(size.height, 1)]
+      : null
+  const targetPoint: [number, number] = anchorPoint
+    ? anchorPoint
+    : compact
+      ? heroPoint
+      : mode === 'focus'
+        ? [0.5, 0.5]
+        : mode === 'detail'
+          ? [0.77, 0.5]
+          : heroPoint
+  const earthRadiusPx =
+    anchor && compact
+      ? anchor.radius
+      : mobile
+        ? Math.min(size.height * 0.15, size.width * 0.28)
+        : portrait
+          ? Math.min(size.height * 0.19, size.width * 0.22)
+          : wide
+            ? Math.min(size.height * 0.26, size.width * 0.13)
+            : large
+              ? Math.min(size.height * 0.24, size.width * 0.11)
+              : Math.min(size.height * 0.2, size.width * 0.13)
   const baseScale = earthRadiusPx / (2.62 * pixelsPerWorldUnitAt(earthZ))
   const targetScale = baseScale * (compact ? (mode === 'focus' ? 1.12 : 1) : mode === 'focus' ? 1.2 : mode === 'detail' ? 1.08 : 1)
   const motionScale = Math.min(1, 900 / Math.max(size.height, 1)) * 0.65 * (reducedMotion ? 0 : 1)
@@ -358,12 +369,14 @@ export function HeroSpaceScene({
   activeSpot,
   reducedMotion,
   controller,
+  anchor = null,
 }: {
   variant: HeroSceneVariant
   mode: PlanetMode
   activeSpot: string | null
   reducedMotion: boolean
   controller: PlanetController
+  anchor?: { x: number; y: number; radius: number } | null
 }) {
   const pointer = useRef({ x: 0, y: 0 })
 
@@ -391,6 +404,7 @@ export function HeroSpaceScene({
         activeSpot={activeSpot}
         reducedMotion={reducedMotion}
         controller={controller}
+        anchor={anchor}
       />
     </Canvas>
   )
