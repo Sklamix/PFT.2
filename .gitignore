@@ -28,6 +28,8 @@ skills-lock.json
 
 # Local logical database backups
 backups/
+# One-off dumps written to the repo root; far above GitHub's 100 MB blob limit.
+backup-before-db-push-*.json
 
 # Wrangler local state
 .wrangler/
