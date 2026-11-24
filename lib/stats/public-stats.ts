@@ -25,15 +25,18 @@ function serializeStats(row: {
   }
 }
 
-function serializePayout(row: {
-  id: string
-  traderName: string
-  countryCode: string
-  accountSize: Prisma.Decimal
-  payoutAmount: Prisma.Decimal
-  payoutMethod: string
-  createdAt: Date
-}): PublicPayout {
+function serializePayout(
+  row: {
+    id: string
+    traderName: string
+    countryCode: string
+    accountSize: Prisma.Decimal
+    payoutAmount: Prisma.Decimal
+    payoutMethod: string
+    createdAt: Date
+  },
+  certificateId: string | null = null,
+): PublicPayout {
   return {
     id: row.id,
     traderName: row.traderName,
@@ -42,7 +45,36 @@ function serializePayout(row: {
     payoutAmount: toNumber(row.payoutAmount),
     payoutMethod: row.payoutMethod,
     createdAt: row.createdAt.toISOString(),
+    certificateId,
   }
+}
+
+/**
+ * Maps `Payout.id` → public certificate id for the proofs that actually came from
+ * a disbursed payout. Only VERIFIED PAYOUT certificates are returned, so a revoked
+ * certificate silently removes the "Verify" affordance instead of dead-linking.
+ */
+async function resolveCertificateIds(
+  rows: Array<{ sourcePayoutId: string | null }>,
+): Promise<Map<string, string>> {
+  const payoutIds = rows
+    .map((row) => row.sourcePayoutId)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+
+  if (payoutIds.length === 0) return new Map()
+
+  const certificates = await prisma.certificate.findMany({
+    where: { payoutId: { in: payoutIds }, type: 'PAYOUT', status: 'VERIFIED' },
+    select: { publicId: true, payoutId: true },
+    orderBy: { issuedAt: 'desc' },
+  })
+
+  const byPayout = new Map<string, string>()
+  for (const certificate of certificates) {
+    if (!certificate.payoutId || byPayout.has(certificate.payoutId)) continue
+    byPayout.set(certificate.payoutId, certificate.publicId)
+  }
+  return byPayout
 }
 
 async function ensureStatsRow() {
@@ -61,17 +93,29 @@ async function ensureStatsRow() {
 }
 
 export async function getPublicStats(limit = 16): Promise<PublicStatsPayload> {
-  const [statsRow, proofRows] = await Promise.all([
+  const [statsRow, proofRows, totals] = await Promise.all([
     prisma.platformStats.findUnique({ where: { id: STATS_ID } }),
     prisma.payoutProof.findMany({
       orderBy: { createdAt: 'desc' },
       take: limit,
     }),
+    prisma.payoutProof.aggregate({
+      _count: { _all: true },
+      _sum: { payoutAmount: true },
+    }),
   ])
+
+  const certificateIds = await resolveCertificateIds(proofRows)
 
   return {
     stats: statsRow ? serializeStats(statsRow) : DEFAULT_PLATFORM_STATS,
-    payouts: proofRows.map(serializePayout),
+    payouts: proofRows.map((row) =>
+      serializePayout(row, row.sourcePayoutId ? certificateIds.get(row.sourcePayoutId) ?? null : null),
+    ),
+    proofs: {
+      count: totals._count._all,
+      total: toNumber(totals._sum.payoutAmount ?? 0),
+    },
     source: statsRow || proofRows.length ? 'database' : 'fallback',
   }
 }
@@ -81,7 +125,10 @@ export async function listPayoutProofs(limit = 50) {
     orderBy: { createdAt: 'desc' },
     take: limit,
   })
-  return rows.map(serializePayout)
+  const certificateIds = await resolveCertificateIds(rows)
+  return rows.map((row) =>
+    serializePayout(row, row.sourcePayoutId ? certificateIds.get(row.sourcePayoutId) ?? null : null),
+  )
 }
 
 export async function createPayoutProof(input: PayoutProofInput) {

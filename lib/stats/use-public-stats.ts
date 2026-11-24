@@ -1,43 +1,68 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 import { FALLBACK_PUBLIC_STATS } from '@/lib/stats/defaults'
 import type { PublicStatsPayload } from '@/lib/stats/types'
 
+const REFRESH_MS = 60_000
+
+let snapshot: PublicStatsPayload = FALLBACK_PUBLIC_STATS
+const listeners = new Set<() => void>()
+let started = false
+
+function emit() {
+  for (const listener of listeners) listener()
+}
+
+async function refresh() {
+  try {
+    const response = await fetch('/api/stats', { cache: 'no-store' })
+    if (!response.ok) return
+    const next = (await response.json()) as PublicStatsPayload
+    if (!next?.stats || !Array.isArray(next.payouts) || !next.proofs) return
+    snapshot = next
+    emit()
+  } catch {
+    // Keep the last successful snapshot; the bundled fallback covers first load.
+  }
+}
+
 /**
- * Single poller for the public platform stats. Shared by the payout section and
- * the hero so the homepage never opens two independent /api/stats loops.
+ * One poller for the whole page, started by the first subscriber. The hero and the
+ * payout section read the same module-level snapshot, so the homepage never opens
+ * two independent /api/stats loops.
  *
  * The bundled fallback is used until the first successful fetch; a failed fetch
  * keeps the last good snapshot rather than blanking the counters.
  */
+function subscribe(listener: () => void) {
+  listeners.add(listener)
+
+  if (!started && typeof window !== 'undefined') {
+    started = true
+    void refresh()
+    window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh()
+    }, REFRESH_MS)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void refresh()
+    })
+  }
+
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+function getSnapshot() {
+  return snapshot
+}
+
+function getServerSnapshot() {
+  return FALLBACK_PUBLIC_STATS
+}
+
 export function usePublicStats(): PublicStatsPayload {
-  const [payload, setPayload] = useState<PublicStatsPayload>(FALLBACK_PUBLIC_STATS)
-
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch('/api/stats', { cache: 'no-store' })
-      if (!response.ok) return
-      const next = (await response.json()) as PublicStatsPayload
-      if (next?.stats && Array.isArray(next.payouts)) setPayload(next)
-    } catch {
-      // Keep the last successful snapshot; the bundled fallback is used on first load.
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-    const interval = window.setInterval(() => void load(), 60_000)
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void load()
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [load])
-
-  return payload
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }

@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, CalendarClock, Clock, KeyRound, MousePointerClick, Sparkles } from 'lucide-react'
 
+import { HeroProofBar } from '@/components/home/hero-proof-bar'
 import { PlanetAdvantageCard } from '@/components/home/planet-advantage-card'
 import { PlanetAdvantageSheet } from '@/components/home/planet-advantage-sheet'
 import { PlanetController } from '@/components/home/planet-controller'
@@ -324,6 +325,7 @@ export function Hero() {
         </div>
 
         <div className="mt-5 grid max-w-3xl grid-cols-2 gap-[clamp(0.4rem,0.6vw,0.8rem)] pt-[clamp(0.9rem,min(2.2vw,2.6vh),1.5rem)] sm:grid-cols-4 lg:mt-auto xl:max-w-4xl 2xl:max-w-5xl">
+          <HeroProofBar />
           {[
             ['$25K', 'Max simulated capital'],
             ['80%', 'Profit split'],

@@ -1,7 +1,8 @@
 'use client'
 
-import { BadgeCheck } from 'lucide-react'
+import { ArrowUpRight, BadgeCheck } from 'lucide-react'
 import { SectionHeading } from '@/components/section-heading'
+import { trackEvent } from '@/lib/analytics/track'
 import type { PublicPayout } from '@/lib/stats/types'
 import { usePublicStats } from '@/lib/stats/use-public-stats'
 import { cn } from '@/lib/utils'
@@ -51,7 +52,21 @@ function PayoutCard({
       </div>
       <div className="text-right">
         <p className="font-mono text-[15px] font-semibold tabular-nums text-highlight">{usd.format(payout.payoutAmount)}</p>
-        <p className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">paid</p>
+        {payout.certificateId ? (
+          <a
+            href={`/verify/${payout.certificateId}`}
+            // The marquee duplicates every card for the seamless loop; those copies
+            // are aria-hidden, so their links must stay out of the tab order.
+            tabIndex={duplicate ? -1 : undefined}
+            onClick={() => trackEvent('proof_verify_click', { from: 'card' })}
+            className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] uppercase tracking-[0.18em] text-highlight/85 underline-offset-2 transition hover:text-highlight hover:underline"
+          >
+            Verify
+            <ArrowUpRight className="size-3" aria-hidden="true" />
+          </a>
+        ) : (
+          <p className="mt-0.5 text-[11px] uppercase tracking-[0.18em] text-muted-foreground/80">paid</p>
+        )}
       </div>
     </li>
   )

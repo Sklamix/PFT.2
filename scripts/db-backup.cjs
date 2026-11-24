@@ -38,6 +38,21 @@ function redactDatabaseUrl(value) {
 
 const jsonReplacer = (_key, value) => (typeof value === 'bigint' ? value.toString() : value)
 
+/**
+ * A model can be in the schema while its table is not created yet — that is
+ * exactly the state right before `prisma db push`. Treat a missing table as an
+ * empty table so the backup still completes; any other error must abort.
+ */
+async function readRows(delegate, model) {
+  try {
+    return await delegate.findMany()
+  } catch (error) {
+    if (error?.code !== 'P2021') throw error
+    console.warn(`[pft backup] ${model}: table does not exist yet, backing up as empty`)
+    return []
+  }
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is required for db:backup')
@@ -68,7 +83,7 @@ async function main() {
       if (!delegate || typeof delegate.findMany !== 'function') {
         throw new Error(`No Prisma delegate for model ${model}`)
       }
-      const rows = await delegate.findMany()
+      const rows = await readRows(delegate, model)
       const payload = `${JSON.stringify(rows, jsonReplacer, 2)}\n`
       const file = `${model}.json`
       fs.writeFileSync(path.join(outDir, file), payload, 'utf8')

@@ -1,4 +1,4 @@
-import type { PublicPayout, PublicPlatformStats, PublicStatsPayload } from './types'
+import type { PublicPayout, PublicPlatformStats, PublicProofTotals, PublicStatsPayload } from './types'
 
 /**
  * Neutral fallback used before any real payout proof has been recorded by an
@@ -15,8 +15,11 @@ export const DEFAULT_PLATFORM_STATS: PublicPlatformStats = {
 
 export const DEFAULT_PAYOUTS: PublicPayout[] = []
 
+export const DEFAULT_PROOF_TOTALS: PublicProofTotals = { count: 0, total: 0 }
+
 export const FALLBACK_PUBLIC_STATS: PublicStatsPayload = {
   stats: DEFAULT_PLATFORM_STATS,
   payouts: DEFAULT_PAYOUTS,
+  proofs: DEFAULT_PROOF_TOTALS,
   source: 'fallback',
 }

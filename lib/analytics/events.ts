@@ -12,6 +12,7 @@ export const ANALYTICS_EVENTS = [
   'planet_marker_open',
   'advantage_card_cta',
   'calculator_checkout_open',
+  'proof_verify_click',
 ] as const
 
 export type AnalyticsEventName = (typeof ANALYTICS_EVENTS)[number]
