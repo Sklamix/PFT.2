@@ -41,21 +41,34 @@ npm run db:backup -- --prod --out backups/pre-p1-2026-10-27
 > `npm run db:push` навмисно відмовляється працювати, коли `DATABASE_URL` вказує на
 > не-production гілку Neon: інакше `prisma db push` тихо проходить по preview, де таблиця
 > вже є, друкує "already in sync", і здається, що production оновлено. Для локальної
-> роботи — `npm run db:push -- --allow-preview`. Для production — `npm run db:push:prod`.
+> роботи — `npm run db:push -- --allow-preview`. Для production — `npm run db:migrate:prod`.
 
 ---
 
 ## 2. Міграції (ідемпотентні, без `prisma db push`)
 
+`npm run db:push:prod` тепер **відмовляється** запускатись. Причина конкретна: production
+має об'єкти, яких немає в `prisma/schema.prisma` —
+
+- `Order.checkoutTokenHash` / `Order.checkoutTokenUsedAt` (додані `checkout-identity.sql`),
+- саму таблицю історії `_pft_migrations`.
+
+Тому `db push` вважає їх зайвими і пропонує видалити: 1 + 1 значення в `Order` і 16 рядків
+історії міграцій. Це вже траплялось — не підтверджуйте таке видалення.
+
+Замість цього — виконавець міграцій, який веде історію в `_pft_migrations`:
+
 ```powershell
-npx prisma db execute --file prisma/sql/account-appeals.sql --schema prisma/schema.prisma
-npx prisma db execute --file prisma/sql/risk-flags-and-backups.sql --schema prisma/schema.prisma
-npx prisma db execute --file prisma/sql/session-risk.sql --schema prisma/schema.prisma
-npx prisma db execute --file prisma/sql/rules-versioning.sql --schema prisma/schema.prisma
-npx prisma db execute --file prisma/sql/rate-limit.sql --schema prisma/schema.prisma
+npm run db:migrate:prod                              # read-only звіт: що вже є, що pending
+npm run db:migrate:prod -- --mode apply              # застосувати pending
+npm run db:migrate:prod -- --mode apply --only price-alert.sql
 ```
 
-Очікувано: `Script executed successfully.` для кожного файлу.
+Скрипт сам підставляє `PRODUCTION_DATABASE_URL`, `MIGRATION_EXPECTED_ROLE` (з URL) і
+`PFT_PRODUCTION_MIGRATIONS=1`, які вимагає виконавець.
+
+Очікувано у звіті: `PRODUCTION_PRE=<file> SATISFIED` для вже застосованих,
+і plain `PRODUCTION_PRE=<file>` для тих, що попереду.
 
 Перевірка колонок:
 

@@ -55,6 +55,33 @@ if (requireProd && !explicitProd) {
   )
 }
 
+// `db push` must never touch production in this repo.
+//
+// The production database carries objects the Prisma schema does not model:
+//   - "Order"."checkoutTokenHash" and "Order"."checkoutTokenUsedAt", added by
+//     prisma/sql/checkout-identity.sql
+//   - the "_pft_migrations" history table itself
+// Prisma therefore treats them as droppable and, on a real run, offers to delete
+// live data and the migration history. The additive SQL files in prisma/sql/
+// are the supported path, driven by the production migration executor.
+if (explicitProd && !flags.has('--force')) {
+  fail(
+    'Refusing to run `prisma db push` against production.',
+    [
+      '  Production has columns and tables the Prisma schema does not model',
+      '  (Order.checkoutTokenHash / checkoutTokenUsedAt, _pft_migrations), so',
+      '  db push reports them as droppable — it would delete live data and the',
+      '  migration history.',
+      '',
+      '  Use the additive SQL migrations instead:',
+      '    npm run db:migrate:prod                        # read-only report',
+      '    npm run db:migrate:prod -- --mode apply        # apply what is pending',
+      '',
+      '  For a genuine emergency only: add --force.',
+    ].join('\n'),
+  )
+}
+
 const target = explicitProd || process.env.DATABASE_URL || values.DATABASE_URL
 
 if (!target) {

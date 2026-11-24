@@ -515,6 +515,36 @@ export const PRODUCTION_MIGRATIONS: readonly ProductionMigration[] = [
       constraintExists('AccountBreachEvent', 'AccountBreachEvent_auditLogId_fkey'),
     ],
   },
+  {
+    // Product analytics written by POST /api/events. The table was first created
+    // with `prisma db push` on the preview branch only, so production never got
+    // it and every tracked event was silently dropped there.
+    file: 'analytics-event.sql',
+    postconditions: [
+      tableExists('AnalyticsEvent'),
+      columnExists('AnalyticsEvent', 'props'),
+      columnExists('AnalyticsEvent', 'sessionId'),
+      indexExists('AnalyticsEvent_name_createdAt_idx'),
+      indexExists('AnalyticsEvent_createdAt_idx'),
+      constraintExists('AnalyticsEvent', 'AnalyticsEvent_pkey'),
+    ],
+  },
+  {
+    // Chart price alerts. Must run after nothing in particular, but the FK needs
+    // "User" to exist — it always does.
+    file: 'price-alert.sql',
+    postconditions: [
+      tableExists('PriceAlert'),
+      columnExists('PriceAlert', 'direction'),
+      columnExists('PriceAlert', 'price'),
+      columnExists('PriceAlert', 'attempts'),
+      columnExists('PriceAlert', 'notifiedAt'),
+      indexExists('PriceAlert_status_symbol_idx'),
+      indexExists('PriceAlert_userId_status_idx'),
+      constraintExists('PriceAlert', 'PriceAlert_pkey'),
+      constraintExists('PriceAlert', 'PriceAlert_userId_fkey'),
+    ],
+  },
 ] as const
 
 export function parseProductionMode(argv: readonly string[]): ProductionMode {

@@ -57,7 +57,8 @@
     "test:support-push": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/support-push.test.ts",
     "db:push:prod": "node scripts/db-push.cjs --prod",
     "db:push:raw": "prisma db push",
-    "db:backup:prod": "node scripts/db-backup.cjs --prod"
+    "db:backup:prod": "node scripts/db-backup.cjs --prod",
+    "db:migrate:prod": "node scripts/db-migrate-prod.cjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
