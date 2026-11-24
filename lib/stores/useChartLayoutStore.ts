@@ -49,6 +49,7 @@ type LayoutStore = {
   setTool: (tool: ChartTool) => void
   addDrawing: (symbol: string, drawing: ChartDrawing) => void
   removeLast: (symbol: string) => void
+  removeDrawing: (symbol: string, id: string) => void
   clearDrawings: (symbol: string) => void
   saveTemplate: (name: string, symbol: string, timeframe: string) => void
   applyTemplate: (templateId: string, symbol: string) => void
@@ -114,6 +115,13 @@ export const useChartLayoutStore = create<LayoutStore>((set, get) => ({
   removeLast: (symbol) => {
     const { drawingsBySymbol, templates } = get()
     const next = { ...drawingsBySymbol, [symbol]: (drawingsBySymbol[symbol] ?? []).slice(0, -1) }
+    persist(next, templates)
+    set({ drawingsBySymbol: next })
+  },
+
+  removeDrawing: (symbol: string, id: string) => {
+    const { drawingsBySymbol, templates } = get()
+    const next = { ...drawingsBySymbol, [symbol]: (drawingsBySymbol[symbol] ?? []).filter((item) => item.id !== id) }
     persist(next, templates)
     set({ drawingsBySymbol: next })
   },

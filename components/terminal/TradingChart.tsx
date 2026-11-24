@@ -21,6 +21,9 @@ import {
 import { useOrderTicketStore, type TicketPriceField } from '@/lib/stores/useOrderTicketStore'
 import type { OrderSide, PendingTradeOrder, Position } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
+import { ChartContextMenu } from './ChartContextMenu'
+import { ChartSettingsSurface } from './ChartSettingsSurface'
+import { PriceAlertDialog } from './PriceAlertDialog'
 
 const CHART_BG = '#0b1122'
 const GRID = 'rgba(94, 130, 205, 0.14)'
@@ -74,6 +77,7 @@ type CandleSeriesApi = {
 type ChartTimeScaleApi = {
   timeToCoordinate: (time: number) => number | null
   coordinateToTime: (coordinate: number) => number | null
+  fitContent: () => void
 }
 
 type ChartApi = {
@@ -437,6 +441,7 @@ function dailyStats(candles: Candle[], price: number) {
 
 export function TradingChart() {
   const containerRef = useRef<HTMLDivElement>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
   const selectedSymbol = useTradingStore((state) => state.selectedSymbol)
   const currentPrice = useTradingStore((state) => state.currentPrice)
   const bid = useTradingStore((state) => state.bid)
@@ -459,6 +464,13 @@ export function TradingChart() {
   const [levelNotice, setLevelNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
   const [overlayRevision, setOverlayRevision] = useState(0)
   const [chartReady, setChartReady] = useState(0)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuX, setMenuX] = useState(0)
+  const [menuY, setMenuY] = useState(0)
+  const [menuPrice, setMenuPrice] = useState(0)
+  const [alertOpen, setAlertOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const lastRightClickRef = useRef<number>(0)
   const tradable = accountStatus === 'ACTIVE' && getSymbol(selectedSymbol).available
   const quickEnabled = tradable && connectionStatus === 'CONNECTED' && !quickBusy
   const ticketSymbol = useOrderTicketStore((state) => state.symbol)
@@ -502,6 +514,8 @@ export function TradingChart() {
   const drawingTool = useChartLayoutStore((state) => state.tool)
   const drawings = useChartLayoutStore((state) => state.drawingsBySymbol[selectedSymbol] ?? EMPTY_CHART_DRAWINGS)
   const addDrawing = useChartLayoutStore((state) => state.addDrawing)
+  const removeDrawing = useChartLayoutStore((state) => state.removeDrawing)
+  const clearDrawings = useChartLayoutStore((state) => state.clearDrawings)
   const setDrawingTool = useChartLayoutStore((state) => state.setTool)
   const [draft, setDraft] = useState<ChartDrawing | null>(null)
   const draftRef = useRef<ChartDrawing | null>(null)
@@ -1003,6 +1017,67 @@ export function TradingChart() {
     }
   }
 
+  // ---- Chart context menu -------------------------------------------------
+
+  function onChartContextMenu(event: React.MouseEvent<HTMLDivElement>) {
+    // Right-clicks on chart UI (toolbar, toasts, menu itself) are not plot interactions.
+    if (event.target instanceof Element && event.target.closest('[data-chart-ui]')) return
+
+    const now = Date.now()
+
+    // Double right-click within 400 ms: open the browser menu instead.
+    if (lastRightClickRef.current > 0 && now - lastRightClickRef.current < 400) {
+      lastRightClickRef.current = 0
+      setMenuOpen(false)
+      return
+    }
+    lastRightClickRef.current = now
+
+    event.preventDefault()
+
+    const node = containerRef.current
+    const series = seriesRef.current
+    const chart = chartRef.current
+    if (!node || !series || !chart) return
+
+    const rect = node.getBoundingClientRect()
+    const x = event.clientX - rect.left
+    const y = event.clientY - rect.top
+
+    const price = series.candle.coordinateToPrice(y)
+    if (price == null) return
+
+    setMenuX(x)
+    setMenuY(y)
+    setMenuPrice(price)
+    setMenuOpen(true)
+  }
+
+  function onMenuCopyError() {
+    setLevelNotice({ tone: 'error', text: 'Unable to copy the level.' })
+    window.setTimeout(() => setLevelNotice(null), 3000)
+  }
+
+  function handleMenuNotifyMe() {
+    setAlertOpen(true)
+  }
+
+  function handleMenuFitChart() {
+    chartRef.current?.timeScale().fitContent()
+  }
+
+  function handleMenuDeleteDrawing(id: string) {
+    removeDrawing(selectedSymbol, id)
+  }
+
+  function handleMenuClearDrawings() {
+    clearDrawings(selectedSymbol)
+  }
+
+  function handleMenuOpenSettings() {
+    setSettingsOpen(true)
+  }
+
   return (
     <section className="flex min-h-[280px] flex-1 flex-col overflow-hidden rounded-xl border border-border bg-[#0b1122]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
@@ -1048,10 +1123,17 @@ export function TradingChart() {
           </div>
         </div>
       </div>
-      <div className="relative min-h-[240px] flex-1">
+      <div
+        ref={wrapperRef}
+        className="relative min-h-[240px] flex-1"
+        data-chart-surface
+        tabIndex={-1}
+        onContextMenu={onChartContextMenu}
+      >
         <div ref={containerRef} className="absolute inset-0" />
         {quickNotice ? (
           <div
+            data-chart-ui
             role="status"
             className="absolute left-2 top-2 z-20 max-w-[calc(100%-1rem)] rounded-md border border-border bg-[#0b1122]/95 px-2.5 py-1.5 font-mono text-[10px] text-foreground shadow-lg"
           >
@@ -1060,6 +1142,7 @@ export function TradingChart() {
         ) : null}
         {levelNotice ? (
           <div
+            data-chart-ui
             role={levelNotice.tone === 'error' ? 'alert' : 'status'}
             className={cn(
               'absolute right-2 top-2 z-30 max-w-[calc(100%-1rem)] rounded-md border bg-[#0b1122]/95 px-2.5 py-1.5 font-mono text-[10px] shadow-lg',
@@ -1119,7 +1202,10 @@ export function TradingChart() {
         </div>
         <ChartDrawingToolbar />
         {collecting && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b1122]/90 p-6 text-center">
+          <div
+            data-chart-ui
+            className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b1122]/90 p-6 text-center"
+          >
             <div>
               <p className="font-mono text-[10px] uppercase tracking-widest text-primary">Collecting live {selectedSymbol} ticks</p>
               <p className="mt-2 max-w-sm text-sm text-muted-foreground">
@@ -1129,6 +1215,43 @@ export function TradingChart() {
             </div>
           </div>
         )}
+        <ChartContextMenu
+          open={menuOpen}
+          x={menuX}
+          y={menuY}
+          symbol={selectedSymbol}
+          price={menuPrice}
+          wrapperRef={wrapperRef}
+          onClose={() => {
+            setMenuOpen(false)
+            wrapperRef.current?.focus()
+          }}
+          onCopyError={onMenuCopyError}
+          onNotifyMe={handleMenuNotifyMe}
+          onFitChart={handleMenuFitChart}
+          onDeleteDrawing={handleMenuDeleteDrawing}
+          onClearDrawings={handleMenuClearDrawings}
+          onOpenSettings={handleMenuOpenSettings}
+        />
+        <PriceAlertDialog
+          open={alertOpen}
+          onClose={() => setAlertOpen(false)}
+          symbol={selectedSymbol}
+          price={menuPrice}
+          onCreate={(symbol, direction, price) => {
+            setAlertOpen(false)
+            setLevelNotice({
+              tone: 'ok',
+              text: `Alert created · ${symbol} ${direction.toLowerCase()} ${formatPrice(symbol, price)}`,
+            })
+            window.setTimeout(() => setLevelNotice(null), 3000)
+          }}
+        />
+        <ChartSettingsSurface
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          wrapperRef={wrapperRef}
+        />
       </div>
     </section>
   )

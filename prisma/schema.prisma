@@ -249,6 +249,7 @@ model User {
   supportMessages SupportMessage[] @relation("SupportMessageSender")
   aiSupportRequests AiSupportRequest[]
   pushSubscriptions PushSubscription[]
+  priceAlerts PriceAlert[]
 }
 
 /// One login fingerprint. Used for new-device, country-change and sharing alerts.
@@ -953,6 +954,30 @@ model MarketQuote {
   updatedAt    DateTime @updatedAt
 
   @@index([providerTime])
+}
+
+/// A chart-created price threshold. Evaluated by a cron against live quotes; the
+/// owner is emailed once, when the price crosses it.
+model PriceAlert {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symbol      String
+  /// ABOVE | BELOW — the side the price has to cross.
+  direction   String
+  price       Decimal   @db.Decimal(18, 5)
+  /// ACTIVE | TRIGGERED | CANCELLED
+  status      String    @default("ACTIVE")
+  /// Last quote the evaluator saw, kept for the email and for support.
+  lastPrice   Decimal?  @db.Decimal(18, 5)
+  /// Delivery attempts. Capped at 3 so a broken mailer cannot loop forever.
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  triggeredAt DateTime?
+  notifiedAt  DateTime?
+
+  @@index([status, symbol])
+  @@index([userId, status])
 }
 
 /// Public payout feed shown on the marketing site. The existing `Payout` model

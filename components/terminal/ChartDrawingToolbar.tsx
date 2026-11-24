@@ -190,6 +190,7 @@ export function ChartDrawingToolbar() {
   return (
     <div
       ref={toolbarRef}
+      data-chart-ui
       className={cn(
         'absolute z-20 flex items-center gap-0.5 rounded-md border border-border bg-[#0b1122]/95 p-0.5 shadow-[0_6px_24px_rgba(0,0,0,0.45)] backdrop-blur-sm',
         orientation === 'vertical' ? 'flex-col' : 'flex-row',
