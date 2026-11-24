@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -45,7 +45,7 @@ export function PriceAlertDialog({ open, onClose, symbol, price, onCreate }: Pri
   const meta = isTerminalSymbol(formSymbol) ? getSymbol(formSymbol) : getSymbol('EURUSD')
   const decimals = meta.priceDecimals
 
-  async function loadAlerts() {
+  const loadAlerts = useCallback(async () => {
     try {
       const response = await fetch(`/api/trading/alerts?symbol=${encodeURIComponent(formSymbol)}`, {
         cache: 'no-store',
@@ -72,17 +72,30 @@ export function PriceAlertDialog({ open, onClose, symbol, price, onCreate }: Pri
     } catch {
       // Alerts list is a convenience; failing to load it must not block creating one.
     }
-  }
+  }, [formSymbol])
 
-  // Load active alerts for this symbol when the dialog opens.
+  // Reset the form once per opening — never on re-render. Clicking Below must
+  // stick; an effect keyed on a fresh loadAlerts identity would otherwise reset
+  // direction back to 'ABOVE' after every render and loop GET /api/trading/alerts.
+  const wasOpen = useRef(false)
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      wasOpen.current = false
+      return
+    }
+    if (wasOpen.current) return
+    wasOpen.current = true
     setFormSymbol(symbol)
     setFormPrice(price.toFixed(decimals))
     setDirection('ABOVE')
     setError(null)
+  }, [open, symbol, price, decimals])
+
+  // Reload the list when the dialog opens or the symbol changes.
+  useEffect(() => {
+    if (!open) return
     void loadAlerts()
-  }, [open, symbol, price, decimals, loadAlerts])
+  }, [open, loadAlerts])
 
   async function cancelAlert(id: string) {
     setError(null)
@@ -169,10 +182,10 @@ export function PriceAlertDialog({ open, onClose, symbol, price, onCreate }: Pri
               value={formPrice}
               onChange={(event) => setFormPrice(event.target.value)}
               disabled={busy}
-              className="h-8 rounded-md border border-border bg-secondary/60 px-2 font-mono tabular-nums text-[11px] text-foreground outline-none focus-visible:border-ring disabled:opacity-50"
+              className="h-8 rounded-md border border-border bg-secondary/60 px-2 font-mono tabular-nums text-left text-[11px] text-foreground outline-none focus-visible:border-ring disabled:opacity-50"
               aria-invalid={error !== null && !priceIsValid(formPrice)}
             />
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[10px] text-muted-foreground mt-0.5 leading-snug">
               Example: {formatPrice(formSymbol, meta.mockBasePrice)} · {decimals} decimal place{decimals === 1 ? '' : 's'}
             </p>
           </div>
