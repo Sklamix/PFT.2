@@ -2,11 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { formatPrice } from '@/lib/constants/symbols'
-import { useChartLayoutStore } from '@/lib/stores/useChartLayoutStore'
+import { useChartLayoutStore, type ChartDrawing } from '@/lib/stores/useChartLayoutStore'
 import { cn } from '@/lib/utils'
 
 const MENU_GUTTER = 8
 const COPY_CONFIRM_MS = 1_200
+
+// A stable empty array. `state.drawingsBySymbol[symbol] ?? []` inside a store
+// selector allocates a fresh array on every call, so useSyncExternalStore sees a
+// changed snapshot each render and loops until React throws "Maximum update
+// depth exceeded" — which takes the whole terminal down.
+const EMPTY_DRAWINGS: ChartDrawing[] = []
 
 type MenuItemKind = 'item' | 'separator' | 'group'
 
@@ -74,7 +80,9 @@ export function ChartContextMenu({
   const itemElements = useRef<HTMLElement[]>([])
   const copyTimerRef = useRef<number | null>(null)
 
-  const drawings = useChartLayoutStore((state) => state.drawingsBySymbol[symbol] ?? [])
+  const drawings = useChartLayoutStore(
+    (state) => state.drawingsBySymbol[symbol] ?? EMPTY_DRAWINGS,
+  )
 
   const hasDrawings = drawings.length > 0
   const isPriceResolved = price != null && Number.isFinite(price) && price > 0

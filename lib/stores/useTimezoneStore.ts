@@ -8,13 +8,22 @@ export const TIMEZONE_COOKIE = 'pft_tz'
 
 export { TIMEZONE_OPTIONS, isSupportedTimeZone } from '@/lib/settings/timezones'
 
+/**
+ * Label for a zone's current offset, e.g. "GMT+2".
+ *
+ * Zero offset is normalised to "GMT" on purpose. Node and Chrome disagree here:
+ * Node renders `shortOffset` for UTC/Europe/London as "GMT+0", Chrome as "GMT".
+ * The header is server-rendered, so leaving that difference in place is a
+ * hydration mismatch — React throws the whole tree away and re-renders it.
+ */
 export function timeZoneOffsetLabel(timeZone: string) {
   try {
     const parts = new Intl.DateTimeFormat('en-GB', {
       timeZone,
       timeZoneName: 'shortOffset',
     }).formatToParts(new Date())
-    return parts.find((part) => part.type === 'timeZoneName')?.value ?? ''
+    const raw = parts.find((part) => part.type === 'timeZoneName')?.value ?? ''
+    return raw.replace(/^GMT[+-]0{1,2}(?::00)?$/, 'GMT')
   } catch {
     return ''
   }
