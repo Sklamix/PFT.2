@@ -15,8 +15,8 @@ export const PLANET_SPOTS: readonly PlanetSpot[] = [
   {
     id: 'challenges',
     label: 'Challenges',
-    heading: 'Two-step evaluation, up to $200,000',
-    body: 'Pass the evaluation, get the account. Up to $200,000 simulated capital and an 80% profit split on everything you earn.',
+    heading: 'Two-step evaluation, up to $25,000',
+    body: 'Pass the evaluation, get the account. Up to $25,000 simulated capital and an 80% profit split on everything you earn.',
     ctaLabel: 'See the challenge',
     href: '#challenges',
     position: [0.28, 0.42, 0.86],

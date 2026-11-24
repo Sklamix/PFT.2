@@ -3,6 +3,7 @@ import { LegalDocument } from '@/components/legal/legal-document'
 export const metadata = {
   title: 'Refund Policy — Professional Funded Trader',
   description: 'When an evaluation fee can be refunded by Professional Funded Trader.',
+  robots: { index: false, follow: true },
 }
 
 const UPDATED = '21 November 2026'

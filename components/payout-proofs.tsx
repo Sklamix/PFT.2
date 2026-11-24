@@ -1,10 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
 import { BadgeCheck } from 'lucide-react'
 import { SectionHeading } from '@/components/section-heading'
-import { FALLBACK_PUBLIC_STATS } from '@/lib/stats/defaults'
-import type { PublicPayout, PublicStatsPayload } from '@/lib/stats/types'
+import type { PublicPayout } from '@/lib/stats/types'
+import { usePublicStats } from '@/lib/stats/use-public-stats'
 import { cn } from '@/lib/utils'
 
 const usd = new Intl.NumberFormat('en-US', {
@@ -58,36 +57,6 @@ function PayoutCard({
   )
 }
 
-function usePublicStats() {
-  const [payload, setPayload] = useState<PublicStatsPayload>(FALLBACK_PUBLIC_STATS)
-
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch('/api/stats', { cache: 'no-store' })
-      if (!response.ok) return
-      const next = (await response.json()) as PublicStatsPayload
-      if (next?.stats && Array.isArray(next.payouts)) setPayload(next)
-    } catch {
-      // Keep the last successful snapshot; the bundled fallback is used on first load.
-    }
-  }, [])
-
-  useEffect(() => {
-    void load()
-    const interval = window.setInterval(() => void load(), 60_000)
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') void load()
-    }
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [load])
-
-  return payload
-}
-
 export function PayoutProofs() {
   const { payouts } = usePublicStats()
   const cards = payouts.slice(0, 12)
@@ -96,7 +65,7 @@ export function PayoutProofs() {
 
   // Real, verifiable platform facts — no fabricated social proof.
   const tiles = [
-    { value: '$200K', label: 'Max simulated capital' },
+    { value: '$25K', label: 'Max simulated capital' },
     { value: '80%', label: 'Profit split' },
     { value: '7 days', label: 'Payout cycle' },
     { value: '0', label: 'Time limits' },

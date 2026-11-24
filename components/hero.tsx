@@ -9,6 +9,7 @@ import { PlanetAdvantageSheet } from '@/components/home/planet-advantage-sheet'
 import { PlanetController } from '@/components/home/planet-controller'
 import { PlanetHotspots } from '@/components/home/planet-hotspots'
 import { PLANET_SPOTS, type PlanetMode, type PlanetSpotId } from '@/components/home/planet-spots'
+import { trackEvent } from '@/lib/analytics/track'
 import { cn } from '@/lib/utils'
 
 const HeroSpaceScene = dynamic(
@@ -143,6 +144,7 @@ export function Hero() {
   )
 
   const openSpot = useCallback((spot: PlanetSpotId, trigger: HTMLButtonElement) => {
+    trackEvent('planet_marker_open', { spot })
     lastTrigger.current = trigger
     setActiveSpotId(spot)
     setMode('detail')
@@ -150,6 +152,7 @@ export function Hero() {
 
   const navigateToSection = useCallback(
     (href: `#${PlanetSpotId}`) => {
+      trackEvent('advantage_card_cta', { spot: href.slice(1) })
       closeExplorer(false)
       const delay = reducedMotion ? 0 : 200
       scrollTimer.current = setTimeout(() => {
@@ -242,7 +245,7 @@ export function Hero() {
 
           <h1 className="mt-[clamp(0.85rem,min(1.4vw,1.8vh),1.5rem)] text-balance text-[clamp(3rem,min(5.2vw,8.3vh),6.75rem)] leading-[0.92] font-semibold tracking-[-0.04em] text-white">
             Trade up to
-            <span className="mt-2 block text-primary">$200,000.</span>
+            <span className="mt-2 block text-primary">$25,000.</span>
             <span className="mt-2 block text-[0.58em] leading-tight font-medium tracking-[-0.02em] text-foreground/85">
               Keep 80% of the upside.
             </span>
@@ -268,6 +271,7 @@ export function Hero() {
           <div data-hero-cta className="mt-[clamp(1.25rem,min(1.8vw,2.7vh),1.75rem)] flex flex-col gap-3 sm:flex-row">
             <a
               href="#challenges"
+              onClick={() => trackEvent('hero_cta_click')}
               className="home-button group inline-flex h-[clamp(2.6rem,min(3.2vw,5.8vh),3.4rem)] items-center justify-center gap-2 rounded-full bg-linear-to-r from-primary to-highlight px-[clamp(1.5rem,2vw,2.4rem)] text-[clamp(0.62rem,0.75vw,0.82rem)] font-bold uppercase tracking-[0.18em] text-primary-foreground shadow-[0_0_45px_-12px_rgba(59,130,246,0.9)] transition hover:brightness-110"
             >
               Get Funded
@@ -275,6 +279,7 @@ export function Hero() {
             </a>
             <a
               href="/auth/login"
+              onClick={() => trackEvent('hero_login_click')}
               className="home-button hidden h-[clamp(2.6rem,min(3.2vw,5.8vh),3.4rem)] items-center justify-center self-center px-2 text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline sm:inline-flex sm:px-4"
             >
               Already have credentials? Log in
@@ -296,6 +301,7 @@ export function Hero() {
           <div className="mt-3 flex justify-center sm:hidden">
             <a
               href="/auth/login"
+              onClick={() => trackEvent('hero_login_click')}
               className="home-button inline-flex h-11 items-center justify-center px-2 text-sm text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
             >
               Already have credentials? Log in
@@ -319,7 +325,7 @@ export function Hero() {
 
         <div className="mt-5 grid max-w-3xl grid-cols-2 gap-[clamp(0.4rem,0.6vw,0.8rem)] pt-[clamp(0.9rem,min(2.2vw,2.6vh),1.5rem)] sm:grid-cols-4 lg:mt-auto xl:max-w-4xl 2xl:max-w-5xl">
           {[
-            ['$200K', 'Max simulated capital'],
+            ['$25K', 'Max simulated capital'],
             ['80%', 'Profit split'],
             ['0', 'Time limits'],
             ['1–3d', 'Payout review'],
@@ -352,6 +358,7 @@ export function Hero() {
         isDesktop={desktopExplorer}
         onPlanetClick={() => {
           dismissFirstVisitHint()
+          trackEvent('planet_focus')
           // Focus mode only makes sense where there is room to centre the planet.
           if (desktopExplorer && mode === 'hero') setMode('focus')
         }}

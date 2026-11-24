@@ -72,7 +72,7 @@ export function buildPftKnowledge(rows: PricingRow[]) {
     '- 1-Step Challenge: profit target 10%, daily loss 4%, maximum overall drawdown 6%, minimum 3 trading days. Trailing drawdown is the default; static drawdown is an optional add-on.',
     '- 2-Step Evaluation: Phase 1 target 8%, Phase 2 target 5%, maximum overall drawdown 10%, minimum 4 trading days per phase. Daily loss can be 3% or 5% depending on the plan chosen at checkout.',
     '- No time limit on evaluation phases. Inactivity is separate: 60 calendar days without a closed trade triggers an email warning; 90 calendar days allows the account to be closed without refund.',
-    '- Maximum 3 active accounts per trader, with aggregate simulated allocation up to $200,000. A frozen backup counts only after activation.',
+    '- Maximum 3 active accounts per trader. The aggregate simulated allocation policy cap is $200,000, but the largest account size currently on sale is $25,000 — never tell a trader they can buy a larger account today. A frozen backup counts only after activation.',
     '',
     'DRAWDOWN',
     '- Daily loss resets at 00:00 CE(S)T. The limit is measured from the higher of balance or equity at day start; floating loss, commissions and swaps count.',

@@ -3,6 +3,7 @@ import { LegalDocument } from '@/components/legal/legal-document'
 export const metadata = {
   title: 'Risk Disclosure — Professional Funded Trader',
   description: 'Risk disclosure for PFT simulated trading evaluations.',
+  robots: { index: false, follow: true },
 }
 
 const UPDATED = '21 November 2026'

@@ -19,6 +19,7 @@ import {
   type ChallengeType,
   type DrawdownMode,
 } from '@/lib/challenges'
+import { trackEvent } from '@/lib/analytics/track'
 import { cn } from '@/lib/utils'
 
 const TYPE_OPTIONS = [
@@ -146,6 +147,7 @@ export function ChallengeCalculator({
       setToast(pricingError || 'Challenge prices are still loading. Please try again.')
       return
     }
+    trackEvent('calculator_checkout_open', { tier: size, type, fee })
     setCheckoutOpen(true)
   }
 

@@ -3,6 +3,7 @@ import { LegalDocument } from '@/components/legal/legal-document'
 export const metadata = {
   title: 'AML / KYC Policy — Professional Funded Trader',
   description: 'Identity verification, sanctions screening and anti-money-laundering policy for PFT.',
+  robots: { index: false, follow: true },
 }
 
 const UPDATED = '21 November 2026'

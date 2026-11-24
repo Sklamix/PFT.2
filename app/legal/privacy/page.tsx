@@ -3,6 +3,7 @@ import { LegalDocument } from '@/components/legal/legal-document'
 export const metadata = {
   title: 'Privacy Policy — Professional Funded Trader',
   description: 'How PFT collects, uses, stores and protects personal data.',
+  robots: { index: false, follow: true },
 }
 
 const UPDATED = '21 November 2026'

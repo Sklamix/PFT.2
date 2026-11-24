@@ -3,6 +3,7 @@ import { LegalDocument } from '@/components/legal/legal-document'
 export const metadata = {
   title: 'Terms of Service — Professional Funded Trader',
   description: 'Terms governing access to the PFT simulated trading evaluation platform.',
+  robots: { index: false, follow: true },
 }
 
 const UPDATED = '21 November 2026'

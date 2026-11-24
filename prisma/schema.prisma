@@ -1264,6 +1264,22 @@ model RateLimitBucket {
   @@index([resetAt])
 }
 
+/// First-party marketing analytics. Anonymous by construction: no IP, no user
+/// agent, no user id. `sessionId` is a random per-tab string from sessionStorage
+/// and identifies a tab, never a person. Rows are pruned by the trading cron
+/// once they are older than the retention window.
+model AnalyticsEvent {
+  id        String   @id @default(cuid())
+  name      String
+  props     Json?
+  path      String?
+  sessionId String?
+  createdAt DateTime @default(now())
+
+  @@index([name, createdAt])
+  @@index([createdAt])
+}
+
 // ---------------------------------------------------------------------------
 // Operational Observability (Phase 1.7.0)
 //
