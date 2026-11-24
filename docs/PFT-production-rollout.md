@@ -21,13 +21,27 @@
 
 ## 1. Backup перед міграціями
 
+Скрипти більше не покладаються на `$env:DATABASE_URL` у сесії — вони читають
+`.env.production.local` (gitignored) і друкують цільовий хост перед стартом.
+Покладіть туди production-рядок з Neon dashboard:
+
+```
+# .env.production.local
+PFT_PROD_DATABASE_URL="postgresql://...@ep-....neon.tech/neondb?sslmode=require"
+```
+
 ```powershell
-$env:DATABASE_URL = '<production connection string>'
-npm run db:backup -- --out backups/pre-p1-2026-10-27
+npm run db:backup -- --prod --out backups/pre-p1-2026-10-27
 ```
 
 Перевірити `backups/pre-p1-2026-10-27/manifest.json`: `finishedAt` заповнений, `totalRows > 0`.
+Перший рядок виводу має показати production-хост — якщо там preview-хост, зупиніться.
 Копію зберегти поза репозиторієм.
+
+> `npm run db:push` навмисно відмовляється працювати, коли `DATABASE_URL` вказує на
+> не-production гілку Neon: інакше `prisma db push` тихо проходить по preview, де таблиця
+> вже є, друкує "already in sync", і здається, що production оновлено. Для локальної
+> роботи — `npm run db:push -- --allow-preview`. Для production — `npm run db:push:prod`.
 
 ---
 

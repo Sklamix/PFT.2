@@ -11,7 +11,7 @@
     "db:generate": "prisma generate",
     "db:bootstrap:production": "node scripts/bootstrap-production.cjs",
     "db:migrate:stress": "node scripts/migrate-stress-test.cjs",
-    "db:push": "prisma db push",
+    "db:push": "node scripts/db-push.cjs",
     "db:seed": "prisma db seed",
     "db:seed-pricing": "tsx prisma/seed-challenge-pricing.ts",
     "db:seed-instruments": "tsx scripts/seed-instrument-registry.ts",
@@ -54,7 +54,10 @@
     "test:readiness": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/db-readiness-193.test.ts scripts/db-injection-194.test.ts scripts/auth-failclosed-196a.test.ts scripts/deployment-hardening-196a.test.ts",
     "test:migration-executor": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/migration-executor-197b.test.ts scripts/migration-preflight-197c.test.ts",
     "test:production-migrations": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/production-migration-executor.test.ts",
-    "test:support-push": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/support-push.test.ts"
+    "test:support-push": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/support-push.test.ts",
+    "db:push:prod": "node scripts/db-push.cjs --prod",
+    "db:push:raw": "prisma db push",
+    "db:backup:prod": "node scripts/db-backup.cjs --prod"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

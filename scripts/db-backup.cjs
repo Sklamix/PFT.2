@@ -2,9 +2,15 @@
  * Logical backup of every Prisma model to timestamped JSON files.
  *
  * Usage:
- *   $env:DATABASE_URL = '<production connection string>'
- *   npm run db:backup
- *   npm run db:backup -- --out backups/pre-launch
+ *   npm run db:backup                          # whatever DATABASE_URL points at
+ *   npm run db:backup -- --out backups/pre-x
+ *   npm run db:backup -- --prod --out backups/prod-pre-x
+ *
+ * Reads `DATABASE_URL` from the environment, falling back to `.env.local`,
+ * `.env.production.local` and `.env`. `--prod` switches to
+ * `PFT_PROD_DATABASE_URL` explicitly. The target host and branch are printed
+ * before anything is read — preview and production are different Neon branches,
+ * and a backup of the wrong one is worse than no backup at all.
  *
  * This is an application-level export for point-in-time row recovery. It does
  * not replace Neon PITR/branches for full-database restore. Never commit the
@@ -15,10 +21,18 @@ const path = require('node:path')
 const { createHash } = require('node:crypto')
 const { PrismaClient, Prisma } = require('@prisma/client')
 
+const { loadEnv, describeDatabaseUrl } = require('./db-env.cjs')
+
+// Prisma and this script do not read `.env.local` on their own — only Next.js
+// does. Load it so `npm run db:backup` works without exporting DATABASE_URL by
+// hand, and so the target can be printed below.
+loadEnv(['.env.production.local', '.env.local', '.env'])
+
 function parseArgs(argv) {
-  const args = { out: null }
+  const args = { out: null, prod: false }
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--out') args.out = argv[index + 1]
+    if (argv[index] === '--prod') args.prod = true
   }
   return args
 }
@@ -54,11 +68,34 @@ async function readRows(delegate, model) {
 }
 
 async function main() {
-  if (!process.env.DATABASE_URL) {
-    throw new Error('DATABASE_URL is required for db:backup')
+  const args = parseArgs(process.argv.slice(2))
+
+  // `--prod` reads the production string explicitly instead of relying on which
+  // env file happened to win. Preview and production are different Neon
+  // branches, and a backup of the wrong one is worse than no backup at all.
+  if (args.prod) {
+    const prodUrl = process.env.PFT_PROD_DATABASE_URL
+    if (!prodUrl) {
+      throw new Error(
+        '--prod requires PFT_PROD_DATABASE_URL (set it in .env.production.local). ' +
+          'The production string is not readable from Vercel: sensitive variables are write-only.',
+      )
+    }
+    process.env.DATABASE_URL = prodUrl
   }
 
-  const args = parseArgs(process.argv.slice(2))
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      'DATABASE_URL is required for db:backup (checked .env.local, .env.production.local, .env)',
+    )
+  }
+
+  // Print which database is about to be read.
+  const target = describeDatabaseUrl(process.env.DATABASE_URL)
+  const branch = args.prod ? 'production (explicit)' : process.env.NEON_BRANCH || null
+  console.log(
+    `[pft backup] target: ${target.host}/${target.database}${branch ? ` (branch: ${branch})` : ''}`,
+  )
   const root = path.resolve(__dirname, '..')
   const outDir = path.resolve(root, args.out || path.join('backups', timestamp()))
   fs.mkdirSync(outDir, { recursive: true })
