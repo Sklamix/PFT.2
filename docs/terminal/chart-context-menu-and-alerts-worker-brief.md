@@ -109,14 +109,16 @@ To reach the terminal you need a trader session. Without `DATABASE_URL` the app 
   positions table, not globally.
 - It opens **only on right mouse button** (`contextmenu` event) inside the chart plot area.
 - **Desktop only.** There is no mobile app yet; do not add long-press, do not add a mobile variant.
-- Every menu item affects **chart state only**, with one deliberate exception: the alert item opens a
-  dialog (Part 2). It never places or modifies an order.
+- Every menu item affects **chart state only**, with two deliberate exceptions: the alert item opens a
+  dialog (Part 2) and the settings item opens an empty surface (1.6). Neither places or modifies an
+  order.
 
 ## 1.2 Files
 
 | File | Action |
 |---|---|
 | `components/terminal/ChartContextMenu.tsx` | **new** — the menu component |
+| `components/terminal/ChartSettingsSurface.tsx` | **new** — empty settings shell (1.6) |
 | `components/terminal/TradingChart.tsx` | add the trigger, position state, item handlers |
 | `lib/stores/useChartLayoutStore.ts` | add `removeDrawing(symbol, id)` |
 
@@ -154,24 +156,42 @@ state after unmount.
 
 ## 1.4 Menu items
 
-Order matters — this is the agreed list.
+**Naming rule.** The feature set mirrors a well-known competitor, but the labels must be our own
+words. Do not reuse their strings verbatim (`Reset chart view`, `Copy price`, `Add alert`,
+`Object tree`, `Remove 1 drawing`), and do not use jargon a first-time trader would not recognise.
+Short, plain, verb-first, sentence case, no trailing full stops.
 
-| Item | Enabled when | Behaviour |
+| Our label | Enabled when | Behaviour |
 |---|---|---|
-| `Copy price` | price resolved | `navigator.clipboard.writeText(formatPrice(symbol, price))`. On success show a short inline confirmation inside the menu (`role="status"`, auto-close after ~1.2 s). On failure (insecure context, denied permission) fall back to a `document.execCommand('copy')` textarea trick; if that also fails, close and show the existing `levelNotice` with tone `error`. |
-| `Add alert at this price` | price resolved | Opens `PriceAlertDialog` (Part 2) prefilled with the symbol and the resolved price. |
-| `Reset chart view` | always | `chartRef.current?.timeScale().fitContent()`, then close. |
-| `Remove drawing` | `drawings.length > 0` | Expands into a list of the current symbol's drawings (see 1.5). |
+| `Copy level` | price resolved | Copies the price under the cursor: `navigator.clipboard.writeText(formatPrice(symbol, price))`. On success show a short inline confirmation inside the menu (`role="status"`, auto-close after ~1.2 s). On failure (insecure context, denied permission) fall back to a `document.execCommand('copy')` textarea trick; if that also fails, close and show the existing `levelNotice` with tone `error`. |
+| `Notify me at this level` | price resolved | Opens `PriceAlertDialog` (Part 2) prefilled with the symbol and the resolved price. |
+| `Fit chart to data` | always | `chartRef.current?.timeScale().fitContent()`, then close. |
+| `Delete a drawing` | `drawings.length > 0` | Expands into a list of the current symbol's drawings (see 1.5). |
 | `Clear all drawings` | `drawings.length > 0` | `clearDrawings(symbol)`, close. |
+| `Chart settings` | always | Opens the settings surface inside the chart area (see 1.6). Empty for now. |
+
+Order and grouping — separators are thin 1px rules (`border-border`), not headings:
+
+```
+Copy level
+Notify me at this level
+─────
+Fit chart to data
+─────
+Delete a drawing        ▸
+Clear all drawings
+─────
+Chart settings
+```
 
 `formatPrice` comes from `@/lib/constants/symbols`. Use it — it knows each symbol's decimals.
 
-Do **not** add: sell/buy at price, add order at price, paste, table view, settings, indicators,
-lock cursor line. They were explicitly excluded.
+Do **not** add: sell/buy at price, add order at price, paste, table view, indicators, lock cursor
+line, chart templates. They were explicitly excluded.
 
-## 1.5 The drawing list (object tree)
+## 1.5 The drawing list
 
-When `Remove drawing` is expanded, render one row per drawing of `selectedSymbol`:
+When `Delete a drawing` is expanded, render one row per drawing of `selectedSymbol`:
 
 ```
 [colour swatch]  Trend line        ⌫
@@ -196,18 +216,38 @@ Implementation mirrors `removeLast`: read `{ drawingsBySymbol, templates }`, fil
 `persist(next, templates)`, `set({ drawingsBySymbol: next })`. Persist must stay best-effort — the
 existing `persist` already swallows storage errors, keep that.
 
-## 1.6 Acceptance for Part 1
+## 1.6 Chart settings — shell only
+
+The owner wants the entry point to exist now and the parameters to arrive later. Build the container,
+not the contents.
+
+- New component `components/terminal/ChartSettingsSurface.tsx`.
+- It renders **inside the chart area**, not as a page-wide modal: `absolute inset-0 z-40` inside the
+  plot wrapper, background `#0b1122`, a header row with the title `Chart settings` and a close button
+  (`X`, `aria-label="Close chart settings"`).
+- The body is **empty**. One muted line is allowed — `No settings yet.` — and nothing else. Do not
+  add toggles, sliders, colour pickers, disabled rows "for the future", or a list of planned features.
+  An empty surface is honest; a fake settings screen is not.
+- No state beyond open/closed. No zustand store, no `localStorage`, no API call, no props other than
+  `open` and `onClose`.
+- `role="dialog"` with `aria-labelledby` pointing at the title. On open, focus the close button. On
+  close (`Escape` or the X), return focus to the chart wrapper.
+- Opening it closes the context menu. While it is open, a right-click inside it does nothing — it is
+  not the plot.
+- It must not cover the order panel or the positions table; it is clipped to the chart.
+
+## 1.7 Acceptance for Part 1
 
 - Right-click on the plot opens the menu at the pointer; right-click on the toolbar does nothing.
 - The menu stays inside the chart at every edge (test all four corners and a 400px-wide window).
-- Copy price puts `1.08423` (symbol-appropriate decimals) on the clipboard.
-- Reset view brings back the last 140 bars after scrolling into empty space.
-- A drawing can be removed by id; the change survives a page reload (localStorage).
+- `Copy level` puts `1.08423` (symbol-appropriate decimals) on the clipboard.
+- `Fit chart to data` brings back the last 140 bars after scrolling into empty space.
+- A drawing can be deleted by id; the change survives a page reload (localStorage).
+- `Chart settings` opens an empty dark surface inside the chart, and closes on `Escape` and on the X.
 - Two right-clicks within 400 ms open the **browser** menu, and our menu is closed.
 - `Escape` closes the menu and focus returns to the chart.
-- Keyboard-only: `Tab` to the chart, `Shift+F10` is **not** required, but arrow navigation inside the
-  open menu works.
-- No console errors when the chart is destroyed while the menu is open.
+- Keyboard-only: `Tab` to the chart, arrow navigation inside the open menu works.
+- No console errors when the chart is destroyed while the menu or the settings surface is open.
 
 ---
 
@@ -349,6 +389,8 @@ Never put a raw trader email or a price series into `console.log`.
 `components/terminal/PriceAlertDialog.tsx`, opened from the menu item in 1.4. Use the existing
 `Dialog` primitives (`@/components/ui/dialog`), the way `ResetAccountDialog.tsx` does.
 
+- Title: `Notify me at a level`. Same naming rules as 1.4 — our words, not the competitor's.
+
 - Fields: symbol (read-only), **price** (number input, prefilled from the click, editable, validated
   against the symbol's decimals), **direction** (two-option toggle "Above" / "Below"), and a read-only
   line `We will email you at <account email>`.
@@ -388,12 +430,13 @@ npm run build
 
 1. `npm run dev`, sign in, open `/dashboard/terminal`.
 2. Right-click mid-chart → menu at pointer. Right-click the drawing toolbar → nothing.
-3. Copy price → paste somewhere and compare with the axis.
-4. Scroll the chart into empty space, right-click → Reset chart view → last bars return.
-5. Draw a trend line, right-click → Remove drawing → pick it → gone after reload.
-6. Two quick right-clicks → browser menu appears.
-7. Right-click → Add alert → create `ABOVE` with a target below the current price.
-8. Run the cron locally:
+3. `Copy level` → paste somewhere and compare with the axis.
+4. Scroll the chart into empty space, right-click → `Fit chart to data` → last bars return.
+5. Draw a trend line, right-click → `Delete a drawing` → pick it → gone after reload.
+6. `Chart settings` → empty dark surface inside the chart → `Escape` closes it, X closes it.
+7. Two quick right-clicks → browser menu appears.
+8. Right-click → `Notify me at this level` → create `ABOVE` with a target below the current price.
+9. Run the cron locally:
    `curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/alerts/check`
    → `triggered: 1`; check the inbox (or Mailpit at the dev transport URL).
 
@@ -416,7 +459,9 @@ already caused one silent outage. State clearly in your report that `PriceAlert`
 
 - Mobile or touch behaviour of the menu. No long-press.
 - Placing, modifying or cancelling orders from the chart menu.
-- Indicators of any kind, table view, data window, chart settings panel, paste, lock cursor line.
+- Indicators of any kind, table view, data window, paste, lock cursor line.
+- **Any actual option inside `Chart settings`.** The shell is in scope (1.6); the parameters are not.
+  Do not add toggles, sliders, colour pickers, disabled placeholders, or a "coming soon" list.
 - Rebuilding chart templates — they already exist in `ChartDrawingToolbar`.
 - Changing `OrderPanel`, `PositionsTable`, `TerminalHeader`, the drawing toolbar layout, or the
   marketing analytics allowlist in `lib/analytics/events.ts`.
