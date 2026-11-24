@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { reserveRateLimit } from '@/lib/security/rate-limit-store'
 import { TERMINAL_SYMBOLS } from '@/lib/constants/symbols'
+import { ALERTS_NOT_ENABLED_MESSAGE, isMissingSchema } from '@/lib/alerts/schema-guard'
 
 export const dynamic = 'force-dynamic'
 
@@ -20,19 +21,34 @@ export async function GET(request: Request) {
     where.symbol = symbol as (typeof TERMINAL_SYMBOLS)[number]
   }
 
-  const alerts = await prisma.priceAlert.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take: 50,
-    select: {
-      id: true,
-      symbol: true,
-      direction: true,
-      price: true,
-      status: true,
-      createdAt: true,
-    },
-  })
+  let alerts: Array<{
+    id: string
+    symbol: string
+    direction: string
+    price: Prisma.Decimal
+    status: string
+    createdAt: Date
+  }>
+  try {
+    alerts = await prisma.priceAlert.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true,
+        symbol: true,
+        direction: true,
+        price: true,
+        status: true,
+        createdAt: true,
+      },
+    })
+  } catch (error) {
+    if (isMissingSchema(error)) {
+      return NextResponse.json({ alerts: [], unavailable: ALERTS_NOT_ENABLED_MESSAGE })
+    }
+    throw error
+  }
 
   return NextResponse.json({
     alerts: alerts.map((alert) => ({
@@ -82,9 +98,17 @@ export async function POST(request: Request) {
   }
 
   // Max 20 active alerts per trader.
-  const activeCount = await prisma.priceAlert.count({
-    where: { userId: session.sub, status: 'ACTIVE' },
-  })
+  let activeCount: number
+  try {
+    activeCount = await prisma.priceAlert.count({
+      where: { userId: session.sub, status: 'ACTIVE' },
+    })
+  } catch (error) {
+    if (isMissingSchema(error)) {
+      return NextResponse.json({ error: ALERTS_NOT_ENABLED_MESSAGE }, { status: 503 })
+    }
+    throw error
+  }
   if (activeCount >= 20) {
     return NextResponse.json(
       { error: 'You can have at most 20 active alerts.' },
@@ -92,23 +116,38 @@ export async function POST(request: Request) {
     )
   }
 
-  const alert = await prisma.priceAlert.create({
-    data: {
-      userId: session.sub,
-      symbol: symbolId,
-      direction,
-      price: new Prisma.Decimal(priceNumber),
-      status: 'ACTIVE',
-    },
-    select: {
-      id: true,
-      symbol: true,
-      direction: true,
-      price: true,
-      status: true,
-      createdAt: true,
-    },
-  })
+  let alert: {
+    id: string
+    symbol: string
+    direction: string
+    price: Prisma.Decimal
+    status: string
+    createdAt: Date
+  }
+  try {
+    alert = await prisma.priceAlert.create({
+      data: {
+        userId: session.sub,
+        symbol: symbolId,
+        direction,
+        price: new Prisma.Decimal(priceNumber),
+        status: 'ACTIVE',
+      },
+      select: {
+        id: true,
+        symbol: true,
+        direction: true,
+        price: true,
+        status: true,
+        createdAt: true,
+      },
+    })
+  } catch (error) {
+    if (isMissingSchema(error)) {
+      return NextResponse.json({ error: ALERTS_NOT_ENABLED_MESSAGE }, { status: 503 })
+    }
+    throw error
+  }
 
   return NextResponse.json({
     alert: { ...alert, price: Number(alert.price), createdAt: alert.createdAt.toISOString() },

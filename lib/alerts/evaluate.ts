@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 
 import { formatPrice, TERMINAL_SYMBOLS, type TerminalSymbolId } from '@/lib/constants/symbols'
 import { sendPriceAlert } from '@/lib/email/price-alert'
+import { isMissingSchema } from '@/lib/alerts/schema-guard'
 import { prisma } from '@/lib/prisma'
 import { getQuoteSnapshots } from '@/lib/trading/market-quotes'
 
@@ -33,17 +34,25 @@ const MAX_ATTEMPTS = 3
 export async function evaluatePriceAlerts(): Promise<AlertEvaluationResult> {
   const result: AlertEvaluationResult = { checked: 0, triggered: 0, sent: 0, failed: 0 }
 
-  const alerts = await prisma.priceAlert.findMany({
-    where: {
-      OR: [
-        { status: 'ACTIVE' },
-        { status: 'TRIGGERED', notifiedAt: null, attempts: { lt: MAX_ATTEMPTS } },
-      ],
-    },
-    orderBy: { createdAt: 'asc' },
-    take: BATCH_LIMIT,
-  })
-
+  let alerts: Awaited<ReturnType<typeof prisma.priceAlert.findMany>>
+  try {
+    alerts = await prisma.priceAlert.findMany({
+      where: {
+        OR: [
+          { status: 'ACTIVE' },
+          { status: 'TRIGGERED', notifiedAt: null, attempts: { lt: MAX_ATTEMPTS } },
+        ],
+      },
+      orderBy: { createdAt: 'asc' },
+      take: BATCH_LIMIT,
+    })
+  } catch (error) {
+    // The schema has not reached this environment yet (production and preview
+    // use different databases). Nothing to evaluate, and nothing to retry —
+    // the next tick will pick it up once the table exists.
+    if (isMissingSchema(error)) return result
+    throw error
+  }
   result.checked = alerts.length
   if (alerts.length === 0) return result
 

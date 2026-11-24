@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireTrader } from '@/lib/trader/auth'
 import { prisma } from '@/lib/prisma'
+import { ALERTS_NOT_ENABLED_MESSAGE, isMissingSchema } from '@/lib/alerts/schema-guard'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,10 +14,18 @@ export async function DELETE(
 
   const { id } = await params
 
-  const result = await prisma.priceAlert.updateMany({
-    where: { id, userId: session.sub, status: 'ACTIVE' },
-    data: { status: 'CANCELLED' },
-  })
+  let result: { count: number }
+  try {
+    result = await prisma.priceAlert.updateMany({
+      where: { id, userId: session.sub, status: 'ACTIVE' },
+      data: { status: 'CANCELLED' },
+    })
+  } catch (error) {
+    if (isMissingSchema(error)) {
+      return NextResponse.json({ error: ALERTS_NOT_ENABLED_MESSAGE }, { status: 503 })
+    }
+    throw error
+  }
 
   if (result.count === 0) {
     return NextResponse.json({ error: 'Alert not found' }, { status: 404 })
