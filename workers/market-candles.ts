@@ -1,6 +1,7 @@
 ﻿import { getFxcmQuotes, FXCM_SYMBOLS } from '@/lib/market/fxcm'
 import { getGoldSpotQuote } from '@/lib/market/gold-spot'
 import { recordMarketTick } from '@/lib/market/market-candles'
+import { evaluatePriceAlerts } from '@/lib/alerts/evaluate'
 import { prisma } from '@/lib/prisma'
 import {
   MARKET_CANDLES_HEARTBEAT_INTERVAL_MS,
@@ -92,6 +93,34 @@ async function tick() {
   recordTickOutcome(tickState, outcome)
 }
 
+const ALERT_CHECK_INTERVAL_MS = 30_000
+let lastAlertCheckAt = 0
+let alertCheckInFlight = false
+
+/**
+ * Price alerts are evaluated here, not on a Vercel cron: the Hobby plan only
+ * allows daily crons, and a daily price alert is worthless. This loop already
+ * ticks every few seconds with the database open, so it is the cheapest place
+ * to run the check. `evaluatePriceAlerts` handles its own per-alert failures and
+ * is safe to run against a database that has no alerts at all.
+ */
+async function maybeEvaluateAlerts() {
+  if (alertCheckInFlight) return
+  const now = Date.now()
+  if (now - lastAlertCheckAt < ALERT_CHECK_INTERVAL_MS) return
+
+  lastAlertCheckAt = now
+  alertCheckInFlight = true
+  try {
+    const result = await evaluatePriceAlerts()
+    if (result.checked > 0) console.info('[pft market worker] alerts', result)
+  } catch (error) {
+    console.error('[pft market worker] alert evaluation failed', error)
+  } finally {
+    alertCheckInFlight = false
+  }
+}
+
 async function run() {
   if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required to run the market candle worker')
 
@@ -117,6 +146,7 @@ async function run() {
       // Keep the loop alive through provider or database hiccups; the next tick retries.
       console.error('[pft market worker] Tick failed', error)
     }
+    if (!stopping) await maybeEvaluateAlerts()
     if (!stopping) await sleep(Math.max(250, interval - (Date.now() - startedAt)))
   }
 }

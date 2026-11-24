@@ -29,3 +29,23 @@ polling it every 250ms while visible.
 
 Verify that the Twelve Data plan provides real-time Forex WebSocket access and
 permits redisplaying the feed to your users before production use.
+
+## Price alerts
+
+The market worker also evaluates chart price alerts every 30 seconds
+(`lib/alerts/evaluate.ts`, called from `workers/market-candles.ts`).
+
+This is deliberate: Vercel's Hobby plan only allows daily cron jobs, and a daily
+price alert is worthless. The worker already ticks every few seconds with the
+database open, so it is the cheapest place to run the check.
+
+Consequences for operations:
+
+- If this worker is down, alerts stop firing — same failure mode as candles and
+  quotes. Nothing else in the terminal depends on it for correctness.
+- Keep it at one replica. Two replicas are safe for data (both claims are
+  atomic), but they would duplicate provider traffic.
+- `/api/alerts/check` still exists as a manual trigger, protected by
+  `CRON_SECRET` or an admin session. Use it to force a run after fixing a
+  mailer, not on a schedule.
+
