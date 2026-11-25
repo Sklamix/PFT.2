@@ -2,7 +2,8 @@ import type { SupportCategory } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { addTraderMessage, createTicket } from '@/lib/support/service'
 import type { SupportBrief } from '@/lib/support/brief'
-import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION } from './pft-knowledge'
+import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION, surfaceSection } from './pft-knowledge'
+import { selectSections } from './grounding'
 import { AiUnavailableError, type AssistantGenerator, type ChatTurn } from './gemini'
 import { generateAssistant } from './provider'
 import {
@@ -23,6 +24,10 @@ export type SupportChatResult = {
   suggestedHandoff: boolean
   /** Category the model picked for an unanswered question, reused on confirmation. */
   suggestedCategory: SupportCategory | null
+  /** Verbatim quotes from the rulebook backing the answer; empty when unresolved. */
+  citations: { section: number; quote: string }[]
+  /** Why the answer was not grounded: grounded | ungrounded | forbidden | no_matching_rules */
+  grounding: 'grounded' | 'ungrounded' | 'forbidden' | 'no_matching_rules'
 }
 
 function readSupportChatResult(value: unknown): SupportChatResult | null {
@@ -39,14 +44,30 @@ function readSupportChatResult(value: unknown): SupportChatResult | null {
   if (suggestedCategoryRaw !== null && suggestedCategory === null) return null
   if (typeof record.answer === 'string') {
     if (record.handoff !== null || record.handoffReason !== null || record.suggestedHandoff || suggestedCategory !== null) return null
-    return { answer: record.answer, handoff: null, handoffReason: null, suggestedHandoff: false, suggestedCategory: null }
+    return {
+      answer: record.answer,
+      handoff: null,
+      handoffReason: null,
+      suggestedHandoff: false,
+      suggestedCategory: null,
+      citations: readCitations(record.citations),
+      grounding: 'grounded',
+    }
   }
   if (record.answer !== null || typeof record.handoffReason !== 'string') return null
 
   if (record.handoff === null) {
     // A suggested handoff: no ticket exists yet, the trader must confirm first.
     if (!record.suggestedHandoff || suggestedCategory === null) return null
-    return { answer: null, handoff: null, handoffReason: record.handoffReason, suggestedHandoff: true, suggestedCategory }
+    return {
+      answer: null,
+      handoff: null,
+      handoffReason: record.handoffReason,
+      suggestedHandoff: true,
+      suggestedCategory,
+      citations: [],
+      grounding: 'ungrounded',
+    }
   }
 
   if (!record.handoff || typeof record.handoff !== 'object' || Array.isArray(record.handoff)) return null
@@ -68,6 +89,8 @@ function readSupportChatResult(value: unknown): SupportChatResult | null {
     handoffReason: record.handoffReason,
     suggestedHandoff: false,
     suggestedCategory: null,
+    citations: [],
+    grounding: 'ungrounded',
   }
 }
 
@@ -76,6 +99,19 @@ export class HandoffFailedError extends Error {
     super('Support ticket could not be created')
     this.name = 'HandoffFailedError'
   }
+}
+
+/** Citation list validation for the idempotency cache: drop invalid entries, keep valid ones. */
+function readCitations(value: unknown): SupportChatResult['citations'] {
+  if (!Array.isArray(value)) return []
+  const citations: SupportChatResult['citations'] = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue
+    const record = item as Record<string, unknown>
+    if (typeof record.section !== 'number' || typeof record.quote !== 'string' || record.quote.length === 0) continue
+    citations.push({ section: record.section, quote: record.quote })
+  }
+  return citations
 }
 
 const HANDOFF_SUBJECT_PREFIX = 'Support chat:'
@@ -269,8 +305,25 @@ async function handleSupportChatOnce(
   dependencies: SupportChatDependencies,
 ): Promise<SupportChatResult> {
   const pricing = await dependencies.loadPricing()
-  const knowledge = buildPftKnowledge(pricing)
+  // Follow-ups ("and what about yesterday?") carry no topic of their own, so the
+  // previous user turn joins the retrieval query (spec: 3.3).
+  const previousUserTurn = [...input.history].reverse().find((turn) => turn.role === 'user')?.content ?? ''
+  const sections = selectSections(`${previousUserTurn}\n${input.message}`)
+  const knowledge = buildPftKnowledge({ pricing, sections: sections.length > 0 ? [...sections, surfaceSection()] : [] })
   const generate = input.generate ?? generateAssistant
+
+  if (!input.forceHandoff && sections.length === 0) {
+    // Nothing in the rulebook matches: no model call, straight to a handoff.
+    return {
+      answer: null,
+      handoff: null,
+      handoffReason: 'no_matching_rules',
+      suggestedHandoff: true,
+      suggestedCategory: 'GENERAL',
+      citations: [],
+      grounding: 'no_matching_rules',
+    }
+  }
 
   // A confirmed handoff keeps the category and reason the model picked for the
   // original suggestion; a forced handoff without a suggestion states it plainly.
@@ -286,7 +339,15 @@ async function handleSupportChatOnce(
         message: input.message,
       })
       if (result.resolved) {
-        return { answer: result.answer, handoff: null, handoffReason: null, suggestedHandoff: false, suggestedCategory: null }
+        return {
+          answer: result.answer,
+          handoff: null,
+          handoffReason: null,
+          suggestedHandoff: false,
+          suggestedCategory: null,
+          citations: [],
+          grounding: 'grounded',
+        }
       }
       category = result.category
       reason = result.handoffReason ?? 'not_covered_by_rules'
@@ -296,7 +357,7 @@ async function handleSupportChatOnce(
     }
     // Offer the transfer; the ticket is created only when the trader confirms.
     // The model's category rides along so the confirmation does not lose it.
-    return { answer: null, handoff: null, handoffReason: reason, suggestedHandoff: true, suggestedCategory: category }
+    return { answer: null, handoff: null, handoffReason: reason, suggestedHandoff: true, suggestedCategory: category, citations: [], grounding: 'ungrounded' }
   }
 
   const finalReason = reason ?? 'not_covered_by_rules'
@@ -327,6 +388,8 @@ async function handleSupportChatOnce(
         handoffReason: finalReason,
         suggestedHandoff: false,
         suggestedCategory: null,
+        citations: [],
+        grounding: 'ungrounded',
       }
     }
     // Closed or otherwise unavailable: fall through and create a fresh ticket.
@@ -351,6 +414,8 @@ async function handleSupportChatOnce(
       handoffReason: finalReason,
       suggestedHandoff: false,
       suggestedCategory: null,
+      citations: [],
+      grounding: 'ungrounded',
     }
   } catch {
     // Never claim a transfer that was not stored.

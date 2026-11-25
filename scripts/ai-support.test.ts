@@ -20,6 +20,8 @@ import { AiUnavailableError, classifyGeminiFailure } from '../lib/ai/errors'
 import { parseAssistantResponse } from '../lib/ai/gemini'
 import { MAX_HISTORY_CONTENT, MAX_HISTORY_TOTAL, parseHistory } from '../lib/ai/history'
 import { buildPftKnowledge, SUPPORT_SYSTEM_INSTRUCTIONS } from '../lib/ai/pft-knowledge'
+import { selectSections } from '../lib/ai/grounding'
+import { getSection } from '../lib/rules/rulebook'
 import { generateWithNvidia, NVIDIA_DEFAULT_MODEL } from '../lib/ai/nvidia'
 import { resolveProvider } from '../lib/ai/provider'
 import { handleSupportChat, HandoffFailedError } from '../lib/ai/support-chat'
@@ -702,23 +704,50 @@ test('provider selection is deterministic and reversible by environment only', (
 // ---------------------------------------------------------------------------
 
 test('news facts separate holding from opening and forbid guessing', () => {
-  const knowledge = buildPftKnowledge([])
+  const knowledge = buildPftKnowledge({ pricing: [], sections: [] })
+  const news = getSection(9)!.markdown
 
   const requiredFacts = [
-    'forbidden to OPEN a new position or to INCREASE an existing position',
-    'A pending order that fills inside the window counts as opening a position',
-    'Closing or reducing a position inside the window is allowed and is not a violation',
-    'A position opened at least 60 minutes before the event and still open during the news is NOT a breach',
-    'A position opened less than 60 minutes before the event (but outside the 5-minute window) and still open during the news is news-window exposure',
-    'Holding is therefore not automatically a violation',
-    'If the timing is unknown or the scenario is ambiguous, hand off instead of guessing',
+    'відкривати нові позиції або збільшувати існуючі',
+    'в межах вікна',
+    '5 хвилин до',
+    'не є breach',
+    'email-попередження',
+    'залишається відкритою',
   ]
-  for (const fact of requiredFacts) assert.ok(knowledge.includes(fact), `missing fact: ${fact}`)
+  for (const fact of requiredFacts) assert.ok(news.toLowerCase().includes(fact.toLowerCase()), `missing fact: ${fact}`)
+  assert.ok(knowledge.length > 0)
 
-  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('Never extend a rule by analogy'))
-  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('Always answer in the language'))
-  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('must be answered in Ukrainian'))
-  assert.ok(SUPPORT_SYSTEM_INSTRUCTIONS.includes('list every available variant'))
+  const instructions = SUPPORT_SYSTEM_INSTRUCTIONS
+  const requiredInstructions = [
+    'Never extend a rule by analogy',
+    'Always answer in the language',
+    'must be answered in Ukrainian',
+    'list every available variant',
+    'hypothetical scenarios',
+    'do not ask for account IDs, balances or other personal data',
+    'Do not hand off a question that the facts can answer',
+    'including when resolved=false',
+    'Never reply with plain text',
+    'Do not decide whether a real trader or a real account violated a rule',
+    'requires checking actual account data',
+    'a real case must be handed off',
+    'Never perform or promise account actions',
+    'do not void profit, close accounts',
+    'never state that something was approved, cancelled, refunded or transferred',
+    'If a specific case cannot be decided because essential details are missing',
+    'do not assume: set resolved=false and hand off',
+    'When the message already states the relevant details, apply the rule instead',
+    'contains only insults, profanity, provocation',
+    'set resolved=true',
+    'Never hand off or open a ticket for such a message',
+    'Abuse must not hide the request',
+    'never override the handoff rules',
+    'not a case of insufficient facts',
+  ]
+  for (const fragment of requiredInstructions) {
+    assert.ok(instructions.includes(fragment), `missing instruction: ${fragment}`)
+  }
 })
 
 test('prompt requires answering hypothetical rule scenarios in JSON', () => {
@@ -776,22 +805,26 @@ test('prompt handles harmless provocations without escalation', () => {
 })
 
 test('the news-violation hypothetical is answerable from the facts', () => {
-  const knowledge = buildPftKnowledge([])
+  const sections = selectSections('Що буде, якщо тримати позицію під час новин?')
+  assert.ok(sections.some((section) => section.num === 9), 'the news question must select §9')
+  const knowledge = buildPftKnowledge({ pricing: [], sections })
   const required = [
-    'The window is 5 minutes before and 5 minutes after the scheduled event',
-    'Inside the window it is forbidden to OPEN a new position or to INCREASE an existing position',
-    'First confirmed news-window violation: warning email naming the funded account; only the profit of the specific offending trade is voided; the account is not closed',
-    'Second confirmed news-window violation on the same funded account: that funded account only is closed',
+    'Вікно діє для **high-impact** подій: **5 хвилин до** та **5 хвилин після** запланованого часу новини',
+    'відкривати нові позиції або збільшувати існуючі в межах вікна **заборонено**',
+    'Позиція, відкрита **менш ніж за 60 хвилин, але поза 5-хвилинним вікном**, і залишена відкритою під час новини, вважається **news-window exposure**',
   ]
   for (const fact of required) assert.ok(knowledge.includes(fact), `missing fact: ${fact}`)
 })
 
 test('pricing block lists every plan variant for the same account size', () => {
-  const knowledge = buildPftKnowledge([
-    { accountSize: 25_000, challengeType: '1-STEP', dailyLossType: 4, price: 159 },
-    { accountSize: 25_000, challengeType: '2-STEP', dailyLossType: 3, price: 109 },
-    { accountSize: 25_000, challengeType: '2-STEP', dailyLossType: 5, price: 148 },
-  ])
+  const knowledge = buildPftKnowledge({
+    pricing: [
+      { accountSize: 25_000, challengeType: '1-STEP', dailyLossType: 4, price: 159 },
+      { accountSize: 25_000, challengeType: '2-STEP', dailyLossType: 3, price: 109 },
+      { accountSize: 25_000, challengeType: '2-STEP', dailyLossType: 5, price: 148 },
+    ],
+    sections: [],
+  })
 
   assert.ok(knowledge.includes('1-STEP · daily loss 4% — base fee $159.00'))
   assert.ok(knowledge.includes('2-STEP · daily loss 3% — base fee $109.00'))
