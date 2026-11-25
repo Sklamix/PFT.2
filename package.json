@@ -18,6 +18,8 @@
     "db:migrate:test": "tsx scripts/run-test-migrations.ts",
     "qa:smoke": "node scripts/qa-smoke.cjs",
     "test:support-ui": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/support-live.test.ts",
+    "rules:build": "tsx scripts/build-rulebook.ts",
+    "test:rulebook": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/rulebook-build.test.ts",
     "support:backfill-brief": "tsx scripts/support-brief-backfill.ts",
     "test:ai-support": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/ai-support.test.ts scripts/ai-support-route.test.ts scripts/ai-support-kyc-handoff.test.ts scripts/ai-support-escalation.test.ts scripts/ai-support-agent-tools.test.ts scripts/ai-concurrent-idempotency.test.ts scripts/ai-provider-fallback.test.ts scripts/ai-reliability-hardening.test.ts scripts/ai-agent-reply.test.ts",
     "test:diagnostics": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/diagnostics.test.ts scripts/ai-support-diagnostics.test.ts",

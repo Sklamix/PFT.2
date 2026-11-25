@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { MessageBody } from '@/components/support/chat/message-body'
+import { RulesBrowser } from '@/components/support/rules-browser'
 
 /* -------------------------------------------------------------------------- */
 /* Mobile agent panel for the Support Desk app (staff APK).                   */
@@ -64,7 +65,7 @@ function Banner({ banner }: { banner: { ok: boolean; text: string } | null }) {
 
 export function AgentSection({ publicId }: { publicId: string }) {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<'snapshot' | 'assist'>('snapshot')
+  const [tab, setTab] = useState<'snapshot' | 'rules' | 'assist'>('snapshot')
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [reminders, setReminders] = useState<Reminder[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -173,12 +174,20 @@ export function AgentSection({ publicId }: { publicId: string }) {
               Дані клієнта
             </button>
             <button
+              onClick={() => setTab('rules')}
+              className={`rounded-full px-3 py-1 ${tab === 'rules' ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground'}`}
+            >
+              Правила
+            </button>
+            <button
               onClick={() => setTab('assist')}
               className={`rounded-full px-3 py-1 ${tab === 'assist' ? 'bg-primary text-primary-foreground' : 'border border-border text-muted-foreground'}`}
             >
               Агент (Assist)
             </button>
           </div>
+
+          {tab === 'rules' && <RulesBrowser />}
 
           {loadError && <p className="mt-2 text-xs text-destructive">{loadError}</p>}
 

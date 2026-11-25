@@ -5,6 +5,7 @@ import { AlertTriangle, Bot, ChevronDown, ChevronUp, Loader2, Send, ShieldAlert 
 import { Button } from '@/components/ui/button'
 import { BriefPanel } from '@/components/admin/support-brief'
 import { MessageBody } from '@/components/support/chat/message-body'
+import { RulesBrowser } from '@/components/support/rules-browser'
 import { cn } from '@/lib/utils'
 
 /**
@@ -38,7 +39,7 @@ type AgentSnapshot = {
 
 type Reminder = { id: string; note: string | null; remindAt: string | null; state: string }
 
-type AgentTab = 'snapshot' | 'brief' | 'assist' | 'history'
+type AgentTab = 'snapshot' | 'brief' | 'rules' | 'assist' | 'history'
 
 type AssistTurn = { role: 'user' | 'assistant'; content: string }
 
@@ -253,7 +254,7 @@ export function SupportAgentPanel({ ticketId, brief, onInsertReply }: { ticketId
       {open ? (
         <div className="flex flex-col">
           <nav className="flex gap-1 border-b border-border/70 px-2 py-1.5" aria-label="Agent tabs">
-            {(['snapshot', 'brief', 'assist', 'history'] as const).map((item) => (
+            {(['snapshot', 'brief', 'rules', 'assist', 'history'] as const).map((item) => (
               <Button key={item} size="xs" variant={tab === item ? 'default' : 'ghost'} onClick={() => setTab(item)} className="capitalize">
                 {item}
               </Button>
@@ -271,6 +272,7 @@ export function SupportAgentPanel({ ticketId, brief, onInsertReply }: { ticketId
             ) : null}
 
             {tab === 'brief' ? <BriefPanel brief={brief} onInsert={onInsertReply} /> : null}
+            {tab === 'rules' ? <RulesBrowser onInsert={onInsertReply} /> : null}
 
             {tab === 'snapshot' ? (
               loading ? (
