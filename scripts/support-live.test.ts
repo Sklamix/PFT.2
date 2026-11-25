@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mergeMessages, latestCreatedAt, parseSince } from '../lib/support/live'
+import { mergeMessages, latestCreatedAt, parseSince, newMessagesLabel } from '../lib/support/live'
 import { findLatestBrief, readBrief } from '../lib/support/brief'
 import { ValidationError } from '../lib/support/types'
 
@@ -93,4 +93,29 @@ test('findLatestBrief returns the newest brief, not the first one', () => {
 test('findLatestBrief returns null when no message carries a brief', () => {
   assert.equal(findLatestBrief([{ metadata: null }, {}]), null)
   assert.equal(findLatestBrief([]), null)
+})
+
+test('newMessagesLabel uses the English singular only for exactly one', () => {
+  assert.equal(newMessagesLabel(1, 'en'), '1 new message')
+  assert.equal(newMessagesLabel(0, 'en'), '0 new messages')
+  assert.equal(newMessagesLabel(2, 'en'), '2 new messages')
+})
+
+test('newMessagesLabel handles all three Ukrainian plural forms', () => {
+  assert.equal(newMessagesLabel(1, 'uk'), '1 нове повідомлення')
+  assert.equal(newMessagesLabel(21, 'uk'), '21 нове повідомлення')
+  assert.equal(newMessagesLabel(31, 'uk'), '31 нове повідомлення')
+  assert.equal(newMessagesLabel(3, 'uk'), '3 нові повідомлення')
+  assert.equal(newMessagesLabel(4, 'uk'), '4 нові повідомлення')
+  assert.equal(newMessagesLabel(22, 'uk'), '22 нові повідомлення')
+  assert.equal(newMessagesLabel(5, 'uk'), '5 нових повідомлень')
+  assert.equal(newMessagesLabel(11, 'uk'), '11 нових повідомлень')
+  assert.equal(newMessagesLabel(12, 'uk'), '12 нових повідомлень')
+  assert.equal(newMessagesLabel(14, 'uk'), '14 нових повідомлень')
+  assert.equal(newMessagesLabel(25, 'uk'), '25 нових повідомлень')
+})
+
+test('newMessagesLabel never renders a negative or fractional count', () => {
+  assert.equal(newMessagesLabel(-3, 'en'), '0 new messages')
+  assert.equal(newMessagesLabel(2.7, 'en'), '2 new messages')
 })

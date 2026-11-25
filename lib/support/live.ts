@@ -30,3 +30,21 @@ export function latestCreatedAt<T extends { createdAt: string }>(items: T[]): st
   }
   return latest
 }
+
+/**
+ * Label for the "new messages" pill.
+ *
+ * Ukrainian needs three plural forms (1 / 2-4 / 5+), English needs two.
+ * Kept here rather than in the component so it can be unit-tested.
+ */
+export function newMessagesLabel(count: number, locale: 'en' | 'uk' = 'en'): string {
+  const safe = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0
+  if (locale === 'uk') {
+    const mod10 = safe % 10
+    const mod100 = safe % 100
+    if (mod10 === 1 && mod100 !== 11) return `${safe} нове повідомлення`
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${safe} нові повідомлення`
+    return `${safe} нових повідомлень`
+  }
+  return safe === 1 ? '1 new message' : `${safe} new messages`
+}

@@ -5,6 +5,7 @@ import { ArrowLeft, Inbox, Loader2, MessageSquarePlus, RefreshCw, Send, X } from
 import { SpaceBackground } from '@/components/dashboard/space-background'
 import { SupportAssistant } from '@/components/support/support-assistant'
 import { MessageBody } from '@/components/support/chat/message-body'
+import { NewMessagesPill } from '@/components/support/chat/new-messages-pill'
 import { TypingDots } from '@/components/support/chat/typing-dots'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useSupportPoll } from '@/hooks/use-support-poll'
@@ -117,8 +118,12 @@ export function TraderSupportView() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  const { ref: messagesRef } = useStickToBottom<HTMLDivElement>(detail?.messages.items ?? [], { threshold: 128 })
+  const { ref: messagesRef, unread, scrollToBottom } = useStickToBottom<HTMLDivElement>(detail?.messages.items ?? [], {
+    threshold: 128,
+    count: detail?.messages.items.length ?? 0,
+  })
   const detailSinceRef = useRef<string | null>(null)
+  const reloadDetailRef = useRef<(() => void) | null>(null)
 
   // Poll the open ticket for new messages every 3s (delta from the newest message we hold).
   useSupportPoll({
@@ -131,9 +136,19 @@ export function TraderSupportView() {
     enabled: !!selectedId,
     intervalMs: 3_000,
     onData: (data) => {
-      const record = data as { ticket?: Ticket; messages?: { items?: Message[]; total?: number } } | null
+      const record = data as {
+        ticket?: Ticket
+        messages?: { items?: Message[]; total?: number; hasMore?: boolean }
+      } | null
       const incoming = record?.messages?.items
       if (!Array.isArray(incoming)) return
+      // More new messages than one page: the cursor cannot describe the gap, so
+      // drop it and reload the newest page instead of silently losing messages.
+      if (record?.messages?.hasMore) {
+        detailSinceRef.current = null
+        reloadDetailRef.current?.()
+        return
+      }
       setDetail((current) => {
         if (!current) return null
         const merged = mergeMessages(current.messages.items, incoming)
@@ -202,6 +217,13 @@ export function TraderSupportView() {
       setDetailLoading(false)
     }
   }, [])
+
+  // The poll lives above `loadDetail`, so it reloads through this ref.
+  useEffect(() => {
+    reloadDetailRef.current = () => {
+      if (selectedId) void loadDetail(selectedId, 1)
+    }
+  }, [selectedId, loadDetail])
 
   useEffect(() => {
     void loadTickets(1, statusFilter)
@@ -405,52 +427,55 @@ export function TraderSupportView() {
                   ) : null}
                 </header>
 
-                <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
-                  {detailLoading && !detail ? (
-                    <p className="flex items-center gap-2 text-xs text-[#94A3B8]"><Loader2 className="size-4 animate-spin" /> Loading conversation…</p>
-                  ) : detailError ? (
-                    <div className="text-xs text-danger">
-                      <p>{detailError}</p>
-                      <Button variant="outline" size="sm" className="mt-3" onClick={() => selectedId && void loadDetail(selectedId, 1)}>Retry</Button>
-                    </div>
-                  ) : detail ? (
-                    <>
-                      {detail.messages.page > 1 ? (
-                        <div className="mb-3 text-center">
-                          <Button variant="ghost" size="xs" disabled={detailLoading} onClick={() => selectedId && void loadDetail(selectedId, detail.messages.page - 1)}>
-                            Load older messages
-                          </Button>
-                        </div>
-                      ) : null}
-                      <ul className="flex flex-col gap-3">
-                        {detail.messages.items.map((message, index) => {
-                          const mine = message.senderType === 'TRADER'
-                          return (
-                            <li
-                              key={message.id}
-                              className={cn('flex animate-msg-in', mine ? 'justify-end' : 'justify-start')}
-                              style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}
-                            >
-                              <div className={cn('max-w-[85%] rounded-xl border px-3 py-2 sm:max-w-[75%]', mine ? 'border-primary/25 bg-primary/10' : 'border-slate-800 bg-[#111A2D]')}>
-                                <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.16em] text-[#94A3B8]">
-                                  {mine ? 'You' : message.senderType === 'AI' ? 'PFT Assistant' : 'PFT Support'}
-                                </p>
-                                <MessageBody text={message.body} tone={mine ? 'staff' : message.senderType === 'AI' ? 'ai' : 'neutral'} />
-                                <p className="mt-1 font-mono text-[9px] text-slate-500">{formatTime(message.createdAt)}</p>
-                              </div>
-                            </li>
-                          )
-                        })}
-                      </ul>
-                      {detail.messages.page < totalMessagePages ? (
-                        <div className="mt-3 text-center">
-                          <Button variant="ghost" size="xs" disabled={detailLoading} onClick={() => selectedId && void loadDetail(selectedId, detail.messages.page + 1)}>
-                            Load newer messages
-                          </Button>
-                        </div>
-                      ) : null}
-                    </>
-                  ) : null}
+                <div className="relative min-h-0 flex-1">
+                  <div ref={messagesRef} className="h-full overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
+                    {detailLoading && !detail ? (
+                      <p className="flex items-center gap-2 text-xs text-[#94A3B8]"><Loader2 className="size-4 animate-spin" /> Loading conversation…</p>
+                    ) : detailError ? (
+                      <div className="text-xs text-danger">
+                        <p>{detailError}</p>
+                        <Button variant="outline" size="sm" className="mt-3" onClick={() => selectedId && void loadDetail(selectedId, 1)}>Retry</Button>
+                      </div>
+                    ) : detail ? (
+                      <>
+                        {detail.messages.page > 1 ? (
+                          <div className="mb-3 text-center">
+                            <Button variant="ghost" size="xs" disabled={detailLoading} onClick={() => selectedId && void loadDetail(selectedId, detail.messages.page - 1)}>
+                              Load older messages
+                            </Button>
+                          </div>
+                        ) : null}
+                        <ul className="flex flex-col gap-3">
+                          {detail.messages.items.map((message, index) => {
+                            const mine = message.senderType === 'TRADER'
+                            return (
+                              <li
+                                key={message.id}
+                                className={cn('flex animate-msg-in', mine ? 'justify-end' : 'justify-start')}
+                                style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}
+                              >
+                                <div className={cn('max-w-[85%] rounded-xl border px-3 py-2 sm:max-w-[75%]', mine ? 'border-primary/25 bg-primary/10' : 'border-slate-800 bg-[#111A2D]')}>
+                                  <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.16em] text-[#94A3B8]">
+                                    {mine ? 'You' : message.senderType === 'AI' ? 'PFT Assistant' : 'PFT Support'}
+                                  </p>
+                                  <MessageBody text={message.body} tone={mine ? 'staff' : message.senderType === 'AI' ? 'ai' : 'neutral'} />
+                                  <p className="mt-1 font-mono text-[9px] text-slate-500">{formatTime(message.createdAt)}</p>
+                                </div>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                        {detail.messages.page < totalMessagePages ? (
+                          <div className="mt-3 text-center">
+                            <Button variant="ghost" size="xs" disabled={detailLoading} onClick={() => selectedId && void loadDetail(selectedId, detail.messages.page + 1)}>
+                              Load newer messages
+                            </Button>
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                  <NewMessagesPill count={unread} onClick={() => scrollToBottom('smooth')} />
                 </div>
 
                 <div className="border-t border-slate-800/80 p-3">

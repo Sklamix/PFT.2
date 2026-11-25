@@ -3,7 +3,9 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { BrandLogo } from '@/components/brand-logo'
 import { MessageBody } from '@/components/support/chat/message-body'
+import { NewMessagesPill } from '@/components/support/chat/new-messages-pill'
 import { TypingDots } from '@/components/support/chat/typing-dots'
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useSupportPoll } from '@/hooks/use-support-poll'
 import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
 import { findLatestBrief } from '@/lib/support/brief'
@@ -77,6 +79,15 @@ export default function StaffApp() {
 
   const meSubRef = useRef<string | null>(null)
   const openTicketSinceRef = useRef<string | null>(null)
+  const reloadTicketRef = useRef<(() => void) | null>(null)
+  const {
+    ref: messagesRef,
+    unread: unreadMessages,
+    scrollToBottom,
+  } = useStickToBottom<HTMLDivElement>(openTicket?.messages ?? [], {
+    threshold: 96,
+    count: openTicket?.messages.length ?? 0,
+  })
 
   // Poll the ticket list every 15s when signed in.
   useSupportPoll({
@@ -103,9 +114,16 @@ export default function StaffApp() {
     enabled: !!openTicket,
     intervalMs: 4_000,
     onData: (data) => {
-      const record = data as { ticket?: TicketSummary; messages?: { items?: TicketMessage[] } } | null
+      const record = data as { ticket?: TicketSummary; messages?: { items?: TicketMessage[]; hasMore?: boolean } } | null
       const incoming = record?.messages?.items
       if (!Array.isArray(incoming)) return
+      // More new messages than one page: reload the newest page rather than
+      // leaving a silent gap between what we hold and what just arrived.
+      if (record?.messages?.hasMore) {
+        openTicketSinceRef.current = null
+        reloadTicketRef.current?.()
+        return
+      }
       setOpenTicket((current) => {
         if (!current) return null
         const merged = mergeMessages(current.messages, incoming)
@@ -235,6 +253,12 @@ export default function StaffApp() {
     }
   }
 
+  // The poll lives above `openByRef`, so it reloads through this ref.
+  useEffect(() => {
+    reloadTicketRef.current = openTicket ? () => void openByRef(openTicket.ticket.publicId) : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTicket])
+
   async function sendReply(event: FormEvent) {
     event.preventDefault()
     if (!openTicket || !reply.trim()) return
@@ -361,21 +385,28 @@ export default function StaffApp() {
           </div>
         </header>
         <main className="mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col px-4 py-4">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain">
-            {openTicket.messages.map((message) => {
-              const mine = message.senderType !== 'TRADER'
-              return (
-                <div key={message.id} className={mine ? 'flex justify-end' : 'flex justify-start'}>
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${mine ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
-                    <p className="mb-1 text-[10px] uppercase opacity-60">
-                      {message.senderType === 'TRADER' ? (message.senderName || t.trader.name || 'Клієнт') : message.senderType === 'AI' ? 'AI' : 'Ви'}
-                    </p>
-                    <MessageBody text={message.body} tone={mine ? 'staff' : message.senderType === 'AI' ? 'ai' : 'neutral'} />
-                    <p className="mt-1 text-[10px] opacity-50">{new Date(message.createdAt).toLocaleString('uk-UA')}</p>
+          <div className="relative min-h-0 flex-1">
+            <div ref={messagesRef} className="h-full space-y-3 overflow-y-auto overscroll-contain">
+              {openTicket.messages.map((message) => {
+                // AI replies are not the agent's own words: they get their own
+                // bubble and the accented `ai` tone, so the draft is never
+                // mistaken for something already sent.
+                const mine = message.senderType === 'STAFF'
+                const isAi = message.senderType === 'AI'
+                return (
+                  <div key={message.id} className={mine ? 'flex justify-end' : 'flex justify-start'}>
+                    <div className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${mine ? 'bg-primary text-primary-foreground' : isAi ? 'border border-highlight/40 bg-card' : 'border border-border bg-card'}`}>
+                      <p className="mb-1 text-[10px] uppercase opacity-60">
+                        {message.senderType === 'TRADER' ? (message.senderName || t.trader.name || 'Клієнт') : isAi ? 'AI' : 'Ви'}
+                      </p>
+                      <MessageBody text={message.body} tone={isAi ? 'ai' : mine ? 'staff' : 'neutral'} />
+                      <p className="mt-1 text-[10px] opacity-50">{new Date(message.createdAt).toLocaleString('uk-UA')}</p>
+                    </div>
                   </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
+            <NewMessagesPill count={unreadMessages} onClick={() => scrollToBottom('smooth')} locale="uk" />
           </div>
           <AgentSection
             publicId={t.publicId}

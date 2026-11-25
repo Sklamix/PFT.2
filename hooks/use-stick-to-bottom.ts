@@ -1,12 +1,22 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type UseStickToBottomOptions = {
   /** Offset threshold (px) for counting as "at bottom". */
   threshold?: number
+  /** How many items are currently rendered; drives the unread counter. */
+  count?: number
 }
 
+/**
+ * Keeps a scroll container pinned to the bottom while the reader is at the
+ * bottom, and counts what arrived while they were not.
+ *
+ * `unread` is the difference between the current item count and the count the
+ * reader last saw *at the bottom* — not a tick counter, so a poll that returns
+ * nothing new never inflates it.
+ */
 export function useStickToBottom<T extends HTMLElement>(
   dep: unknown,
   options: UseStickToBottomOptions = {},
@@ -17,67 +27,73 @@ export function useStickToBottom<T extends HTMLElement>(
   scrollToBottom: (behavior?: ScrollBehavior) => void
   resetUnread: () => void
 } {
-  const { threshold = 48 } = options
+  const { threshold = 48, count = 0 } = options
   const ref = useRef<T | null>(null)
   const [atBottom, setAtBottom] = useState(true)
   const [unread, setUnread] = useState(0)
-  const unreadRef = useRef(0)
   const atBottomRef = useRef(true)
+  const countRef = useRef(count)
+  /** Item count at the moment the reader last saw the bottom. */
+  const seenRef = useRef(0)
 
-  function updateBottom() {
-    const el = ref.current
-    if (!el) return true
-    const at = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
-    atBottomRef.current = at
-    setAtBottom(at)
-    return at
-  }
+  useEffect(() => {
+    countRef.current = count
+  }, [count])
 
-  function bumpUnread() {
-    unreadRef.current += 1
-    setUnread(unreadRef.current)
-  }
-
-  function resetUnread() {
-    unreadRef.current = 0
+  const resetUnread = useCallback(() => {
+    seenRef.current = countRef.current
     setUnread(0)
-  }
+  }, [])
 
-  function scrollToBottom(behavior: ScrollBehavior = 'auto') {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
     const el = ref.current
     if (!el) return
     el.scrollTo({ top: el.scrollHeight, behavior })
-    resetUnread()
-  }
+    atBottomRef.current = true
+    setAtBottom(true)
+    seenRef.current = countRef.current
+    setUnread(0)
+  }, [])
 
-  // When dep changes (e.g. ticket selected), snap to bottom if we were there.
+  // The list changed: follow it when the reader is at the bottom, otherwise
+  // report how much is waiting below.
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    if (atBottomRef.current) el.scrollTop = el.scrollHeight
-    else bumpUnread()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dep])
+    if (count === 0) {
+      // Fresh conversation or a ticket switch — nothing to catch up on.
+      seenRef.current = 0
+      atBottomRef.current = true
+      setAtBottom(true)
+      setUnread(0)
+      return
+    }
+    if (atBottomRef.current) {
+      el.scrollTop = el.scrollHeight
+      seenRef.current = count
+      setUnread(0)
+      return
+    }
+    const delta = count - seenRef.current
+    setUnread(delta > 0 ? delta : 0)
+  }, [dep, count])
 
-  // Reset unread when element mounts/remounts.
-  useEffect(() => {
-    setAtBottom(true)
-    resetUnread()
-    atBottomRef.current = true
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ref.current])
-
-  // Scroll listener.
+  // Scrolling back to the bottom clears the counter.
   useEffect(() => {
     const el = ref.current
     if (!el) return
     const handler = () => {
-      updateBottom()
+      const at = el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
+      atBottomRef.current = at
+      setAtBottom(at)
+      if (at) {
+        seenRef.current = countRef.current
+        setUnread(0)
+      }
     }
-    el.addEventListener('scroll', handler)
+    el.addEventListener('scroll', handler, { passive: true })
     return () => el.removeEventListener('scroll', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dep])
+  }, [dep, threshold])
 
   return { ref, atBottom, unread, scrollToBottom, resetUnread }
 }
