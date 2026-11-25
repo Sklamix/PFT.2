@@ -236,7 +236,7 @@ test('the production gate requires the URL user to be the expected role', () => 
   )
 })
 
-test('the production manifest carries the four P1 migrations and the twelve new ones, in order', () => {
+test('the production manifest carries the P1 migrations, the later additions and the data backfills, in order', () => {
   assert.deepEqual(
     PRODUCTION_MIGRATIONS.map((migration) => migration.file),
     [
@@ -256,6 +256,9 @@ test('the production manifest carries the four P1 migrations and the twelve new 
       'financial-core.sql',
       'risk-equity-shadow.sql',
       'account-breach-events.sql',
+      'analytics-event.sql',
+      'price-alert.sql',
+      'commission-backfill.sql',
     ],
   )
   for (const migration of PRODUCTION_MIGRATIONS) {

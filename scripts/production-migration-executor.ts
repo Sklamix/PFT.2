@@ -545,6 +545,33 @@ export const PRODUCTION_MIGRATIONS: readonly ProductionMigration[] = [
       constraintExists('PriceAlert', 'PriceAlert_userId_fkey'),
     ],
   },
+  {
+    // Data-only backfill, appended last so it never changes the position of an
+    // existing migration. `commissionConfigured` shipped with DEFAULT false and
+    // the instrument seed policy never patches it, so every pre-existing row was
+    // left untradable: the trading engine refuses to open a position without a
+    // tariff. The file is idempotent and refuses to commit while any active
+    // instrument is still unconfigured.
+    file: 'commission-backfill.sql',
+    postconditions: [
+      {
+        label: 'no active instrument is left without a commission tariff',
+        sql: `SELECT NOT EXISTS (
+          SELECT 1 FROM "TradingInstrument"
+          WHERE "isActive" = true AND "commissionConfigured" = false
+        ) AS ok`,
+      },
+      {
+        label: 'every zero-rate instrument carries an explicit zero-fee approval',
+        sql: `SELECT NOT EXISTS (
+          SELECT 1 FROM "TradingInstrument"
+          WHERE "commissionConfigured" = true
+            AND "commissionPerLot" = 0
+            AND "zeroFeeApproved" = false
+        ) AS ok`,
+      },
+    ],
+  },
 ] as const
 
 export function parseProductionMode(argv: readonly string[]): ProductionMode {
