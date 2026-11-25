@@ -65,8 +65,10 @@ Statuses:
 
 Current assignments:
 
-- `contractSize`: `DERIVED_FROM_CODE` for Forex/Metals/Crypto; **`UNVERIFIED` for
-  Indices** (the "1 lot = 1 index unit" model exists only as a code comment).
+- `contractSize`: `DERIVED_FROM_CODE` for Forex/Metals/Crypto; **`OPS_CONFIRMED`
+  for Indices** — the "1 lot = 1 index unit, $1 per point" model is an accepted
+  product decision, not a broker fact (`docs/decisions/index-contract-model.md`).
+  It is deliberately **not** `BROKER_VERIFIED`: no venue contract was reviewed.
 - `tickSize`: `DERIVED_FROM_CODE` (`10^-priceDecimals` is display precision, not a
   venue tick).
 - `pipSize`, `lotConstraints`, `currencies`: `DERIVED_FROM_CODE`.

@@ -174,11 +174,14 @@ test('every specification field carries explicit verification metadata', () => {
   }
 })
 
-test('index contract size and derived tick size are never marked broker-verified', () => {
+test('index contract size is an ops decision, and derived tick size is never broker-verified', () => {
   for (const symbol of ['US500', 'US100', 'US30', 'US2000', 'GER40', 'UK100', 'FRA40', 'EU50', 'JPN225', 'HK50', 'AUS200', 'CN50']) {
     const spec = instrumentSpec(symbol)
     assert.ok(spec)
-    assert.equal(spec.verification.contractSize.status, 'UNVERIFIED', symbol)
+    // Accepted product policy (docs/decisions/index-contract-model.md) — never a broker fact.
+    assert.equal(spec.verification.contractSize.status, 'OPS_CONFIRMED', symbol)
+    assert.equal(spec.verification.contractSize.sourceType, 'OPS_MANUAL', symbol)
+    assert.notEqual(spec.verification.contractSize.sourceType, 'BROKER_DOC', symbol)
     assert.equal(spec.verification.tickSize.status, 'DERIVED_FROM_CODE', symbol)
   }
 })

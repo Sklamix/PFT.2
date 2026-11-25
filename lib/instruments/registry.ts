@@ -142,6 +142,11 @@ function unverifiedField(sourceId: string | null): SpecFieldVerification {
   return { status: 'UNVERIFIED', sourceType: sourceId ? 'CODE_CONFIG' : null, sourceId }
 }
 
+/** Accepted product policy (not a venue fact), recorded in a dated decision doc. */
+function opsField(sourceId: string): SpecFieldVerification {
+  return { status: 'OPS_CONFIRMED', sourceType: 'OPS_MANUAL', sourceId }
+}
+
 function isConfirmed(status: SpecVerificationStatus) {
   return status === 'OPS_CONFIRMED' || status === 'BROKER_VERIFIED'
 }
@@ -159,11 +164,12 @@ function rulebookCommission(
 function verificationFor(meta: MarketSymbol): InstrumentVerification {
   const symbolSource = `lib/constants/symbols.ts#SYMBOLS.${meta.symbol}`
   return {
-    // Index contract size ("1 lot = 1 index unit") exists only as a code comment,
-    // so it is explicitly not treated as a confirmed contract specification.
+    // The "$1 per index point" model is an accepted ops decision, not a broker
+    // fact: without it every index is rejected as unverified and cannot trade.
+    // See docs/decisions/index-contract-model.md.
     contractSize:
       meta.category === 'index'
-        ? unverifiedField('lib/constants/symbols.ts#INDEX_SPECS (comment only, no broker document)')
+        ? opsField('docs/decisions/index-contract-model.md')
         : codeField(`${symbolSource}.lotSize`),
     // Display precision is deterministic, but it is not a venue tick size.
     tickSize: codeField(`${symbolSource}.priceDecimals`),

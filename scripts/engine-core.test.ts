@@ -70,7 +70,7 @@ test('a duplicate order key returns the same position without another debit', as
   assert.equal(second.book.positions.length, 1)
 })
 
-test('crypto without a configured tariff and unverified indices cannot open', async () => {
+test('crypto without a configured tariff cannot open, indices can', async () => {
   const btcQuote = { bid: 80000, ask: 80010 }
   const btc = await placeMarketOrder({
     accountId: 'terminal-demo',
@@ -98,8 +98,9 @@ test('crypto without a configured tariff and unverified indices cannot open', as
     quote: indexQuote,
     fxQuotes: { ...fxQuotes, US100: indexQuote },
   })
-  assert.equal(index.ok, false)
-  if (!index.ok) assert.match(index.error, /contractSize is UNVERIFIED/)
+  // Indices trade on the ops-confirmed $1-per-point model (docs/decisions/index-contract-model.md).
+  assert.equal(index.ok, true, index.ok ? '' : index.error)
+  if (index.ok) assert.equal(index.position.symbol, 'US100')
 })
 
 test('partial close charges the exit tariff and updates remaining volume', async () => {

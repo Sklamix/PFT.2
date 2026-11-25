@@ -118,11 +118,14 @@ test('instrument resolver canonicalises aliases and rejects unknown symbols', ()
   assert.equal(unknown.ok, false)
 })
 
-test('index contract size is unverified and blocks new exposure', () => {
+test('index contract size is an ops decision and does not block new exposure', () => {
   const resolved = resolveInstrumentSpec({ symbol: 'US100' })
   assert.ok(resolved.ok)
-  assert.equal(resolved.spec.verification.contractSize.status, 'UNVERIFIED')
-  assert.ok(resolved.blockingReasons.some((reason) => reason.includes('contractSize')))
+  // Policy, not a venue fact — see docs/decisions/index-contract-model.md.
+  assert.equal(resolved.spec.verification.contractSize.status, 'OPS_CONFIRMED')
+  assert.equal(resolved.spec.verification.contractSize.sourceType, 'OPS_MANUAL')
+  assert.equal(resolved.spec.contractSize.toString(), '1')
+  assert.deepEqual(resolved.blockingReasons, [])
 })
 
 test('FX, metals and crypto specs resolve with policy leverage', () => {
@@ -916,7 +919,7 @@ test('FX valuation states are explicit and never silently zero', () => {
 
   // Unknown spec: explicitly unverified, never presented as ready.
   const unverified = positionValuation(
-    { ...base, symbol: 'US100', contractSizeSnapshot: null, quoteCurrencySnapshot: null, instrumentLeverage: null },
+    { ...base, symbol: 'NOTREAL', contractSizeSnapshot: null, quoteCurrencySnapshot: null, instrumentLeverage: null },
     29000,
     new FxTable(),
   )
