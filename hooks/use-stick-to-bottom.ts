@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type UseStickToBottomOptions = {
   /** Offset threshold (px) for counting as "at bottom". */
@@ -46,7 +46,7 @@ export function useStickToBottom<T extends HTMLElement>(
   function scrollToBottom(behavior: ScrollBehavior = 'auto') {
     const el = ref.current
     if (!el) return
-    el.scrollTop = el.scrollHeight
+    el.scrollTo({ top: el.scrollHeight, behavior })
     resetUnread()
   }
 

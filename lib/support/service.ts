@@ -439,6 +439,7 @@ export async function getStaffTicket(ref: string, pagination: { page: number; pa
         senderType: true,
         body: true,
         createdAt: true,
+        metadata: true,
         senderUser: { select: { name: true, email: true } },
       },
     }),
@@ -452,6 +453,7 @@ export async function getStaffTicket(ref: string, pagination: { page: number; pa
     createdAt: message.createdAt.toISOString(),
     senderName: message.senderUser?.name ?? null,
     senderEmail: message.senderUser?.email ?? null,
+    metadata: message.metadata ?? null,
   }))
 
   return {

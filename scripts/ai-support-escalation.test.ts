@@ -1,5 +1,6 @@
 import test, { after, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { readBrief } from '../lib/support/brief'
 import type { AssistantGenerator } from '../lib/ai/gemini'
 import { createMemoryIdempotencyStore } from './ai-support-test-store'
 
@@ -25,6 +26,7 @@ type CreateTicketInput = {
   body: string
   request: Request
   idempotencyKey?: string | null
+  messageMetadata?: unknown
 }
 
 const createTicketCalls: CreateTicketInput[] = []
@@ -194,7 +196,7 @@ test('abuse with a real account problem suggests, never auto-creates, a handoff'
   assert.equal(createTicketCalls.length, 1)
   const created = createTicketCalls[0]!
   assert.equal(created.category, 'ACCOUNT')
-  assert.match(created.body.toLowerCase(), /account/)
+  assert.equal(readBrief(created.messageMetadata)?.reason, 'account access requires verification', 'the confirmed ticket keeps the model original reason in metadata')
   assert.deepEqual(prismaWriteCalls, [])
 })
 
@@ -225,7 +227,7 @@ test('abuse with a real payout problem suggests, never auto-creates, a handoff',
   assert.equal(createTicketCalls.length, 1)
   const created = createTicketCalls[0]!
   assert.equal(created.category, 'PAYOUT')
-  assert.match(created.body.toLowerCase(), /payout/)
+  assert.equal(readBrief(created.messageMetadata)?.reason, 'payout requires a review', 'the confirmed ticket keeps the model original reason in metadata')
   assert.equal(confirmed.handoff?.reused, false)
   assert.equal(confirmed.handoffReason, 'payout requires a review')
   assert.deepEqual(prismaWriteCalls, [])

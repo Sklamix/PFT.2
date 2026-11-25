@@ -116,7 +116,7 @@ export function TraderSupportView() {
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
-  const { ref: messagesRef, scrollToBottom: scrollMessagesToBottom } = useStickToBottom<HTMLDivElement>(detail?.messages.items ?? [], { threshold: 128 })
+  const { ref: messagesRef } = useStickToBottom<HTMLDivElement>(detail?.messages.items ?? [], { threshold: 128 })
   const detailSinceRef = useRef<string | null>(null)
 
   // Poll the open ticket for new messages every 3s.

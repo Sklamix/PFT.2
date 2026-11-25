@@ -29,6 +29,8 @@ export function useSupportPoll(options: UseSupportPollOptions) {
   const onDataRef = useRef(onData)
   const onErrorRef = useRef(onError)
   const getUrlRef = useRef(getUrl)
+  const enabledRef = useRef(enabled)
+  const intervalMsRef = useRef(intervalMs)
 
   useEffect(() => {
     onDataRef.current = onData
@@ -36,6 +38,12 @@ export function useSupportPoll(options: UseSupportPollOptions) {
     getUrlRef.current = getUrl
   }, [onData, onError, getUrl])
 
+  useEffect(() => {
+    enabledRef.current = enabled
+    intervalMsRef.current = intervalMs
+  }, [enabled, intervalMs])
+
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const doPoll = useCallback(async () => {
     if (activeRef.current) return
     activeRef.current = true
@@ -45,7 +53,7 @@ export function useSupportPoll(options: UseSupportPollOptions) {
     abortRef.current = controller
 
     const url = getUrlRef.current()
-    if (!url || !enabled) {
+    if (!url || !enabledRef.current) {
       activeRef.current = false
       setPolling(false)
       return
@@ -58,7 +66,7 @@ export function useSupportPoll(options: UseSupportPollOptions) {
       const data = await response.json()
       if (controller.signal.aborted) return
       if (response.ok) {
-        delayRef.current = intervalMs
+        delayRef.current = intervalMsRef.current
         onDataRef.current?.(data)
       } else {
         delayRef.current = Math.min(delayRef.current * 2, 30_000)
@@ -74,7 +82,7 @@ export function useSupportPoll(options: UseSupportPollOptions) {
         timeoutRef.current = window.setTimeout(() => void doPoll(), delayRef.current)
       }
     }
-  }, [enabled, intervalMs])
+  }, [])
 
   // Visibility change: pause when hidden (if hiddenIntervalMs is 0, we set timeout to 0 → effectively pause),
   // and immediately poll when returning to the page.

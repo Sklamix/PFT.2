@@ -133,6 +133,7 @@ export type TicketMessage = {
 export type StaffTicketMessage = TicketMessage & {
   senderName: string | null
   senderEmail: string | null
+  metadata: unknown | null
 }
 
 export type Paginated<T> = {

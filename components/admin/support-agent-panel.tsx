@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AlertTriangle, Bot, ChevronDown, ChevronUp, Loader2, Send, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BriefPanel } from '@/components/admin/support-brief'
 import { cn } from '@/lib/utils'
 
 /**
@@ -36,7 +37,7 @@ type AgentSnapshot = {
 
 type Reminder = { id: string; note: string | null; remindAt: string | null; state: string }
 
-type AgentTab = 'snapshot' | 'assist' | 'history'
+type AgentTab = 'snapshot' | 'brief' | 'assist' | 'history'
 
 type AssistTurn = { role: 'user' | 'assistant'; content: string }
 
@@ -112,7 +113,7 @@ function snapshotSummary(snapshot: AgentSnapshot): string {
   return parts.length > 0 ? parts.join(' · ') : 'No notable signals.'
 }
 
-export function SupportAgentPanel({ ticketId }: { ticketId: string }) {
+export function SupportAgentPanel({ ticketId, brief, onInsertReply }: { ticketId: string; brief: import('@/lib/support/brief').SupportBrief | null; onInsertReply?: (text: string) => void }) {
   const [tab, setTab] = useState<AgentTab>('snapshot')
   const [open, setOpen] = useState(false)
 
@@ -251,7 +252,7 @@ export function SupportAgentPanel({ ticketId }: { ticketId: string }) {
       {open ? (
         <div className="flex flex-col">
           <nav className="flex gap-1 border-b border-border/70 px-2 py-1.5" aria-label="Agent tabs">
-            {(['snapshot', 'assist', 'history'] as const).map((item) => (
+            {(['snapshot', 'brief', 'assist', 'history'] as const).map((item) => (
               <Button key={item} size="xs" variant={tab === item ? 'default' : 'ghost'} onClick={() => setTab(item)} className="capitalize">
                 {item}
               </Button>
@@ -267,6 +268,8 @@ export function SupportAgentPanel({ ticketId }: { ticketId: string }) {
                 {actionResult.message}
               </p>
             ) : null}
+
+            {tab === 'brief' ? <BriefPanel brief={brief} onInsert={onInsertReply} /> : null}
 
             {tab === 'snapshot' ? (
               loading ? (

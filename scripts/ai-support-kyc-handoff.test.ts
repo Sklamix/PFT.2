@@ -1,6 +1,7 @@
 import test, { after, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { AiUnavailableError } from '../lib/ai/errors'
+import { readBrief } from '../lib/support/brief'
 import { createMemoryIdempotencyStore } from './ai-support-test-store'
 
 /**
@@ -22,6 +23,7 @@ type CreateTicketInput = {
   body: string
   request: Request
   idempotencyKey?: string | null
+  messageMetadata?: unknown
 }
 
 const createTicketCalls: CreateTicketInput[] = []
@@ -173,9 +175,12 @@ test('KYC question suggests a handoff without inventing documents or touching th
   assert.equal(confirmed.suggestedHandoff, false)
   assert.equal(createTicketCalls.length, 1)
   const created = createTicketCalls[0]!
-  assert.ok(created.body.includes(HANDOFF_REASON), 'the confirmed ticket keeps the model original reason')
+  assert.equal(created.body, KYC_QUESTION, 'the confirmed ticket keeps the trader message')
   assert.doesNotMatch(created.body, INVENTED_DOCUMENTS)
   assert.equal(created.category, 'KYC')
+  const brief = readBrief(created.messageMetadata)
+  assert.equal(brief?.reason, HANDOFF_REASON, 'the confirmed ticket keeps the model original reason in metadata')
+  assert.equal(brief?.category, 'KYC')
   assert.equal(created.userId, 'mock-user')
   assert.equal(created.idempotencyKey, 'kyc-mock-confirm-1')
   assert.match(created.subject, /^Support chat:/)

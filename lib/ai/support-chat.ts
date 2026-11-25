@@ -1,6 +1,7 @@
 import type { SupportCategory } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { addTraderMessage, createTicket } from '@/lib/support/service'
+import type { SupportBrief } from '@/lib/support/brief'
 import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION } from './pft-knowledge'
 import { AiUnavailableError, type AssistantGenerator, type ChatTurn } from './gemini'
 import { generateAssistant } from './provider'
@@ -127,14 +128,6 @@ export function handoffSubject(message: string) {
   return subject.length >= 4 ? subject : 'Support chat request'
 }
 
-function conversationExcerpt(history: ChatTurn[]) {
-  if (history.length === 0) return 'No earlier assistant messages in this session.'
-  return history
-    .slice(-4)
-    .map((turn) => `${turn.role === 'assistant' ? 'Assistant' : 'Trader'}: ${turn.content.replace(/\s+/g, ' ').slice(0, 400)}`)
-    .join('\n')
-}
-
 type TraderContext = {
   kycStatus: string
   accounts: { displayId: string; status: string; planSize: number; phase: string }[]
@@ -158,36 +151,32 @@ async function loadTraderContext(userId: string): Promise<TraderContext | null> 
   }
 }
 
-function handoffBody(input: {
-  message: string
+function buildBrief(input: {
+  source: HandoffSource
   reason: string
+  category: SupportCategory
   history: ChatTurn[]
   context: TraderContext | null
-}) {
-  const accounts = input.context?.accounts.length
-    ? input.context.accounts
-        .map((account) => `- ${account.displayId} · ${account.status} · $${account.planSize.toLocaleString('en-US')} · ${account.phase}`)
-        .join('\n')
-    : '- No trading accounts on this login.'
-
-  return [
-    'Message from the PFT assistant chat:',
-    '',
-    input.message,
-    '',
-    `AI handoff reason: ${input.reason}`,
-    '',
-    'Conversation context (most recent turns):',
-    conversationExcerpt(input.history),
-    '',
-    'Trader context (server-side):',
-    `KYC: ${input.context?.kycStatus ?? 'unknown'}`,
-    'Accounts (newest first, max 3):',
-    accounts,
-    `Rules version: ${RULES_SOURCE_VERSION}`,
-  ]
-    .join('\n')
-    .slice(0, 5_000)
+}): SupportBrief {
+  return {
+    source: input.source,
+    reason: input.reason,
+    category: input.category,
+    rulesVersion: RULES_SOURCE_VERSION,
+    history: input.history.slice(-4).map((turn) => ({
+      role: turn.role,
+      content: turn.content.replace(/\s+/g, ' ').slice(0, 400),
+    })),
+    context: {
+      kycStatus: input.context?.kycStatus ?? 'unknown',
+      accounts: (input.context?.accounts ?? []).map((account) => ({
+        displayId: account.displayId,
+        status: account.status,
+        planSize: account.planSize,
+        phase: account.phase,
+      })),
+    },
+  }
 }
 
 async function findRecentHandoffTicket(userId: string) {
@@ -312,7 +301,13 @@ async function handleSupportChatOnce(
 
   const finalReason = reason ?? 'not_covered_by_rules'
   const context = await dependencies.loadTraderContext(input.userId)
-  const body = handoffBody({ message: input.message, reason: finalReason, history: input.history, context })
+  const brief = buildBrief({
+    source: input.handoffSource ?? 'user',
+    reason: finalReason,
+    category,
+    history: input.history,
+    context,
+  })
 
   // Reuse a recent assistant handoff ticket instead of spamming a new one.
   const existing = await dependencies.findRecentHandoffTicket(input.userId)
@@ -320,9 +315,9 @@ async function handleSupportChatOnce(
     const appended = await dependencies.addTraderMessage({
       userId: input.userId,
       ref: existing.publicId,
-      body,
+      body: input.message,
       idempotencyKey: input.idempotencyKey,
-      messageMetadata: { source: input.handoffSource ?? 'user' },
+      messageMetadata: brief,
       request: input.request,
     }).catch(() => null)
     if (appended && !('error' in appended)) {
@@ -345,10 +340,10 @@ async function handleSupportChatOnce(
       userId: input.userId,
       subject: handoffSubject(input.message),
       category,
-      body,
+      body: input.message,
       request: input.request,
       idempotencyKey: input.idempotencyKey,
-      messageMetadata: { source: input.handoffSource ?? 'user' },
+      messageMetadata: brief,
     })
     return {
       answer: null,

@@ -19,13 +19,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   try {
     const { id } = await context.params
     const url = new URL(request.url)
-    let since: Date | null
-    try {
-      since = parseSince(url.searchParams.get('since'))
-    } catch (cause) {
-      if (cause instanceof ValidationError) throw cause
-      throw new Error('Invalid since parameter.')
-    }
+    const since = parseSince(url.searchParams.get('since'))
     const result = await getStaffTicket(id, parsePagination(url), since)
     if (!result) return NextResponse.json({ error: 'Ticket not found.' }, { status: 404, headers: { 'Cache-Control': 'no-store' } })
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })

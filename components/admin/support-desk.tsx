@@ -8,6 +8,7 @@ import { MessageBody } from '@/components/support/chat/message-body'
 import { useFillHeight } from '@/hooks/use-fill-height'
 import { useSupportPoll } from '@/hooks/use-support-poll'
 import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
+import { readBrief } from '@/lib/support/brief'
 import { cn } from '@/lib/utils'
 
 const CATEGORIES = ['GENERAL', 'CHALLENGE', 'PAYOUT', 'KYC', 'ACCOUNT', 'TECHNICAL', 'RULES'] as const
@@ -36,7 +37,7 @@ type StaffTicket = {
 type StaffTicketDetail = {
   ticket: StaffTicket & { trader: { name: string; email: string; kycStatus: string } }
   messages: {
-    items: { id: string; senderType: 'TRADER' | 'STAFF' | 'AI'; body: string; createdAt: string; senderName: string | null; senderEmail: string | null }[]
+    items: { id: string; senderType: 'TRADER' | 'STAFF' | 'AI'; body: string; createdAt: string; senderName: string | null; senderEmail: string | null; metadata: unknown }[]
     page: number
     pageSize: number
     total: number
@@ -645,7 +646,11 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
           aria-label="Support agent panel"
         >
           {selectedId ? (
-            <SupportAgentPanel ticketId={selectedId} />
+            <SupportAgentPanel
+              ticketId={selectedId}
+              brief={readBrief(detail?.messages.items[0]?.metadata)}
+              onInsertReply={(text) => setDraft((current) => (current.trim() ? current + '\n\n' + text : text))}
+            />
           ) : (
             <div className="flex flex-col items-center justify-center p-10 text-center">
               <Inbox className="size-6 text-muted-foreground" />
