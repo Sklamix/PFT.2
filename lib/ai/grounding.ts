@@ -88,7 +88,7 @@ const ALIASES: { sections: number[]; terms: string[] }[] = [
   { sections: [16], terms: ['акаунтів', 'allocation', 'alokatsia', 'ліміту алокації'] },
   { sections: [17], terms: ['payout', 'виплата', 'виведення', 'withdraw', 'split', 'pending payout'] },
   { sections: [18], terms: ['reset', 'ресет', 'add-on', 'frozen', 'фріз', 'static drawdown'] },
-  { sections: [19], terms: ['hard breach', 'soft breach', 'overallocation'] },
+  { sections: [19], terms: ['hard breach', 'soft breach', 'cross-account', 'cross account', 'cross-account hedging'] },
   { sections: [20], terms: ['payout review', 'review', 'перевірка', 'попередження'] },
   { sections: [21], terms: ['kyc', 'документи', 'selfie', 'jurisdictions'] },
   { sections: [22], terms: ['manifest', 'platform', 'stale', 'negative balance'] },

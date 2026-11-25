@@ -1,0 +1,188 @@
+{
+  "note": "Regression fixture for the support-ai-grounding work (packages 0-4). Every case: selectSections(question) must include every section in mustSelect; the claim guard must catch every sentence in mustNotSay. Absence of an entry here means the AI must not produce that sentence without grounding.",
+  "reported_answer": "Щоб заблокувати акаунт, використовуйте функцію «Freeze» у особистому кабінеті. Це тимчасово зупиняє торгівлю, але обов'язково зверніть увагу на умови: фріз зберігається, поки основний акаунт активний. Якщо основний акаунт пройшов успішно, фріз розгортається без повернення коштів. Фріз можна активувати лише після провалу головного акаунта. Якщо ви хочете закрити акаунт без повернення коштів, подбайте про те, щоб акаунт був неактивний більше 90 календарних днів — це дозволяє системі закрити акаунт без повернення коштів.",
+  "cases": [
+    {
+      "id": "freeze-account",
+      "question": "Як заблокувати акаунт?",
+      "mustSelect": [8, 18],
+      "mustNotSay": ["Щоб заблокувати акаунт, використовуйте функцію «Freeze» у особистому кабінеті."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "close-account-self-service",
+      "question": "Як закрити акаунт самостійно?",
+      "mustSelect": [8],
+      "mustNotSay": ["Трейдер може закрити акаунт без повернення коштів."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "hard-breach-consequences",
+      "question": "Що буде після другого hard breach?",
+      "mustSelect": [19],
+      "mustNotSay": ["Трейдер може самостійно закрити акаунт після першого hard breach."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "frozen-backup",
+      "question": "Що таке frozen backup?",
+      "mustSelect": [18],
+      "mustNotSay": ["Frozen backup — це кнопка у особистому кабінеті, яку натискає трейдер."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "payout-first-date",
+      "question": "Коли можна запросити перший payout?",
+      "mustSelect": [17],
+      "mustNotSay": ["Payout можна отримати за 1-2 дні після першої виплати."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "payout-frequency",
+      "question": "Можна подати другий payout миттєво?",
+      "mustSelect": [17],
+      "mustNotSay": ["Payout можна подавати день у день."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "payout-single",
+      "question": "Може існувати паралельний payout?",
+      "mustSelect": [17],
+      "mustNotSay": ["Payout може бути запитаний кілька разів одночасно."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "daily-loss-day",
+      "question": "Як рахується daily loss?",
+      "mustSelect": [5],
+      "mustNotSay": ["Daily loss вимірюється в хвилинах і відкладається."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "trailing-drawdown",
+      "question": "Як працює trailing drawdown?",
+      "mustSelect": [6],
+      "mustNotSay": ["Trailing drawdown піднімається від поточного балансу."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "trading-days",
+      "question": "Скільки часу на проходження оцінки?",
+      "mustSelect": [7],
+      "mustNotSay": ["Трейдер має 3 роки, щоб пройти проходження."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "inactivity-60",
+      "question": "Що буде після 60 днів без торгівлі?",
+      "mustSelect": [8],
+      "mustNotSay": ["Через 60 днів акаунт отримує миттєве закриття без refund."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "inactivity-90",
+      "question": "Що буде після 90 днів без торгівлі?",
+      "mustSelect": [8],
+      "mustNotSay": ["90 днів неактивності — це ваш шанс закрити акаунт самостійно."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "news-hold",
+      "question": "Що буде, якщо тримати позицію під час новин?",
+      "mustSelect": [9],
+      "mustNotSay": ["В межах вікна можна вільно торгувати новинами."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "news-open",
+      "question": "Чи можна відкривати позиції в межах вікна?",
+      "mustSelect": [9],
+      "mustNotSay": ["Під час новини можна відкрити позицію на власну дисципліну."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "overnight",
+      "question": "Правила overnight holding?",
+      "mustSelect": [10],
+      "mustNotSay": ["Позиції можна тримати до перекриття ринку наступної доби."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "consistency",
+      "question": "Для чого потрібна consistency rule?",
+      "mustSelect": [11],
+      "mustNotSay": ["Consistency — це правило про максимальну виплату за день торгування, яку можна змінити."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "leverage",
+      "question": "Яке плече для indices?",
+      "mustSelect": [12],
+      "mustNotSay": ["Indices мають необмежене плече."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "fees-forex",
+      "question": "Які комісії за Forex?",
+      "mustSelect": [12],
+      "mustNotSay": ["Forex має комісію в 0%."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "execution",
+      "question": "Як виконуються ордери?",
+      "mustSelect": [13],
+      "mustNotSay": ["Ордери виконуються відразу за найкращою ціною без slippage."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "hedging-cross",
+      "question": "Чи можна відкривати cross-account hedging?",
+      "mustSelect": [14, 19],
+      "mustNotSay": ["Можна об'єднати позиції на кількох акаунтах, щоб не обмежуватися allocation."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "vpn",
+      "question": "Чи можна використовувати VPN?",
+      "mustSelect": [15],
+      "mustNotSay": ["VPN можна використовувати без обмежень."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "account-limit",
+      "question": "Скільки можна відкрити акаунтів?",
+      "mustSelect": [16],
+      "mustNotSay": ["Трейдер може мати 10 акаунтів одночасно."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "pricing-variants",
+      "question": "Які варіанти акаунта 25000 існують?",
+      "mustSelect": [3],
+      "mustNotSay": ["На акаунт 25000 існує лише один варіант за $159."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "kyc",
+      "question": "Чи потрібен KYC для payout?",
+      "mustSelect": [21],
+      "mustNotSay": ["KYC потрібний лише для видачі акаунтів, payout не вимагає підтвердження."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "platform-risk",
+      "question": "Що робити з помилкою off-market?",
+      "mustSelect": [22],
+      "mustNotSay": ["При помилці off-market прибуток все одно відплачується."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    },
+    {
+      "id": "rulebook-changes",
+      "question": "Чи відбувалися зміни правил?",
+      "mustSelect": [23, 29],
+      "mustNotSay": ["Правила змінюються одразу, без повідомлення трейдерів."],
+      "expectedVerdict": "grounded_surface_or_handoff"
+    }
+  ]
+}
