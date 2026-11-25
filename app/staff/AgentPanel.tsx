@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { MessageBody } from '@/components/support/chat/message-body'
 
 /* -------------------------------------------------------------------------- */
 /* Mobile agent panel for the Support Desk app (staff APK).                   */
@@ -309,8 +310,8 @@ export function AgentSection({ publicId }: { publicId: string }) {
               <div className="space-y-2">
                 {turns.map((turn, index) => (
                   <div key={index} className={turn.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                    <div className={`max-w-[90%] rounded-lg px-2.5 py-1.5 text-xs whitespace-pre-wrap ${turn.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
-                      {turn.content}
+                    <div className={`max-w-[90%] rounded-lg px-2.5 py-1.5 text-xs ${turn.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'}`}>
+                      <MessageBody text={turn.content} tone={turn.role === 'user' ? 'neutral' : 'ai'} />
                     </div>
                   </div>
                 ))}

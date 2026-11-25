@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AlertTriangle, Bot, ChevronDown, ChevronUp, Loader2, Send, ShieldAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BriefPanel } from '@/components/admin/support-brief'
+import { MessageBody } from '@/components/support/chat/message-body'
 import { cn } from '@/lib/utils'
 
 /**
@@ -324,9 +325,9 @@ export function SupportAgentPanel({ ticketId, brief, onInsertReply }: { ticketId
                       {turns.map((turn, index) => (
                         <li
                           key={`${turn.role}-${index}`}
-                          className={cn('max-w-[90%] rounded-xl border px-2.5 py-1.5 text-xs leading-relaxed text-foreground whitespace-pre-wrap break-words', turn.role === 'user' ? 'self-end border-primary/25 bg-primary/10' : 'self-start border-border bg-secondary/40')}
+                          className={cn('max-w-[90%] rounded-xl border px-2.5 py-1.5 text-xs leading-relaxed text-foreground break-words', turn.role === 'user' ? 'self-end border-primary/25 bg-primary/10' : 'self-start border-border bg-secondary/40')}
                         >
-                          {turn.content}
+                          <MessageBody text={turn.content} tone={turn.role === 'user' ? 'neutral' : 'ai'} />
                         </li>
                       ))}
                       <div ref={chatEndRef} />

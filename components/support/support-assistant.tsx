@@ -11,6 +11,7 @@ import {
   type AssistantHistoryTurn,
   type PendingKey,
 } from '@/lib/ai/assistant-client'
+import { MessageBody } from '@/components/support/chat/message-body'
 import { cn } from '@/lib/utils'
 
 type Turn = AssistantHistoryTurn
@@ -213,7 +214,7 @@ export function SupportAssistant({ onHandoff, onRecover, className }: { onHandof
                         turn.role === 'user' ? 'border-primary/25 bg-primary/10 text-slate-100' : 'border-slate-800 bg-[#111A2D] text-slate-100',
                       )}
                     >
-                      <p className="whitespace-pre-wrap break-words">{turn.content}</p>
+                      <MessageBody text={turn.content} tone={turn.role === 'assistant' ? 'ai' : 'neutral'} />
                     </div>
                     {turn.role === 'user' ? (
                       <span className="mt-1 grid size-6 shrink-0 place-items-center rounded-full border border-slate-700 bg-secondary/60">
