@@ -27,6 +27,9 @@ export default tseslint.config(
       '**/*.min.js',
       'public/**',
       '.agents/**',
+      // Capacitor Android shell: gradle/Java plus vendored JS emitted at build
+      // time (`native-bridge.js`). Not part of the Next.js lint surface.
+      'android/**',
       '-files --others --exclude-standard',
     ],
   },
