@@ -30,7 +30,7 @@
     "test:email-sender": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/email-sender-policy.test.ts",
     "test:app-url": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/app-url.test.ts",
     "test:webhook-ipn": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/webhook-ipn.test.ts",
-    "test:trading": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/engine-core.test.ts scripts/admin-override.test.ts",
+    "test:trading": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/engine-core.test.ts scripts/admin-override.test.ts scripts/quote-validation.test.ts scripts/commission-resolution.test.ts",
     "test:auth": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/auth-policy.test.ts scripts/auth-password-step-up.test.ts",
     "test:archive": "node scripts/run-db-free-tests.cjs --import tsx --test scripts/archive-enforcement.test.ts",
     "test:auth-routes": "node scripts/run-db-free-tests.cjs --experimental-test-module-mocks --import tsx --test scripts/auth-rate-limit-route.test.ts",

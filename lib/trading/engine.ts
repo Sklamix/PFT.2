@@ -1186,6 +1186,9 @@ export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<
     if (w.payoutExecutionAt != null) {
       return { ok: false, status: 403, error: PAYOUT_EXECUTION_BLOCKED, book: await snapshot(w) }
     }
+    if (input.quote == null) {
+      return { ok: false, status: 422, error: 'A fresh market quote is required', book: await snapshot(w) }
+    }
 
     setFx(w, { ...(input.fxQuotes ?? {}), [input.symbol]: input.quote })
     await applyQuotes(w, { ...(input.fxQuotes ?? {}), [input.symbol]: input.quote })
@@ -1234,6 +1237,9 @@ export async function placePendingOrder(input: PendingOrderInput): Promise<Engin
     }
     if (w.payoutExecutionAt != null) {
       return { ok: false, status: 403, error: PAYOUT_EXECUTION_BLOCKED, book: await snapshot(w) }
+    }
+    if (input.quote == null) {
+      return { ok: false, status: 422, error: 'A fresh market quote is required', book: await snapshot(w) }
     }
 
     setFx(w, { ...(input.fxQuotes ?? {}), [input.symbol]: input.quote })

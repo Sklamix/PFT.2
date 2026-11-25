@@ -116,7 +116,7 @@ export type OrderInput = {
   orderType: 'MARKET'
   stopLoss: number | null
   takeProfit: number | null
-  quote: Quote
+  quote: Quote | null
   /** Full fresh quote map used only for quote-currency conversion. */
   fxQuotes?: Quotes
   idempotencyKey?: string | null
@@ -146,7 +146,7 @@ export type PendingOrderInput = {
   stopPrice: number | null
   stopLoss: number | null
   takeProfit: number | null
-  quote: Quote
+  quote: Quote | null
   fxQuotes?: Quotes
   idempotencyKey?: string | null
 }

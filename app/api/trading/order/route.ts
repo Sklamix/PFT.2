@@ -3,7 +3,7 @@ import { placeMarketOrder } from '@/lib/trading/engine'
 import { handleError, readJson, respond } from '@/lib/trading/http'
 import { isTargetLocked } from '@/lib/trading/passing'
 import { isCloseOnlyForSymbol } from '@/lib/trading/session-cutoff'
-import { parseOrderInput } from '@/lib/trading/validation'
+import { parseOrderInput, assertClientQuoteClose } from '@/lib/trading/validation'
 import { authorizeAccount } from '@/lib/trader/guard'
 import { getFreshMarketQuotes } from '@/lib/trading/market-quotes'
 import { isIndexMarketOpen } from '@/lib/market/index-sessions'
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     const quotes = await getFreshMarketQuotes()
     const quote = quotes[input.symbol]
     if (!quote) return NextResponse.json({ error: 'A fresh market quote is not available' }, { status: 503 })
+    if (input.quote) assertClientQuoteClose(input.symbol, input.quote, quote)
     const rawKey = idempotencyKeyFromRequest(request)
     const result = await placeMarketOrder({
       ...input,

@@ -1,5 +1,4 @@
 import { AVAILABLE_SYMBOLS, getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
-import { cachedReferencePrice } from '@/lib/market/yahoo'
 import type {
   CloseInput,
   OrderInput,
@@ -14,8 +13,8 @@ export const TRADABLE_SYMBOLS: readonly string[] = AVAILABLE_SYMBOLS
 export const MIN_LOTS = 0.01
 export const MAX_LOTS = 50
 const MAX_SPREAD_PIPS = 50
-/** Client quotes further than this from the reference (cached market close, else static base) are rejected as implausible. */
-const MAX_REFERENCE_DEVIATION = 0.25
+/** Client quotes further than this from the server fresh quote are rejected as stale. */
+export const MAX_CLIENT_QUOTE_DEVIATION = 0.02
 
 export class ValidationError extends Error {}
 
@@ -49,12 +48,21 @@ export function parseQuote(symbol: string, value: unknown): Quote {
   if (ask < bid) throw new ValidationError(`Quote for ${symbol} has ask below bid`)
   const meta = getSymbol(symbol)
   if ((ask - bid) / meta.pipSize > MAX_SPREAD_PIPS) throw new ValidationError(`Quote for ${symbol} has an implausible spread`)
-  const mid = (bid + ask) / 2
-  const reference = cachedReferencePrice(meta.symbol) ?? meta.mockBasePrice
-  if (Math.abs(mid - reference) / reference > MAX_REFERENCE_DEVIATION) {
-    throw new ValidationError(`Quote for ${symbol} is outside the accepted price band`)
-  }
   return { bid, ask }
+}
+
+/**
+ * Client terminal may lag behind the server. Cross-check the client's quote
+ * against the server's fresh quote: only reject if the client is meaningfully
+ * stale. Returns undefined when the client quote is within tolerance.
+ */
+export function assertClientQuoteClose(symbol: string, client: Quote, server: Quote): void {
+  const clientMid = (client.bid + client.ask) / 2
+  const serverMid = (server.bid + server.ask) / 2
+  if (!(serverMid > 0)) return
+  if (Math.abs(clientMid - serverMid) / serverMid > MAX_CLIENT_QUOTE_DEVIATION) {
+    throw new ValidationError(`Quote for ${symbol} is stale; refresh the terminal and retry`)
+  }
 }
 
 export function parseQuotes(value: unknown): Quotes {
@@ -94,7 +102,7 @@ export function parseOrderInput(raw: unknown): OrderInput {
     orderType,
     stopLoss: optionalPrice(body, 'stopLoss'),
     takeProfit: optionalPrice(body, 'takeProfit'),
-    quote: parseQuote(symbol, body.quote),
+    quote: body.quote == null ? null : parseQuote(symbol, body.quote),
   }
 }
 
@@ -138,7 +146,7 @@ export function parsePendingOrderInput(raw: unknown): PendingOrderInput {
     stopPrice: type === 'LIMIT' ? null : stopPrice,
     stopLoss: optionalPrice(body, 'stopLoss'),
     takeProfit: optionalPrice(body, 'takeProfit'),
-    quote: parseQuote(symbol, body.quote),
+    quote: body.quote == null ? null : parseQuote(symbol, body.quote),
   }
 }
 
