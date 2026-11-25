@@ -42,7 +42,9 @@ export async function GET(request: Request) {
         createdAt: row.createdAt.toISOString(),
         category: result?.suggestedCategory ?? null,
         grounding: result?.grounding ?? null,
-        answer: result && result.grounding !== 'grounded' ? result.answer : null,
+        // A grounded answer is never exposed; a blocked one is, so the reviewer can
+        // see what the model actually tried to say.
+        answer: result && result.grounding !== 'grounded' ? (result.reviewAnswer ?? null) : null,
         citations: result?.citations.map((citation) => citation.section) ?? [],
       }
     })

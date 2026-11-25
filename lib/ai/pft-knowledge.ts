@@ -77,13 +77,33 @@ export function surfaceSection(): GroundingSection {
   }
 }
 
+/**
+ * The pricing block as a citable section (§-1). Prices live in the database, not
+ * in the rulebook, so without this a price answer has nothing to quote and the
+ * citation gate would reject every one of them.
+ */
+export function pricingGroundingSection(rows: PricingRow[]): GroundingSection {
+  return {
+    num: -1,
+    title: 'Current challenge pricing',
+    kind: 'pricing',
+    markdown: pricingSection(rows),
+  }
+}
+
+/** Sections the model may cite: rulebook hits plus the two synthetic blocks. */
+export function citableSections(sections: GroundingSection[], pricing: PricingRow[]): GroundingSection[] {
+  return [...sections, surfaceSection(), pricingGroundingSection(pricing)]
+}
+
 export function buildPftKnowledge(input: { pricing: PricingRow[]; sections: GroundingSection[] }): string {
   const sections = [...input.sections]
   const surface = surfaceSection()
+  const pricing = pricingGroundingSection(input.pricing)
   const blocks: string[] = []
   if (sections.length > 0) blocks.push(formatSectionsForPrompt(sections))
   blocks.push(`### §${surface.num} — ${surface.title}\n${surface.markdown}`)
-  blocks.push(pricingSection(input.pricing))
+  blocks.push(`### §${pricing.num} — ${pricing.title}\n${pricing.markdown}`)
   return [
     'PFT.2 — Professional Funded Trader.',
     `Rules version ${RULES_SOURCE_VERSION}.`,

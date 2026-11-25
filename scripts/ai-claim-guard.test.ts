@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { findForbiddenClaims, type ClaimHit } from '../lib/ai/claim-guard'
+import { getSection } from '../lib/rules/rulebook'
 
 /** The canonical fabricated answer from the bug report (section 0 of the worker spec). */
 const CANONICAL = [
@@ -39,4 +40,22 @@ test('legitimate fact: frozen backup is a checkout option, not a self-service fe
 test('legitimate fact: 90 days of inactivity is a consequence, mentioned with a reminder', () => {
   const answer = 'Після 90 календарних днів без торгівлі рахунок може бути закритий без refund; перед закриттям надсилається нагадування.'
   assert.equal(findForbiddenClaims(answer).length, 0)
+})
+
+test('a sentence quoted verbatim from the rulebook is never flagged', () => {
+  // The rulebook itself says "Inactivity 90 днів"; quoting it must not be punished.
+  const section = getSection(19)!
+  const sentence = 'Inactivity 90 днів'
+  assert.ok(findForbiddenClaims(sentence).length > 0, 'the bare sentence should look like a claim')
+  assert.equal(findForbiddenClaims(sentence, [section]).length, 0)
+})
+
+test('English negation suppresses a correct statement', () => {
+  assert.equal(findForbiddenClaims('There is no on-demand payout; payouts run on a schedule.').length, 0)
+  assert.equal(findForbiddenClaims('The trader chat has NO Freeze, pause or close button.').length, 0)
+})
+
+test('an English affirmative claim is still caught', () => {
+  const ids = findForbiddenClaims('Use the Freeze button in your dashboard to pause trading.').map((hit) => hit.id)
+  assert.ok(ids.includes('trader_freeze_feature'), `ids: ${ids.join(', ')}`)
 })

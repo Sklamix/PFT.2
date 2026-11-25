@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { addTraderMessage, createTicket } from '@/lib/support/service'
 import type { SupportBrief } from '@/lib/support/brief'
-import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION, surfaceSection } from './pft-knowledge'
+import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, citableSections, RULES_SOURCE_VERSION } from './pft-knowledge'
 import { selectSections, verifyCitations } from './grounding'
 import { findForbiddenClaims } from './claim-guard'
 import { AiUnavailableError, type AssistantGenerator, type AssistantResult, type ChatTurn } from './gemini'
@@ -30,6 +30,25 @@ export type SupportChatResult = {
   citations: { section: number; quote: string }[]
   /** Why the answer was not grounded: grounded | ungrounded | forbidden | no_matching_rules */
   grounding: 'grounded' | 'ungrounded' | 'forbidden' | 'no_matching_rules'
+  /**
+   * The rejected answer, kept for the admin audit only. It is stripped from the
+   * trader response (app/api/support/ai/chat/route.ts) and is never shown to the
+   * trader; without it a blocked answer is unreviewable.
+   */
+  reviewAnswer?: string | null
+}
+
+const GROUNDING_VALUES = ['grounded', 'ungrounded', 'forbidden', 'no_matching_rules'] as const
+
+/** Persisted verdict, so the audit can tell a forbidden answer from an ungrounded one. */
+function readGrounding(value: unknown): SupportChatResult['grounding'] | null {
+  return typeof value === 'string' && (GROUNDING_VALUES as readonly string[]).includes(value)
+    ? (value as SupportChatResult['grounding'])
+    : null
+}
+
+function readReviewAnswer(record: Record<string, unknown>): string | null {
+  return typeof record.reviewAnswer === 'string' ? record.reviewAnswer : null
 }
 
 export function readSupportChatResult(value: unknown): SupportChatResult | null {
@@ -53,7 +72,8 @@ export function readSupportChatResult(value: unknown): SupportChatResult | null 
       suggestedHandoff: false,
       suggestedCategory: null,
       citations: readCitations(record.citations),
-      grounding: 'grounded',
+      grounding: readGrounding(record.grounding) ?? 'grounded',
+      reviewAnswer: readReviewAnswer(record),
     }
   }
   if (record.answer !== null || typeof record.handoffReason !== 'string') return null
@@ -68,7 +88,8 @@ export function readSupportChatResult(value: unknown): SupportChatResult | null 
       suggestedHandoff: true,
       suggestedCategory,
       citations: [],
-      grounding: 'ungrounded',
+      grounding: readGrounding(record.grounding) ?? 'ungrounded',
+      reviewAnswer: readReviewAnswer(record),
     }
   }
 
@@ -92,7 +113,8 @@ export function readSupportChatResult(value: unknown): SupportChatResult | null 
     suggestedHandoff: false,
     suggestedCategory: null,
     citations: [],
-    grounding: 'ungrounded',
+    grounding: readGrounding(record.grounding) ?? 'ungrounded',
+    reviewAnswer: readReviewAnswer(record),
   }
 }
 
@@ -329,6 +351,23 @@ export async function handleSupportChat(input: HandoffInput, overrides: Partial<
   )
 }
 
+/**
+ * A message that is *only* a greeting, thanks or acknowledgement gets a canned
+ * reply instead of a support handoff. Deliberately strict — the whole message
+ * must be one of these tokens, so "ок, а коли виплата?" is still handled normally.
+ */
+const SMALL_TALK =
+  /^(привіт|привет|вітаю|добрий день|доброго дня|добрий вечір|хай|hello|hi|hey|дякую|спасибі|thanks|thank you|ок|ok|окей|добре|зрозуміло)[\s!.,)]*$/i
+
+function socialReply(message: string): string | null {
+  const trimmed = message.trim()
+  if (trimmed.length === 0 || trimmed.length > 40) return null
+  if (!SMALL_TALK.test(trimmed)) return null
+  return /[\u0400-\u04FF]/.test(trimmed)
+    ? 'Дякую за повідомлення! Опишіть, будь ласка, вашу ситуацію — я допоможу з правилами PFT, виплатами, KYC та акаунтами.'
+    : 'Thanks for your message! Please describe your situation — I can help with PFT rules, payouts, KYC and accounts.'
+}
+
 async function handleSupportChatOnce(
   input: HandoffInput,
   dependencies: SupportChatDependencies,
@@ -338,11 +377,31 @@ async function handleSupportChatOnce(
   // previous user turn joins the retrieval query (spec: 3.3).
   const previousUserTurn = [...input.history].reverse().find((turn) => turn.role === 'user')?.content ?? ''
   const sections = selectSections(`${previousUserTurn}\n${input.message}`)
-  const knowledge = buildPftKnowledge({ pricing, sections: sections.length > 0 ? [...sections, surfaceSection()] : [] })
+  // The model must be able to cite everything it is shown: the rulebook hits, the
+  // §0 surface block (the only place that says "there is no Freeze button") and the
+  // §-1 pricing block. Verifying against the rulebook hits alone rejects the two
+  // blocks that answer interface and price questions.
+  const citable = citableSections(sections, pricing)
+  const knowledge = buildPftKnowledge({ pricing, sections })
   const generate = input.generate ?? generateAssistant
 
   if (!input.forceHandoff && sections.length === 0) {
-    // Nothing in the rulebook matches: no model call, straight to a handoff.
+    // Nothing in the rulebook matches. A pure greeting does not deserve a support
+    // handoff, so it gets a canned reply; everything else goes to a human without
+    // a model call (no facts means no answer to hallucinate from).
+    const smallTalk = socialReply(input.message)
+    if (smallTalk) {
+      return {
+        answer: smallTalk,
+        handoff: null,
+        handoffReason: null,
+        suggestedHandoff: false,
+        suggestedCategory: null,
+        citations: [],
+        grounding: 'grounded',
+        reviewAnswer: null,
+      }
+    }
     return {
       answer: null,
       handoff: null,
@@ -351,6 +410,7 @@ async function handleSupportChatOnce(
       suggestedCategory: 'GENERAL',
       citations: [],
       grounding: 'no_matching_rules',
+      reviewAnswer: null,
     }
   }
 
@@ -370,8 +430,11 @@ async function handleSupportChatOnce(
       if (result.resolved) {
         // Grounding gate (spec 4.5): an answer is only shipped when its
         // citations are mechanically valid and it contains no forbidden claim.
-        const verdict = verifyCitations(result.citations, sections)
-        const claims = findForbiddenClaims(result.answer)
+        // The claim guard ignores sentences copied verbatim from the citable
+        // text: the rulebook itself says "no Freeze button", and a keyword rule
+        // must not punish a correct quotation.
+        const verdict = verifyCitations(result.citations, citable)
+        const claims = findForbiddenClaims(result.answer, citable)
         const grounding = !verdict.ok ? 'ungrounded' : claims.length > 0 ? 'forbidden' : 'grounded'
         logAiAnswer({ grounding, sections, result, category, request: input.request })
         if (!verdict.ok || claims.length > 0) {
@@ -383,6 +446,7 @@ async function handleSupportChatOnce(
             suggestedCategory: result.category,
             citations: [],
             grounding,
+            reviewAnswer: result.answer,
           }
         }
         return {
@@ -393,6 +457,7 @@ async function handleSupportChatOnce(
           suggestedCategory: null,
           citations: result.citations,
           grounding,
+          reviewAnswer: null,
         }
       }
       category = result.category
@@ -403,7 +468,7 @@ async function handleSupportChatOnce(
     }
     // Offer the transfer; the ticket is created only when the trader confirms.
     // The model's category rides along so the confirmation does not lose it.
-    return { answer: null, handoff: null, handoffReason: reason, suggestedHandoff: true, suggestedCategory: category, citations: [], grounding: 'ungrounded' }
+    return { answer: null, handoff: null, handoffReason: reason, suggestedHandoff: true, suggestedCategory: category, citations: [], grounding: 'ungrounded', reviewAnswer: null }
   }
 
   const finalReason = reason ?? 'not_covered_by_rules'
@@ -436,6 +501,7 @@ async function handleSupportChatOnce(
         suggestedCategory: null,
         citations: [],
         grounding: 'ungrounded',
+        reviewAnswer: null,
       }
     }
     // Closed or otherwise unavailable: fall through and create a fresh ticket.
@@ -462,6 +528,7 @@ async function handleSupportChatOnce(
       suggestedCategory: null,
       citations: [],
       grounding: 'ungrounded',
+      reviewAnswer: null,
     }
   } catch {
     // Never claim a transfer that was not stored.

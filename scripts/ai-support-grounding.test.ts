@@ -131,3 +131,62 @@ test('an idempotent retry returns the same verdict', async () => {
   const second = await handleSupportChat(input, deps)
   assert.deepEqual(second, first)
 })
+
+function callWithPricing(
+  generate: AssistantGenerator,
+  message: string,
+  pricing: { accountSize: number; challengeType: string; dailyLossType: number; price: number }[],
+) {
+  const idempotencyStore = createMemoryIdempotencyStore()
+  return handleSupportChat(
+    {
+      userId: 'trader-grounding-pricing',
+      message,
+      history: [],
+      forceHandoff: false,
+      idempotencyKey: `grounding-pricing-${message}`,
+      request: new Request('https://pft.test/api/support/ai/chat'),
+      generate,
+    },
+    { ...dependencies(idempotencyStore), loadPricing: async () => pricing },
+  )
+}
+
+const SURFACE_QUOTE = 'The trader chat has NO Freeze, pause or close button.'
+
+test('a correct answer can cite the §0 surface block', async () => {
+  // Regression: the gate verified citations against rulebook hits only, so the one
+  // block that says "there is no Freeze button" could never be cited and the
+  // correct answer was downgraded to a handoff.
+  const answer = 'У кабінеті трейдера немає функції Freeze: заморозити акаунт самостійно неможливо. Акаунт закривається автоматично після 90 днів неактивності або адміністратором.'
+  const result = await call(okGenerator({ answer, citations: [{ section: 0, quote: SURFACE_QUOTE }] }), 'Як заблокувати акаунт?')
+  assert.equal(result.grounding, 'grounded')
+  assert.equal(result.answer, answer)
+  assert.equal(result.suggestedHandoff, false)
+})
+
+test('a price answer can cite the §-1 pricing block', async () => {
+  const answer = 'Акаунт $25,000 у 1-Step коштує $199.00 — це базова ставка.'
+  const result = await callWithPricing(
+    okGenerator({ answer, citations: [{ section: -1, quote: '1-Step · daily loss 4% — base fee $199.00' }] }),
+    'Скільки коштує акаунт 25000?',
+    [{ accountSize: 25000, challengeType: '1-Step', dailyLossType: 4, price: 199 }],
+  )
+  assert.equal(result.grounding, 'grounded')
+  assert.equal(result.answer, answer)
+})
+
+test('a greeting is answered, not handed off to support', async () => {
+  const result = await call(okGenerator({}), 'привіт')
+  assert.equal(result.suggestedHandoff, false)
+  assert.equal(result.handoffReason, null)
+  assert.ok(result.answer && result.answer.length > 0)
+})
+
+test('a blocked answer is kept for the audit but never shipped', async () => {
+  const answer = 'Щоб заблокувати акаунт, використовуйте функцію «Freeze» у особистому кабінеті.'
+  const result = await call(okGenerator({ answer }), 'Як заблокувати акаунт?')
+  assert.equal(result.answer, null)
+  assert.equal(result.grounding, 'forbidden')
+  assert.equal(result.reviewAnswer, answer)
+})

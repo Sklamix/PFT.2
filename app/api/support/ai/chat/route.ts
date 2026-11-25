@@ -102,7 +102,11 @@ export async function POST(request: Request) {
       idempotencyKey,
       request,
     })
-    return NextResponse.json(result, { headers: NO_STORE })
+    // reviewAnswer exists only for the admin audit; the trader must never see the
+    // answer that failed the grounding gate.
+    const publicResult = { ...result }
+    delete publicResult.reviewAnswer
+    return NextResponse.json(publicResult, { headers: NO_STORE })
   } catch (cause) {
     if (cause instanceof HandoffFailedError) {
       return NextResponse.json(

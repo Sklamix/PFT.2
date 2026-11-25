@@ -10,7 +10,11 @@
  * A rule fires when a sentence matches at least one pattern AND does not
  * contain a negation in the same sentence. Negations make legal statements
  * pass ("there is no Freeze button").
+ *
+ * Sentences quoted verbatim from the citable sections are skipped entirely: the
+ * rulebook itself contains the words these rules look for.
  */
+import { normalizeForMatch } from './grounding'
 
 export type ClaimHit = { id: string; reason: string; match: string }
 
@@ -27,43 +31,43 @@ export const CLAIM_RULES: ClaimRule[] = [
   {
     id: 'trader_freeze_feature',
     patterns: [/freeze/i, /замороз|фріз/i, /заморозити|заморозк/i],
-    negations: [/немає/i, /не існує/i, /не знайти/i, /не брак/i],
+    negations: [/немає/i, /не існує/i, /не передбач/i, /відсутн/i, /не можна/i, /\bno\b/i, /\bnot\b/i, /\bnever\b/i, /\bnone\b/i],
     reason: 'Freedoms for traders (Freeze) do not exist; use the rulebook facts.',
   },
   {
     id: 'self_service_closure',
     patterns: [/заблокувати/i, /блокувати/i, /terminat/i, /закрити акаунт/i, /прибити акаунт/i],
-    negations: [/немає/i, /не існує/i],
+    negations: [/немає/i, /не існує/i, /не може/i, /автоматичн/i, /адміністратор/i, /\bno\b/i, /\bnot\b/i],
     reason: 'Self-service closure is not a trader action; check the rulebook for the automatic process.',
   },
   {
     id: 'on_demand_payout',
     patterns: [/on-demand/i, /он.?деманд/i, /instant/i, /миттєв/i, /одразу/i],
-    negations: [/відсутн/i, /немає/i],
+    negations: [/відсутн/i, /немає/i, /не існує/i, /не передбач/i, /\bno\b/i, /\bnot\b/i],
     reason: 'On-demand payouts do not exist; payouts are on a schedule in the rulebook.',
   },
   {
     id: 'refund_promise',
     patterns: [/повернемо/i, /повернути/i, /повертається/i, /повертаються/i],
-    negations: [/не повертається/i, /не повертаються/i, /виняток/i, /не чинн/i],
+    negations: [/не поверта/i, /не підляга/i, /не передбач/i, /без повернення/i, /\bnot\b/i, /\bnon-refundable\b/i],
     reason: 'Do not promise refunds; fees and add-ons are non-refundable (with rare exceptions).',
   },
   {
     id: 'inactivity_as_advice',
     patterns: [/неактивний/i, /прострач/i, /inactiv/i, /більше 90 календарних днів/i],
-    negations: [/обов'язково/i, /нагадування/i],
+    negations: [/не є/i, /не означає/i, /не спосіб/i, /наслідок/i, /автоматично/i, /\bnot\b/i],
     reason: 'Inactivity closure is a consequence of the rule, not advice to make the account inactive.',
   },
   {
     id: 'unlock_breach',
     patterns: [/розблокувати/i, /відновити акаунт/i, /повернути акаунт/i],
-    negations: [/неможлив/i, /автоматичн/i, /запит/i],
+    negations: [/неможлив/i, /не можна/i, /не передбач/i, /автоматичн/i, /\bnot\b/i],
     reason: 'Do not promise to unlock or restore accounts after a breach.',
   },
   {
     id: 'instant_withdrawal',
     patterns: [/одразу/i, /за 5 хвилин/i, /withdraw за \d+/i],
-    negations: [/стандарт/i, /через/i],
+    negations: [/не одразу/i, /не миттєв/i, /не є/i, /робочих дн/i, /business day/i, /\bnot\b/i],
     reason: 'Withdrawals are not instant; the rulebook gives 1–3 business days (up to 3 for review).',
   },
 ]
@@ -75,10 +79,16 @@ function sentences(answer: string): string[] {
     .filter((sentence) => sentence.length > 0)
 }
 
-export function findForbiddenClaims(answer: string): ClaimHit[] {
+export function findForbiddenClaims(answer: string, grounded?: { markdown: string }[]): ClaimHit[] {
+  // Sentences copied verbatim from the citable text are, by definition, the
+  // rulebook's own wording. The rulebook says "there is no Freeze button" and
+  // "inactivity closure — 90 days"; a keyword rule must not punish that.
+  const groundedText = (grounded ?? []).map((section) => normalizeForMatch(section.markdown))
   const hits: ClaimHit[] = []
   const seen = new Set<string>()
   for (const sentence of sentences(answer)) {
+    const normalized = normalizeForMatch(sentence)
+    if (normalized.length > 0 && groundedText.some((text) => text.includes(normalized))) continue
     for (const rule of CLAIM_RULES) {
       const isHit = rule.patterns.some((pattern) => pattern.test(sentence))
       if (!isHit) continue
