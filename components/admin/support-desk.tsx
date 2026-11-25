@@ -5,6 +5,7 @@ import { ArrowLeft, Inbox, Loader2, RefreshCw, Send, ShieldAlert, UserCheck, Use
 import { Button } from '@/components/ui/button'
 import { SupportAgentPanel } from '@/components/admin/support-agent-panel'
 import { MessageBody } from '@/components/support/chat/message-body'
+import { TypingDots } from '@/components/support/chat/typing-dots'
 import { useFillHeight } from '@/hooks/use-fill-height'
 import { useSupportPoll } from '@/hooks/use-support-poll'
 import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
@@ -432,7 +433,11 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
                 </ul>
               )
             ) : loading ? (
-              <p className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading queue…</p>
+              <div className="space-y-2 p-4" aria-busy="true" aria-label="Loading queue">
+                {[1, 2, 3].map((n) => (
+                  <div key={n} className="h-10 animate-skeleton rounded-lg border border-border bg-secondary/30" aria-hidden="true" />
+                ))}
+              </div>
             ) : listError ? (
               <div className="p-4 text-xs text-destructive">
                 <p>{listError}</p>
@@ -628,8 +633,17 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
                       />
                     </label>
                     <Button type="submit" className="h-10 gap-1.5" disabled={sending || draft.trim().length === 0 || detail?.ticket.status === 'CLOSED'}>
-                      {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                      <span className="hidden sm:inline">{sending ? 'Sending…' : 'Reply'}</span>
+                      {sending ? (
+                        <>
+                          <TypingDots />
+                          <span className="hidden sm:inline">Sending…</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="size-4" />
+                          <span className="hidden sm:inline">Reply</span>
+                        </>
+                      )}
                     </Button>
                   </form>
                 ) : null}

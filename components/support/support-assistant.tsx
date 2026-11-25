@@ -173,7 +173,7 @@ export function SupportAssistant({ onHandoff, onRecover, className }: { onHandof
   }
 
   return (
-    <section className={cn('mb-4 overflow-hidden rounded-xl border border-primary/20 bg-[#0B0F19]/85 backdrop-blur-md', className ?? '')}>
+    <section className={cn('mb-4 animate-chat-panel-in overflow-hidden rounded-xl border border-primary/20 bg-[#0B0F19]/85 backdrop-blur-md', className ?? '')}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}

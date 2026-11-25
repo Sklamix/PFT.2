@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { BrandLogo } from '@/components/brand-logo'
 import { MessageBody } from '@/components/support/chat/message-body'
+import { TypingDots } from '@/components/support/chat/typing-dots'
 import { useSupportPoll } from '@/hooks/use-support-poll'
 import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
 import { AgentSection, EscalationsSection } from './AgentPanel'
@@ -380,9 +381,9 @@ export default function StaffApp() {
             <button
               type="submit"
               disabled={replyBusy || !reply.trim()}
-              className="h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              className="flex h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
-              {replyBusy ? '…' : 'Надіслати'}
+              {replyBusy ? <TypingDots label="Відповідь отримано" /> : 'Надіслати'}
             </button>
           </form>
         </main>

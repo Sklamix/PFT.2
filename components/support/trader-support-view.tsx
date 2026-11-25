@@ -5,6 +5,7 @@ import { ArrowLeft, Inbox, Loader2, MessageSquarePlus, RefreshCw, Send, X } from
 import { SpaceBackground } from '@/components/dashboard/space-background'
 import { SupportAssistant } from '@/components/support/support-assistant'
 import { MessageBody } from '@/components/support/chat/message-body'
+import { TypingDots } from '@/components/support/chat/typing-dots'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { useSupportPoll } from '@/hooks/use-support-poll'
 import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
@@ -311,7 +312,11 @@ export function TraderSupportView() {
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
               {loadingList ? (
-                <p className="flex items-center gap-2 px-3 py-8 text-xs text-[#94A3B8]"><Loader2 className="size-4 animate-spin" /> Loading tickets…</p>
+                <div className="flex flex-col gap-2 px-3 py-8" aria-busy="true" aria-label="Loading tickets">
+                  {[1, 2, 3].map((n) => (
+                    <div key={n} className="h-12 animate-skeleton rounded-xl border border-slate-800/70 bg-slate-900/50" aria-hidden="true" />
+                  ))}
+                </div>
               ) : listError ? (
                 <div className="px-3 py-6 text-xs text-danger">
                   <p>{listError}</p>
@@ -406,10 +411,14 @@ export function TraderSupportView() {
                         </div>
                       ) : null}
                       <ul className="flex flex-col gap-3">
-                        {detail.messages.items.map((message) => {
+                        {detail.messages.items.map((message, index) => {
                           const mine = message.senderType === 'TRADER'
                           return (
-                            <li key={message.id} className={cn('flex', mine ? 'justify-end' : 'justify-start')}>
+                            <li
+                              key={message.id}
+                              className={cn('flex animate-msg-in', mine ? 'justify-end' : 'justify-start')}
+                              style={{ animationDelay: `${Math.min(index, 6) * 40}ms` }}
+                            >
                               <div className={cn('max-w-[85%] rounded-xl border px-3 py-2 sm:max-w-[75%]', mine ? 'border-primary/25 bg-primary/10' : 'border-slate-800 bg-[#111A2D]')}>
                                 <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.16em] text-[#94A3B8]">
                                   {mine ? 'You' : message.senderType === 'AI' ? 'PFT Assistant' : 'PFT Support'}
@@ -457,8 +466,17 @@ export function TraderSupportView() {
                         />
                       </label>
                       <Button type="submit" className="h-10 gap-2" disabled={sending || draft.trim().length === 0}>
-                        {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                        <span className="hidden sm:inline">{sending ? 'Sending…' : 'Send'}</span>
+                        {sending ? (
+                          <>
+                            <TypingDots />
+                            <span className="hidden sm:inline">Sending…</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="size-4" />
+                            <span className="hidden sm:inline">Send</span>
+                          </>
+                        )}
                       </Button>
                     </form>
                   )}
