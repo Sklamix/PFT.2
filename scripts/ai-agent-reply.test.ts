@@ -16,6 +16,7 @@ const staffParse = (text: string) => ({
   resolved: false,
   category: 'GENERAL' as const,
   handoffReason: null,
+  citations: [],
 })
 
 test('staff parser reads the staff contract', () => {

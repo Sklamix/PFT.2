@@ -71,7 +71,7 @@ const okFetch = (body: unknown): typeof fetch =>
 test('client parses a normal answer', async () => {
   const result = await requestAssistant(
     { message: 'What is the split?', history: [] },
-    { fetchImpl: okFetch({ answer: '80/20', handoff: null, handoffReason: null }) },
+    { fetchImpl: okFetch({ answer: '80/20', handoff: null, handoffReason: null, citations: [] }) },
   )
   assert.equal(result.answer, '80/20')
   assert.equal(result.handoff, null)
@@ -80,7 +80,7 @@ test('client parses a normal answer', async () => {
 test('client parses a handoff response', async () => {
   const result = await requestAssistant(
     { message: 'Human please', history: [], forceHandoff: true },
-    { fetchImpl: okFetch({ answer: null, handoff: { publicId: 'SUP-123', subject: 'Help', reused: true }, handoffReason: 'user_requested_human' }) },
+    { fetchImpl: okFetch({ answer: null, handoff: { publicId: 'SUP-123', subject: 'Help', reused: true }, handoffReason: 'user_requested_human', citations: [] }) },
   )
   assert.equal(result.handoff?.publicId, 'SUP-123')
   assert.equal(result.handoff?.reused, true)
@@ -167,6 +167,7 @@ test('stricter response validation', () => {
     answer: 'ok',
     handoff: null,
     handoffReason: null,
+    citations: [],
     suggestedCategory: null,
   })
   assert.deepEqual(parseAssistantChatResponse({ answer: null, handoff: null, handoffReason: 'r', suggestedCategory: 'KYC' }), {
@@ -174,6 +175,7 @@ test('stricter response validation', () => {
     handoff: null,
     handoffReason: 'r',
     suggestedCategory: 'KYC',
+    citations: [],
   })
 })
 
@@ -188,7 +190,7 @@ test('classification stays unchanged', () => {
 
 test('parser accepts resolved=false without an answer when a reason is present', () => {
   const parsed = parseAssistantResponse(
-    JSON.stringify({ answer: '', resolved: false, category: 'RULES', handoffReason: 'news timing is not covered by the facts' }),
+    JSON.stringify({ answer: '', resolved: false, category: 'RULES', handoffReason: 'news timing is not covered by the facts', citations: [] }),
   )
   assert.equal(parsed.resolved, false)
   assert.equal(parsed.answer, '')
@@ -198,7 +200,7 @@ test('parser accepts resolved=false without an answer when a reason is present',
 
 test('parser rejects resolved=true without an answer', () => {
   assert.throws(
-    () => parseAssistantResponse(JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '' })),
+    () => parseAssistantResponse(JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '', citations: [] })),
     (error: unknown) =>
       error instanceof AiUnavailableError && error.reason === 'unavailable' && error.detail === 'empty_answer',
   )
@@ -389,6 +391,7 @@ test('a conversation continues after a long assistant answer', { skip: DB_SKIP }
         resolved: true,
         category: 'RULES',
         handoffReason: null,
+        citations: [],
       }),
     })
 
@@ -529,7 +532,7 @@ function nvidiaStub(body: unknown, status = 200, captured?: CapturedCall[]): typ
 
 const nvidiaInput = {
   systemInstruction: 'SYSTEM INSTRUCTIONS',
-  knowledge: 'PFT FACTS BLOCK',
+  knowledge: 'PFT GROUNDED FACTS BLOCK',
   history: [],
   message: 'What is the profit split?',
 }
@@ -580,7 +583,7 @@ test('nvidia returns a grounded answer with a safe request', async () => {
     assert.ok(!JSON.stringify(sent).includes(TEST_NVIDIA_KEY), 'the key must never be in the body')
     const messages = sent.messages as { role: string; content: string }[]
     assert.equal(messages[0].role, 'system')
-    assert.match(messages[0].content, /PFT FACTS BLOCK/)
+    assert.match(messages[0].content, /PFT GROUNDED FACTS BLOCK/)
     assert.equal(messages.at(-1)?.role, 'user')
   })
 })
@@ -598,7 +601,7 @@ test('nvidia treats malformed model output as unavailable', async () => {
         error.finishReason === 'stop',
     )
 
-    const emptyAnswer = JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '' })
+    const emptyAnswer = JSON.stringify({ answer: '   ', resolved: true, category: 'GENERAL', handoffReason: '', citations: [] })
     await assert.rejects(
       generateWithNvidia(nvidiaInput, { fetchImpl: nvidiaStub(nvidiaCompletion(emptyAnswer)) }),
       (error: unknown) =>
@@ -963,7 +966,7 @@ test('a hypothetical news violation is answered, not handed off', { skip: DB_SKI
         method: 'POST',
         headers: { 'x-vercel-id': `ai-news-${suffix}` },
       }),
-      generate: async () => ({ answer, resolved: true, category: 'RULES', handoffReason: null }),
+      generate: async () => ({ answer, resolved: true, category: 'RULES', handoffReason: null, citations: [] }),
     })
 
     assert.equal(result.answer, answer)
@@ -1017,6 +1020,7 @@ test('a real account violation check is handed off', { skip: DB_SKIP }, async ()
         resolved: false,
         category: 'RULES',
         handoffReason: 'needs actual account data',
+        citations: [],
       }),
     })
 
@@ -1042,6 +1046,7 @@ test('an operational account action is handed off without execution', { skip: DB
         resolved: false,
         category: 'ACCOUNT',
         handoffReason: 'account actions are not allowed',
+        citations: [],
       }),
     })
 
@@ -1067,6 +1072,7 @@ test('an ambiguous violation question is handed off instead of guessed', { skip:
         resolved: false,
         category: 'RULES',
         handoffReason: 'missing account type, timing and violation count',
+        citations: [],
       }),
     })
 
@@ -1106,6 +1112,7 @@ test('a valid handoff without an answer is not treated as a failure', { skip: DB
         resolved: false,
         category: 'RULES',
         handoffReason: 'news timing is not covered by the facts',
+        citations: [],
       }),
     })
 
@@ -1177,4 +1184,7 @@ test('a retry for a closed ticket opens a new ticket', { skip: DB_SKIP }, async 
     }
   }
 })
+
+
+
 

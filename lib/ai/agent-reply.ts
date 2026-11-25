@@ -18,6 +18,7 @@ import { extractJsonObject } from './gemini'
  */
 export type AgentReply = {
   reply: string
+  citations: { section: number; quote: string }[]
 }
 
 /**
@@ -77,10 +78,10 @@ export function parseAgentReply(text: string): AgentReply {
           ? record.answer
           : ''
     if (reply.trim()) {
-      return { reply: reply.trim().slice(0, MAX_REPLY_LENGTH) }
+      return { reply: reply.trim().slice(0, MAX_REPLY_LENGTH), citations: [] }
     }
   }
 
   // No usable JSON object: the desk still gets the model's own words.
-  return { reply: cleaned.slice(0, MAX_REPLY_LENGTH) }
+  return { reply: cleaned.slice(0, MAX_REPLY_LENGTH), citations: [] }
 }

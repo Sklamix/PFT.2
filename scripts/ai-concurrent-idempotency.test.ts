@@ -1,8 +1,9 @@
-import assert from 'node:assert/strict'
+﻿import assert from 'node:assert/strict'
 import test from 'node:test'
 import { AiUnavailableError } from '../lib/ai/errors'
 import { createAssistantProvider } from '../lib/ai/provider-reliability'
 import { handleSupportChat, type SupportChatDependencies } from '../lib/ai/support-chat'
+import { getSection } from '../lib/rules/rulebook'
 import { IdempotencyInProgressError, type IdempotencyStore } from '../lib/ai/request-idempotency'
 
 type StoredRecord = {
@@ -130,6 +131,7 @@ test('replaying a completed request returns its stored answer without another ge
         resolved: true,
         category: 'PAYOUT' as const,
         handoffReason: null,
+        citations: [{ section: 17, quote: getSection(17)!.markdown.slice(0, 120) }],
       }
     },
   }
@@ -161,7 +163,8 @@ test('completed request keys can be reused after their retention period', async 
         answer: 'A grounded answer.',
         resolved: true,
         category: 'GENERAL' as const,
-        handoffReason: null,
+handoffReason: null,
+citations: [],
       }
     },
   }
@@ -191,7 +194,8 @@ test('reusing a request key for different content is rejected before generation'
         answer: 'Use the official support ticket for personal account details.',
         resolved: true,
         category: 'GENERAL' as const,
-        handoffReason: null,
+handoffReason: null,
+citations: [],
       }
     },
   }
@@ -208,3 +212,4 @@ test('reusing a request key for different content is rejected before generation'
   await first
   assert.equal(generated, 1)
 })
+

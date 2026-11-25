@@ -17,7 +17,7 @@ export type GroundingSection = {
   num: number
   title: string
   markdown: string
-  kind: 'rule'
+  kind: 'rule' | 'surface' | 'pricing'
 }
 
 export type Citation = { section: number; quote: string }

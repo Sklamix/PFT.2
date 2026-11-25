@@ -28,8 +28,9 @@ const TEMPERATURE = 0.2
 /** The API has no enforced schema, so the JSON contract is repeated to the model. */
 const JSON_CONTRACT = [
   'Reply with a single JSON object and nothing else.',
-  'Shape: {"answer": string, "resolved": boolean, "category": "GENERAL"|"CHALLENGE"|"PAYOUT"|"KYC"|"ACCOUNT"|"TECHNICAL"|"RULES", "handoffReason": string}.',
+  'Shape: {"answer": string, "resolved": boolean, "category": "GENERAL"|"CHALLENGE"|"PAYOUT"|"KYC"|"ACCOUNT"|"TECHNICAL"|"RULES", "handoffReason": string, "citations": [{"section": number, "quote": string}]}.',
   'Use "" for handoffReason when resolved is true.',
+  'The "citations" array may be empty when unresolved. Each quote must be a verbatim sentence from the provided sections, copied in the original language; quotes are mechanically checked.',
   'No markdown fences, no preamble, no trailing commentary.',
 ].join('\n')
 
@@ -83,7 +84,7 @@ function buildMessages(input: {
   history: ChatTurn[]
   message: string
 }, contractPrompt: string): NvidiaMessage[] {
-  const system = [input.systemInstruction, contractPrompt, `PFT FACTS:\n${input.knowledge}`].join('\n\n')
+  const system = [input.systemInstruction, contractPrompt, `PFT GROUNDED FACTS:\n${input.knowledge}`].join('\n\n')
   return [
     { role: 'system', content: system },
     ...input.history.map((turn) => ({ role: turn.role, content: turn.content })),

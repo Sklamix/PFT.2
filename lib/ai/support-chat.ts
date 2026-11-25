@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { addTraderMessage, createTicket } from '@/lib/support/service'
 import type { SupportBrief } from '@/lib/support/brief'
 import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION, surfaceSection } from './pft-knowledge'
-import { selectSections } from './grounding'
+import { selectSections, verifyCitations } from './grounding'
+import { findForbiddenClaims } from './claim-guard'
 import { AiUnavailableError, type AssistantGenerator, type ChatTurn } from './gemini'
 import { generateAssistant } from './provider'
 import {
@@ -339,13 +340,29 @@ async function handleSupportChatOnce(
         message: input.message,
       })
       if (result.resolved) {
+        // Grounding gate (spec 4.5): an answer is only shipped when its
+        // citations are mechanically valid and it contains no forbidden claim.
+        const verdict = verifyCitations(result.citations, sections)
+        const claims = findForbiddenClaims(result.answer)
+        if (!verdict.ok || claims.length > 0) {
+          const grounding = claims.length > 0 ? 'forbidden' : 'ungrounded'
+          return {
+            answer: null,
+            handoff: null,
+            handoffReason: claims.length > 0 ? 'forbidden_claim' : 'ungrounded_answer',
+            suggestedHandoff: true,
+            suggestedCategory: result.category,
+            citations: [],
+            grounding,
+          }
+        }
         return {
           answer: result.answer,
           handoff: null,
           handoffReason: null,
           suggestedHandoff: false,
           suggestedCategory: null,
-          citations: [],
+          citations: result.citations,
           grounding: 'grounded',
         }
       }

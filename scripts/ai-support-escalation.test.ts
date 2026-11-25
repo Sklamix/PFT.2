@@ -2,6 +2,7 @@ import test, { after, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { readBrief } from '../lib/support/brief'
 import type { AssistantGenerator } from '../lib/ai/gemini'
+import { selectSections } from '../lib/ai/grounding'
 import { createMemoryIdempotencyStore } from './ai-support-test-store'
 
 /**
@@ -112,14 +113,21 @@ function resetSpies() {
 function answerGenerator(answer: string): AssistantGenerator {
   return async (input) => {
     generatorCalls.push(input.message)
-    return { answer, resolved: true, category: 'GENERAL', handoffReason: null }
+    const sections = selectSections(input.message)
+    return {
+      answer,
+      resolved: true,
+      category: 'GENERAL',
+      handoffReason: null,
+      citations: sections.slice(0, 1).map((section) => ({ section: section.num, quote: section.markdown.slice(0, 100) })),
+    }
   }
 }
 
 function handoffGenerator(reason: string, category: 'ACCOUNT' | 'PAYOUT'): AssistantGenerator {
   return async (input) => {
     generatorCalls.push(input.message)
-    return { answer: '', resolved: false, category, handoffReason: reason }
+    return { answer: '', resolved: false, category, handoffReason: reason, citations: [] }
   }
 }
 

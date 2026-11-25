@@ -43,6 +43,7 @@ const staffProvider = createAssistantProvider((input) => {
     resolved: false,
     category: 'GENERAL',
     handoffReason: null,
+    citations: [],
   })
   return resolveProvider() === 'nvidia'
     ? generateWithNvidia(input, { parse, contractPrompt: STAFF_JSON_CONTRACT })

@@ -113,7 +113,7 @@ const INVENTED_DOCUMENTS = /passport|utility bill|proof of address|selfie|id car
 function kycGenerator() {
   return async (input: { message: string }) => {
     generatorCalls.push(input.message)
-    return { answer: '', resolved: false as const, category: 'KYC' as const, handoffReason: HANDOFF_REASON }
+    return { answer: '', resolved: false as const, category: 'KYC' as const, handoffReason: HANDOFF_REASON, citations: [] as { section: number; quote: string }[] }
   }
 }
 

@@ -1,5 +1,6 @@
 import type { SupportCategory } from '@prisma/client'
 import { categoryFromModel } from './pft-knowledge'
+import type { Citation } from './grounding'
 import { AiUnavailableError, classifyGeminiFailure, type AiFailure } from './errors'
 
 export type { AiFailure }
@@ -17,6 +18,8 @@ export type AssistantResult = {
   resolved: boolean
   category: SupportCategory
   handoffReason: string | null
+  /** 1–3 verbatim quotes from the provided sections. Empty when unresolved. */
+  citations: Citation[]
 }
 
 export type AssistantGenerator = (input: {
@@ -131,6 +134,7 @@ export function parseAssistantResponse(text: string): AssistantResult {
         resolved: false,
         category: categoryFromModel(record.category),
         handoffReason,
+        citations: parseCitations(record.citations),
       }
     }
     throw new AiUnavailableError('unavailable', { detail: 'empty_answer' })
@@ -141,7 +145,21 @@ export function parseAssistantResponse(text: string): AssistantResult {
     resolved,
     category: categoryFromModel(record.category),
     handoffReason,
+    citations: parseCitations(record.citations),
   }
+}
+
+/** Accepts the citation list; invalid entries are dropped (verifyCitations rejects the rest). */
+function parseCitations(value: unknown): Citation[] {
+  if (!Array.isArray(value)) return []
+  const citations: Citation[] = []
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue
+    const record = item as Record<string, unknown>
+    if (typeof record.section !== 'number' || typeof record.quote !== 'string' || record.quote.length === 0) continue
+    citations.push({ section: record.section, quote: record.quote })
+  }
+  return citations
 }
 
 /**
@@ -171,7 +189,7 @@ export const generateWithGemini = async (
         { role: 'user', parts: [{ text: message }] },
       ],
       config: {
-        systemInstruction: `${systemInstruction}\n\nPFT FACTS:\n${knowledge}`,
+        systemInstruction: `${systemInstruction}\n\nPFT GROUNDED FACTS:\n${knowledge}`,
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
@@ -183,8 +201,16 @@ export const generateWithGemini = async (
               enum: ['GENERAL', 'CHALLENGE', 'PAYOUT', 'KYC', 'ACCOUNT', 'TECHNICAL', 'RULES'],
             },
             handoffReason: { type: Type.STRING },
+            citations: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: { section: { type: Type.NUMBER }, quote: { type: Type.STRING } },
+                required: ['section', 'quote'],
+              },
+            },
           },
-          required: ['answer', 'resolved', 'category'],
+          required: ['answer', 'resolved', 'category', 'citations'],
         },
         temperature: 0.2,
         maxOutputTokens: 900,

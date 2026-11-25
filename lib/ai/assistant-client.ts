@@ -10,6 +10,8 @@ export type AssistantChatResponse = {
   handoffReason?: string | null
   /** Category proposed for an unanswered question; echoed back on confirmation. */
   suggestedCategory?: string | null
+  /** Verbatim quotes from the rulebook backing the answer; empty when unresolved. */
+  citations?: { section: number; quote: string }[]
 }
 
 export type AssistantErrorKind = 'timeout' | 'network' | 'invalid_response' | 'http'
@@ -76,7 +78,10 @@ export function parseAssistantChatResponse(value: unknown): AssistantChatRespons
   if (suggestedCategory === undefined) {
     throw new AssistantRequestError('invalid_response', 'Unexpected assistant response.')
   }
-  return { answer, handoff: parsedHandoff, handoffReason, suggestedCategory }
+  const citations = Array.isArray(value.citations)
+    ? value.citations.filter((item): item is { section: number; quote: string } => isRecord(item) && typeof item.section === 'number' && typeof item.quote === 'string')
+    : []
+  return { answer, handoff: parsedHandoff, handoffReason, suggestedCategory, citations }
 }
 
 type RequestInput = {
