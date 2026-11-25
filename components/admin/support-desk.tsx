@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { ArrowLeft, Inbox, Loader2, RefreshCw, Send, ShieldAlert, UserCheck, UserMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SupportAgentPanel } from '@/components/admin/support-agent-panel'
+import { MessageBody } from '@/components/support/chat/message-body'
+import { useFillHeight } from '@/hooks/use-fill-height'
 import { cn } from '@/lib/utils'
 
 const CATEGORIES = ['GENERAL', 'CHALLENGE', 'PAYOUT', 'KYC', 'ACCOUNT', 'TECHNICAL', 'RULES'] as const
@@ -139,6 +141,8 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
   const [escalatedOnly, setEscalatedOnly] = useState(false)
   const [escalated, setEscalated] = useState<EscalatedItem[] | null>(null)
   const [escalatedError, setEscalatedError] = useState<string | null>(null)
+
+  const { ref: fillRef, style: fillStyle } = useFillHeight<HTMLDivElement>()
 
   const loadEscalations = useCallback(
     async () => {
@@ -360,9 +364,9 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
         ) : null}
       </div>
 
-      <div className="grid gap-3 xl:grid-cols-[420px_minmax(0,1fr)_340px]">
-        <section className={cn('min-w-0 overflow-hidden rounded-xl border border-border bg-card', selectedId ? 'hidden xl:block' : 'block')}>
-          <div className="max-h-[calc(100dvh-260px)] overflow-y-auto">
+      <div ref={fillRef} style={fillStyle} className="grid min-h-0 gap-3 xl:grid-cols-[420px_minmax(0,1fr)_340px]">
+        <section className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card', selectedId ? 'hidden xl:flex' : 'block')}>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
             {escalatedOnly ? (
               loading ? (
                 <p className="flex items-center gap-2 p-4 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading escalations…</p>
@@ -541,7 +545,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
                 </p>
               )}
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
                 {detailLoading && !detail ? (
                   <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Loading conversation…</p>
                 ) : detailError ? (
@@ -566,7 +570,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
                                 {staff ? `${message.senderName ?? 'Staff'} · PFT` : detail.ticket.trader.name}
                                 {message.senderType === 'AI' ? ' · AI' : ''}
                               </p>
-                              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{message.body}</p>
+                              <MessageBody text={message.body} tone={staff ? 'staff' : message.senderType === 'AI' ? 'ai' : 'neutral'} />
                               <p className="mt-1 font-mono text-[9px] text-muted-foreground/80">{formatTime(message.createdAt)}</p>
                             </div>
                           </li>
@@ -612,7 +616,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
 
         <section
           className={cn(
-            'min-w-0 self-start rounded-xl border border-border bg-card',
+            'min-w-0 min-h-0 self-start overflow-y-auto overscroll-contain rounded-xl border border-border bg-card',
             selectedId ? 'block' : 'hidden xl:block',
           )}
           aria-label="Support agent panel"

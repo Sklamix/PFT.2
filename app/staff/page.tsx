@@ -2,6 +2,9 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { BrandLogo } from '@/components/brand-logo'
+import { MessageBody } from '@/components/support/chat/message-body'
+import { useSupportPoll } from '@/hooks/use-support-poll'
+import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
 import { AgentSection, EscalationsSection } from './AgentPanel'
 
 type TicketSummary = {
@@ -40,6 +43,10 @@ const PRIORITY_LABELS: Record<string, string> = {
   URGENT: 'терміново',
 }
 
+function responseOk(data: unknown): data is { items?: unknown[] } {
+  return !!data && typeof data === 'object' && Array.isArray((data as { items?: unknown[] }).items)
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
@@ -66,6 +73,38 @@ export default function StaffApp() {
   const [showEscalations, setShowEscalations] = useState(false)
 
   const meSubRef = useRef<string | null>(null)
+  const openTicketSinceRef = useRef<string | null>(null)
+
+  // Poll the ticket list every 15s when signed in.
+  useSupportPoll({
+    getUrl: () => {
+      const query = new URLSearchParams({ sort: 'updated', pageSize: '25' })
+      if (statusFilter) query.set('status', statusFilter)
+      return `/api/admin/support/tickets?${query}`
+    },
+    enabled: !!me,
+    intervalMs: 15_000,
+    onData: (data) => {
+      if (responseOk(data)) setTickets((data.items ?? []) as TicketSummary[])
+    },
+  })
+
+  // Poll the open ticket for new messages every 4s.
+  useSupportPoll({
+    getUrl: () => (openTicket ? `/api/admin/support/tickets/${encodeURIComponent(openTicket.ticket.publicId)}?pageSize=50` : null),
+    enabled: !!openTicket,
+    intervalMs: 4_000,
+    onData: (data) => {
+      if (!responseOk(data)) return
+      const incoming = (data as { messages?: TicketMessage[] }).messages ?? []
+      setOpenTicket((current) => {
+        if (!current) return null
+        const merged = mergeMessages(current.messages, incoming)
+        openTicketSinceRef.current = latestCreatedAt(merged)
+        return { ...current, messages: merged }
+      })
+    },
+  })
 
   const loadSession = useCallback(async () => {
     const response = await fetch('/api/admin/auth/me', { cache: 'no-store' })
@@ -115,8 +154,6 @@ export default function StaffApp() {
   useEffect(() => {
     if (!me) return
     void loadTickets()
-    const timer = setInterval(() => void loadTickets(), 30_000)
-    return () => clearInterval(timer)
   }, [me, loadTickets])
 
   // A push notification deep-links here as /staff?ticket=SUP-...
@@ -181,8 +218,8 @@ export default function StaffApp() {
         return
       }
       const data = await response.json()
-      // The API returns messages paginated: { items: [...] }
       const messages = Array.isArray(data.messages) ? data.messages : data.messages?.items ?? []
+      openTicketSinceRef.current = latestCreatedAt(messages)
       setOpenTicket({ ticket: data.ticket, messages })
     } catch (err) {
       alert(`Помилка мережі: ${err instanceof Error ? err.message : String(err)}`)
@@ -280,7 +317,7 @@ export default function StaffApp() {
   if (openTicket) {
     const t = openTicket.ticket
     return (
-      <div className="min-h-dvh bg-deck">
+      <div className="h-dvh overflow-hidden bg-deck">
         <header className="sticky top-0 z-10 border-b border-border bg-card/80 px-4 py-3 backdrop-blur">
           <div className="flex items-center gap-3">
             <button onClick={() => setOpenTicket(null)} className="text-sm text-muted-foreground" aria-label="Назад">
@@ -314,8 +351,8 @@ export default function StaffApp() {
             )}
           </div>
         </header>
-        <main className="mx-auto max-w-2xl px-4 py-4">
-          <div className="space-y-3">
+        <main className="mx-auto flex min-h-0 w-full max-w-2xl flex-col px-4 py-4">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain">
             {openTicket.messages.map((message) => {
               const mine = message.senderType !== 'TRADER'
               return (
@@ -324,7 +361,7 @@ export default function StaffApp() {
                     <p className="mb-1 text-[10px] uppercase opacity-60">
                       {message.senderType === 'TRADER' ? (message.senderName || t.trader.name || 'Клієнт') : message.senderType === 'AI' ? 'AI' : 'Ви'}
                     </p>
-                    <p className="whitespace-pre-wrap">{message.body}</p>
+                    <MessageBody text={message.body} tone={mine ? 'staff' : message.senderType === 'AI' ? 'ai' : 'neutral'} />
                     <p className="mt-1 text-[10px] opacity-50">{new Date(message.createdAt).toLocaleString('uk-UA')}</p>
                   </div>
                 </div>
@@ -332,7 +369,7 @@ export default function StaffApp() {
             })}
           </div>
           <AgentSection publicId={t.publicId} />
-          <form onSubmit={sendReply} className="sticky bottom-4 mt-6 flex gap-2">
+          <form onSubmit={sendReply} className="mt-3 flex shrink-0 gap-2">
             <textarea
               value={reply}
               onChange={(event) => setReply(event.target.value)}

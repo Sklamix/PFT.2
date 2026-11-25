@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowLeft, Inbox, Loader2, MessageSquarePlus, RefreshCw, Send, X } from 'lucide-react'
 import { SpaceBackground } from '@/components/dashboard/space-background'
 import { SupportAssistant } from '@/components/support/support-assistant'
+import { MessageBody } from '@/components/support/chat/message-body'
+import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -111,6 +113,8 @@ export function TraderSupportView() {
   const [newBody, setNewBody] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
+
+  const { ref: messagesRef, scrollToBottom: scrollMessagesToBottom } = useStickToBottom<HTMLDivElement>(detail?.messages.items ?? [], { threshold: 128 })
 
   const loadTickets = useCallback(
     async (page: number, status: '' | Status) => {
@@ -240,9 +244,9 @@ export function TraderSupportView() {
   const totalMessagePages = detail ? Math.max(1, Math.ceil(detail.messages.total / detail.messages.pageSize)) : 1
 
   return (
-    <div className="min-h-dvh">
+    <div className="h-dvh overflow-hidden">
       <SpaceBackground />
-      <div className="relative z-10 mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      <div className="relative z-10 flex h-full flex-col mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold tracking-tight text-slate-100">Support</h1>
@@ -254,6 +258,7 @@ export function TraderSupportView() {
         </header>
 
         <SupportAssistant
+          className="shrink-0"
           onHandoff={(publicId) => {
             void loadTickets(1, statusFilter)
             openTicket(publicId)
@@ -261,9 +266,9 @@ export function TraderSupportView() {
           onRecover={() => loadTickets(1, statusFilter)}
         />
 
-        <div className="mt-5 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="mt-5 grid min-h-0 flex-1 gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
           {/* Ticket list */}
-          <section className={cn('min-w-0 rounded-xl border border-slate-800/80 bg-[#0B0F19]/85 backdrop-blur-md', selectedId ? 'hidden lg:block' : 'block')}>
+          <section className={cn('flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-slate-800/80 bg-[#0B0F19]/85 backdrop-blur-md', selectedId ? 'hidden lg:flex' : 'block')}>
             <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 px-3 py-2.5">
               <select
                 value={statusFilter}
@@ -281,7 +286,7 @@ export function TraderSupportView() {
               </Button>
             </div>
 
-            <div className="max-h-[calc(100dvh-260px)] overflow-y-auto">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
               {loadingList ? (
                 <p className="flex items-center gap-2 px-3 py-8 text-xs text-[#94A3B8]"><Loader2 className="size-4 animate-spin" /> Loading tickets…</p>
               ) : listError ? (
@@ -332,7 +337,7 @@ export function TraderSupportView() {
           </section>
 
           {/* Conversation */}
-          <section className={cn('min-w-0 flex-col rounded-xl border border-slate-800/80 bg-[#0B0F19]/85 backdrop-blur-md', selectedId ? 'flex' : 'hidden lg:flex')}>
+          <section className={cn('flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-slate-800/80 bg-[#0B0F19]/85 backdrop-blur-md', selectedId ? 'flex' : 'hidden lg:flex')}>
             {!selectedId ? (
               <div className="flex flex-1 flex-col items-center justify-center p-10 text-center">
                 <MessageSquarePlus className="size-6 text-[#94A3B8]" />
@@ -360,7 +365,7 @@ export function TraderSupportView() {
                   ) : null}
                 </header>
 
-                <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
+                <div ref={messagesRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-4">
                   {detailLoading && !detail ? (
                     <p className="flex items-center gap-2 text-xs text-[#94A3B8]"><Loader2 className="size-4 animate-spin" /> Loading conversation…</p>
                   ) : detailError ? (
@@ -386,7 +391,7 @@ export function TraderSupportView() {
                                 <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.16em] text-[#94A3B8]">
                                   {mine ? 'You' : message.senderType === 'AI' ? 'PFT Assistant' : 'PFT Support'}
                                 </p>
-                                <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-100">{message.body}</p>
+                                <MessageBody text={message.body} tone={mine ? 'staff' : message.senderType === 'AI' ? 'ai' : 'neutral'} />
                                 <p className="mt-1 font-mono text-[9px] text-slate-500">{formatTime(message.createdAt)}</p>
                               </div>
                             </li>

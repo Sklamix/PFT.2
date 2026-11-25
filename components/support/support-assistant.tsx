@@ -35,7 +35,7 @@ function assistantErrorMessage(error: unknown) {
   return 'The assistant could not answer. Please try again or open a support ticket.'
 }
 
-export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicId: string) => void; onRecover?: () => void | Promise<void> }) {
+export function SupportAssistant({ onHandoff, onRecover, className }: { onHandoff: (publicId: string) => void; onRecover?: () => void | Promise<void>; className?: string }) {
   const [open, setOpen] = useState(false)
   const [turns, setTurns] = useState<Turn[]>([])
   const [draft, setDraft] = useState('')
@@ -165,7 +165,7 @@ export function SupportAssistant({ onHandoff, onRecover }: { onHandoff: (publicI
   }
 
   return (
-    <section className="mb-4 overflow-hidden rounded-xl border border-primary/20 bg-[#0B0F19]/85 backdrop-blur-md">
+    <section className={cn('mb-4 overflow-hidden rounded-xl border border-primary/20 bg-[#0B0F19]/85 backdrop-blur-md', className ?? '')}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
