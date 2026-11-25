@@ -209,18 +209,18 @@ export async function listTraderTickets(userId: string, options: {
 }
 
 /** Returns null for both "missing" and "someone else's ticket" so IDs cannot be probed. */
-export async function getTraderTicket(userId: string, ref: string, pagination: { page: number; pageSize: number }) {
+export async function getTraderTicket(userId: string, ref: string, pagination: { page: number; pageSize: number }, since?: Date | null) {
   const found = await resolveTicket(ref)
   if (!found || found.userId !== userId) return null
 
-  // A ticket can be deleted between the lookup and this read; treat that as 404, not 500.
   const ticket = await prisma.supportTicket.findUnique({ where: { id: found.id }, select: SUMMARY_SELECT })
   if (!ticket) return null
+  const messageWhere: Prisma.SupportMessageWhereInput = { ticketId: found.id }
+  if (since) messageWhere.createdAt = { gte: since }
   const [messages, total] = await Promise.all([
     prisma.supportMessage.findMany({
-      where: { ticketId: found.id },
+      where: messageWhere,
       orderBy: { createdAt: 'asc' },
-      skip: (pagination.page - 1) * pagination.pageSize,
       take: pagination.pageSize,
       select: { id: true, senderType: true, body: true, createdAt: true },
     }),
@@ -228,14 +228,13 @@ export async function getTraderTicket(userId: string, ref: string, pagination: {
   ])
   const items: TicketMessage[] = messages.map((message) => ({
     id: message.id,
-    // Staff identity is not exposed to traders; they see the support desk.
     senderType: message.senderType,
     body: message.body,
     createdAt: message.createdAt.toISOString(),
   }))
   return {
     ticket: toSummary(ticket),
-    messages: { items, page: pagination.page, pageSize: pagination.pageSize, total },
+    messages: { items, page: pagination.page, pageSize: pagination.pageSize, total, hasMore: items.length === pagination.pageSize },
   }
 }
 
@@ -415,7 +414,7 @@ export async function listStaffTickets(options: {
   }
 }
 
-export async function getStaffTicket(ref: string, pagination: { page: number; pageSize: number }) {
+export async function getStaffTicket(ref: string, pagination: { page: number; pageSize: number }, since?: Date | null) {
   const found = await resolveTicket(ref)
   if (!found) return null
 
@@ -428,11 +427,12 @@ export async function getStaffTicket(ref: string, pagination: { page: number; pa
     },
   })
   if (!ticket) return null
+  const messageWhere: Prisma.SupportMessageWhereInput = { ticketId: found.id }
+  if (since) messageWhere.createdAt = { gte: since }
   const [messages, total] = await Promise.all([
     prisma.supportMessage.findMany({
-      where: { ticketId: found.id },
+      where: messageWhere,
       orderBy: { createdAt: 'asc' },
-      skip: (pagination.page - 1) * pagination.pageSize,
       take: pagination.pageSize,
       select: {
         id: true,
@@ -460,7 +460,7 @@ export async function getStaffTicket(ref: string, pagination: { page: number; pa
       trader: { name: ticket.user.name, email: ticket.user.email, kycStatus: ticket.user.kycStatus },
       assignedTo: ticket.assignedTo ?? null,
     },
-    messages: { items, page: pagination.page, pageSize: pagination.pageSize, total },
+    messages: { items, page: pagination.page, pageSize: pagination.pageSize, total, hasMore: items.length === pagination.pageSize },
   }
 }
 

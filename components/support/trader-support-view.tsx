@@ -6,6 +6,8 @@ import { SpaceBackground } from '@/components/dashboard/space-background'
 import { SupportAssistant } from '@/components/support/support-assistant'
 import { MessageBody } from '@/components/support/chat/message-body'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
+import { useSupportPoll } from '@/hooks/use-support-poll'
+import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
@@ -33,7 +35,7 @@ type Message = { id: string; senderType: 'TRADER' | 'STAFF' | 'AI'; body: string
 
 type TicketDetail = {
   ticket: Ticket
-  messages: { items: Message[]; page: number; pageSize: number; total: number }
+  messages: { items: Message[]; page: number; pageSize: number; total: number; hasMore?: boolean }
 }
 
 const STATUS_LABEL: Record<Status, string> = {
@@ -115,6 +117,25 @@ export function TraderSupportView() {
   const [createError, setCreateError] = useState<string | null>(null)
 
   const { ref: messagesRef, scrollToBottom: scrollMessagesToBottom } = useStickToBottom<HTMLDivElement>(detail?.messages.items ?? [], { threshold: 128 })
+  const detailSinceRef = useRef<string | null>(null)
+
+  // Poll the open ticket for new messages every 3s.
+  useSupportPoll({
+    getUrl: () => (selectedId ? `/api/support/tickets/${encodeURIComponent(selectedId)}?pageSize=50` : null),
+    enabled: !!selectedId,
+    intervalMs: 3_000,
+    onData: (data) => {
+      const record = data as { messages?: { items?: Message[] } } | null
+      if (!record?.messages?.items) return
+      const incoming = record.messages.items
+      setDetail((current) => {
+        if (!current) return null
+        const merged = mergeMessages(current.messages.items, incoming)
+        detailSinceRef.current = latestCreatedAt(merged)
+        return { ...current, messages: { ...current.messages, items: merged } }
+      })
+    },
+  })
 
   const loadTickets = useCallback(
     async (page: number, status: '' | Status) => {
@@ -159,6 +180,7 @@ export function TraderSupportView() {
         setDetail(null)
         return
       }
+      detailSinceRef.current = latestCreatedAt(data.messages.items)
       setDetail(data)
       setMessagePage(data.messages.page)
     } catch {
@@ -179,6 +201,7 @@ export function TraderSupportView() {
       setDraft('')
       setSendError(null)
       pendingKey.current = null
+      detailSinceRef.current = null
       void loadDetail(publicId, 1)
     },
     [loadDetail],

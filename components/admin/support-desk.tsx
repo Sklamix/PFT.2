@@ -1,11 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ArrowLeft, Inbox, Loader2, RefreshCw, Send, ShieldAlert, UserCheck, UserMinus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { SupportAgentPanel } from '@/components/admin/support-agent-panel'
 import { MessageBody } from '@/components/support/chat/message-body'
 import { useFillHeight } from '@/hooks/use-fill-height'
+import { useSupportPoll } from '@/hooks/use-support-poll'
+import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
 import { cn } from '@/lib/utils'
 
 const CATEGORIES = ['GENERAL', 'CHALLENGE', 'PAYOUT', 'KYC', 'ACCOUNT', 'TECHNICAL', 'RULES'] as const
@@ -143,6 +145,25 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
   const [escalatedError, setEscalatedError] = useState<string | null>(null)
 
   const { ref: fillRef, style: fillStyle } = useFillHeight<HTMLDivElement>()
+  const selectedTicketSinceRef = useRef<string | null>(null)
+
+  // Poll the open ticket for new messages every 3s.
+  useSupportPoll({
+    getUrl: () => (selectedId ? `/api/admin/support/tickets/${encodeURIComponent(selectedId)}?pageSize=50` : null),
+    enabled: !!selectedId,
+    intervalMs: 3_000,
+    onData: (data: unknown) => {
+      const record = data as { messages?: { items?: StaffTicketDetail['messages']['items'] } } | null
+      if (!record?.messages?.items) return
+      const incoming = record.messages.items
+      setDetail((current) => {
+        if (!current) return null
+        const merged = mergeMessages(current.messages.items, incoming)
+        selectedTicketSinceRef.current = latestCreatedAt(merged)
+        return { ...current, messages: { ...current.messages, items: merged } }
+      })
+    },
+  })
 
   const loadEscalations = useCallback(
     async () => {
@@ -239,6 +260,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
         setDetail(null)
         return
       }
+      selectedTicketSinceRef.current = latestCreatedAt(data.messages.items)
       setDetail(data)
     } catch {
       setDetailError('Network error while loading the ticket.')
@@ -253,6 +275,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
     setDraft('')
     setActionError(null)
     setNotice(null)
+    selectedTicketSinceRef.current = null
     void loadDetail(publicId)
   }
 
