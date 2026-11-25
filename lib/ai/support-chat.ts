@@ -1,11 +1,12 @@
 import type { SupportCategory } from '@prisma/client'
+import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
 import { addTraderMessage, createTicket } from '@/lib/support/service'
 import type { SupportBrief } from '@/lib/support/brief'
 import { SUPPORT_SYSTEM_INSTRUCTIONS, buildPftKnowledge, RULES_SOURCE_VERSION, surfaceSection } from './pft-knowledge'
 import { selectSections, verifyCitations } from './grounding'
 import { findForbiddenClaims } from './claim-guard'
-import { AiUnavailableError, type AssistantGenerator, type ChatTurn } from './gemini'
+import { AiUnavailableError, type AssistantGenerator, type AssistantResult, type ChatTurn } from './gemini'
 import { generateAssistant } from './provider'
 import {
   prismaAiSupportIdempotencyStore,
@@ -31,7 +32,7 @@ export type SupportChatResult = {
   grounding: 'grounded' | 'ungrounded' | 'forbidden' | 'no_matching_rules'
 }
 
-function readSupportChatResult(value: unknown): SupportChatResult | null {
+export function readSupportChatResult(value: unknown): SupportChatResult | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const record = value as Record<string, unknown>
   if (typeof record.suggestedHandoff !== 'boolean') return null
@@ -155,6 +156,33 @@ function logAiFailure(error: unknown, request: Request) {
       event: 'ai_error',
       name: error instanceof Error ? error.name : 'unknown',
       requestId: correlationId,
+    }),
+  )
+}
+
+/**
+ * Structured, privacy-safe answer log: section numbers, verdict, sizes and a
+ * short hash of the answer. Never the answer body or user text.
+ */
+function logAiAnswer(input: {
+  grounding: SupportChatResult['grounding']
+  sections: { num: number }[]
+  result: AssistantResult
+  category: SupportCategory
+  request: Request
+}) {
+  const { grounding, sections, result, category, request } = input
+  console.info(
+    '[pft ai]',
+    JSON.stringify({
+      event: 'ai_answer',
+      grounding,
+      sections: sections.map((section) => section.num),
+      citations: result.citations.map((citation) => citation.section),
+      answerLength: result.answer?.length ?? 0,
+      answerHash: createHash('sha256').update(result.answer ?? '').digest('hex').slice(0, 16),
+      category,
+      requestId: requestCorrelationId(request),
     }),
   )
 }
@@ -344,8 +372,9 @@ async function handleSupportChatOnce(
         // citations are mechanically valid and it contains no forbidden claim.
         const verdict = verifyCitations(result.citations, sections)
         const claims = findForbiddenClaims(result.answer)
+        const grounding = !verdict.ok ? 'ungrounded' : claims.length > 0 ? 'forbidden' : 'grounded'
+        logAiAnswer({ grounding, sections, result, category, request: input.request })
         if (!verdict.ok || claims.length > 0) {
-          const grounding = claims.length > 0 ? 'forbidden' : 'ungrounded'
           return {
             answer: null,
             handoff: null,
@@ -363,7 +392,7 @@ async function handleSupportChatOnce(
           suggestedHandoff: false,
           suggestedCategory: null,
           citations: result.citations,
-          grounding: 'grounded',
+          grounding,
         }
       }
       category = result.category

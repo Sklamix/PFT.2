@@ -59,6 +59,14 @@ type SupportMetrics = {
   asOf: string
 }
 
+type AuditItem = {
+  createdAt: string
+  category: string | null
+  grounding: 'grounded' | 'ungrounded' | 'forbidden' | 'no_matching_rules' | null
+  answer: string | null
+  citations: number[]
+}
+
 const STATUS_LABEL: Record<Status, string> = {
   OPEN: 'Open',
   IN_PROGRESS: 'In progress',
@@ -122,6 +130,9 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
 
   const [metrics, setMetrics] = useState<SupportMetrics | null>(null)
   const [metricsError, setMetricsError] = useState<string | null>(null)
+  const [auditItems, setAuditItems] = useState<AuditItem[]>([])
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [auditExpanded, setAuditExpanded] = useState(false)
   const [tickets, setTickets] = useState<StaffTicket[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -259,6 +270,21 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
     void loadList(1)
   }, [loadList])
 
+  const loadAudit = useCallback(async () => {
+    try {
+      const { status: code, data } = await api<{ items?: AuditItem[] }>('/api/admin/support/ai-audit')
+      const items = 'items' in data ? data.items : undefined
+      if (code === 200 && Array.isArray(items)) {
+        setAuditItems(items)
+        setAuditError(null)
+      } else {
+        setAuditError('Could not load AI answers.')
+      }
+    } catch {
+      setAuditError('Network error while loading AI answers.')
+    }
+  }, [])
+
   useEffect(() => {
     if (role !== 'ADMIN') return
     let cancelled = false
@@ -390,6 +416,48 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
         ) : metricsError ? (
           <p role="status" className="text-xs text-muted-foreground">{metricsError}</p>
         ) : null
+      ) : null}
+      {role === 'ADMIN' ? (
+        <div className="rounded-xl border border-border bg-card">
+          <button
+            type="button"
+            onClick={() => {
+              if (auditExpanded) setAuditExpanded(false)
+              else void loadAudit()
+            }}
+            aria-expanded={auditExpanded}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          >
+            <span className="min-w-0 flex-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">AI answers · last 24h</span>
+            <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{auditExpanded ? '−' : '+'}</span>
+          </button>
+          {auditExpanded ? (
+            <div className="space-y-2 border-t border-border/70 p-3" aria-label="AI answers review">
+              {auditError ? <p role="alert" className="text-xs text-destructive">{auditError}</p> : null}
+              {auditItems.length === 0 && !auditError ? (
+                <p className="text-xs text-muted-foreground">No AI answers in the last 24 hours.</p>
+              ) : null}
+              {auditItems.map((item, index) => (
+                <div key={index} className="rounded-md border border-border/70 px-2.5 py-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+                      {new Date(item.createdAt).toLocaleTimeString('en-GB')} · {item.category}
+                    </span>
+                    <span className="shrink-0 font-mono text-[9px] uppercase text-warning">{item.grounding}</span>
+                  </div>
+                  {item.answer ? (
+                    <MessageBody text={item.answer} tone="neutral" />
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">No answer stored (downgraded).</p>
+                  )}
+                  {item.citations.length > 0 ? (
+                    <p className="mt-1 font-mono text-[9px] text-muted-foreground">{item.citations.map((c) => `§${c}`).join(', ')}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
       ) : null}
       <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border bg-card p-3">
         <Filter label="Status" value={status} onChange={(value) => setStatus(value as '' | Status)} options={STATUSES} labels={STATUS_LABEL} />
