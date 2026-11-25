@@ -6,6 +6,7 @@ import { MessageBody } from '@/components/support/chat/message-body'
 import { TypingDots } from '@/components/support/chat/typing-dots'
 import { useSupportPoll } from '@/hooks/use-support-poll'
 import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
+import { findLatestBrief } from '@/lib/support/brief'
 import { AgentSection, EscalationsSection } from './AgentPanel'
 
 type TicketSummary = {
@@ -27,6 +28,7 @@ type TicketMessage = {
   body: string
   createdAt: string
   senderName: string | null
+  metadata?: unknown
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -90,19 +92,25 @@ export default function StaffApp() {
     },
   })
 
-  // Poll the open ticket for new messages every 4s.
+  // Poll the open ticket for new messages every 4s (delta from the newest message we hold).
   useSupportPoll({
-    getUrl: () => (openTicket ? `/api/admin/support/tickets/${encodeURIComponent(openTicket.ticket.publicId)}?pageSize=50` : null),
+    getUrl: () => {
+      if (!openTicket) return null
+      const params = new URLSearchParams({ pageSize: '50' })
+      if (openTicketSinceRef.current) params.set('since', openTicketSinceRef.current)
+      return `/api/admin/support/tickets/${encodeURIComponent(openTicket.ticket.publicId)}?${params.toString()}`
+    },
     enabled: !!openTicket,
     intervalMs: 4_000,
     onData: (data) => {
-      if (!responseOk(data)) return
-      const incoming = (data as { messages?: TicketMessage[] }).messages ?? []
+      const record = data as { ticket?: TicketSummary; messages?: { items?: TicketMessage[] } } | null
+      const incoming = record?.messages?.items
+      if (!Array.isArray(incoming)) return
       setOpenTicket((current) => {
         if (!current) return null
         const merged = mergeMessages(current.messages, incoming)
         openTicketSinceRef.current = latestCreatedAt(merged)
-        return { ...current, messages: merged }
+        return { ticket: record?.ticket ?? current.ticket, messages: merged }
       })
     },
   })
@@ -318,8 +326,8 @@ export default function StaffApp() {
   if (openTicket) {
     const t = openTicket.ticket
     return (
-      <div className="h-dvh overflow-hidden bg-deck">
-        <header className="sticky top-0 z-10 border-b border-border bg-card/80 px-4 py-3 backdrop-blur">
+      <div className="flex h-dvh flex-col overflow-hidden bg-deck">
+        <header className="sticky top-0 z-10 shrink-0 border-b border-border bg-card/80 px-4 py-3 backdrop-blur">
           <div className="flex items-center gap-3">
             <button onClick={() => setOpenTicket(null)} className="text-sm text-muted-foreground" aria-label="Назад">
               ← Назад
@@ -352,7 +360,7 @@ export default function StaffApp() {
             )}
           </div>
         </header>
-        <main className="mx-auto flex min-h-0 w-full max-w-2xl flex-col px-4 py-4">
+        <main className="mx-auto flex w-full max-w-2xl min-h-0 flex-1 flex-col px-4 py-4">
           <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain">
             {openTicket.messages.map((message) => {
               const mine = message.senderType !== 'TRADER'
@@ -369,7 +377,11 @@ export default function StaffApp() {
               )
             })}
           </div>
-          <AgentSection publicId={t.publicId} />
+          <AgentSection
+            publicId={t.publicId}
+            brief={findLatestBrief(openTicket.messages)}
+            onInsertReply={(text) => setReply((current) => (current.trim() ? `${current}\n\n${text}` : text))}
+          />
           <form onSubmit={sendReply} className="mt-3 flex shrink-0 gap-2">
             <textarea
               value={reply}
@@ -383,7 +395,7 @@ export default function StaffApp() {
               disabled={replyBusy || !reply.trim()}
               className="flex h-11 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
             >
-              {replyBusy ? <TypingDots label="Відповідь отримано" /> : 'Надіслати'}
+              {replyBusy ? <TypingDots label="Надсилання…" /> : 'Надіслати'}
             </button>
           </form>
         </main>

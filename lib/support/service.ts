@@ -221,6 +221,8 @@ export async function getTraderTicket(userId: string, ref: string, pagination: {
     prisma.supportMessage.findMany({
       where: messageWhere,
       orderBy: { createdAt: 'asc' },
+      // A delta request (`since`) always starts at the newest boundary; paging only applies to a full read.
+      ...(since ? {} : { skip: (pagination.page - 1) * pagination.pageSize }),
       take: pagination.pageSize,
       select: { id: true, senderType: true, body: true, createdAt: true },
     }),
@@ -433,6 +435,8 @@ export async function getStaffTicket(ref: string, pagination: { page: number; pa
     prisma.supportMessage.findMany({
       where: messageWhere,
       orderBy: { createdAt: 'asc' },
+      // A delta request (`since`) always starts at the newest boundary; paging only applies to a full read.
+      ...(since ? {} : { skip: (pagination.page - 1) * pagination.pageSize }),
       take: pagination.pageSize,
       select: {
         id: true,

@@ -1,7 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mergeMessages, latestCreatedAt, parseSince } from '../lib/support/live'
+import { findLatestBrief, readBrief } from '../lib/support/brief'
 import { ValidationError } from '../lib/support/types'
+
+const brief = (reason: string) => ({
+  source: 'agent' as const,
+  reason,
+  category: 'GENERAL',
+  rulesVersion: '1.6',
+  history: [],
+  context: { kycStatus: 'VERIFIED', accounts: [] },
+})
 
 test('parseSince returns null for null', () => {
   assert.equal(parseSince(null), null)
@@ -63,4 +73,24 @@ test('latestCreatedAt returns max ISO string', () => {
     { createdAt: '2026-11-25T12:00:00.000Z' },
   ]
   assert.equal(latestCreatedAt(items), '2026-11-25T12:00:00.000Z')
+})
+
+test('readBrief rejects malformed metadata instead of guessing', () => {
+  assert.equal(readBrief(null), null)
+  assert.equal(readBrief({ source: 'agent' }), null)
+  assert.equal(readBrief({ ...brief('x'), source: 'robot' }), null)
+})
+
+test('findLatestBrief returns the newest brief, not the first one', () => {
+  const messages = [
+    { metadata: brief('first handoff') },
+    { metadata: null },
+    { metadata: brief('second handoff') },
+  ]
+  assert.equal(findLatestBrief(messages)?.reason, 'second handoff')
+})
+
+test('findLatestBrief returns null when no message carries a brief', () => {
+  assert.equal(findLatestBrief([{ metadata: null }, {}]), null)
+  assert.equal(findLatestBrief([]), null)
 })

@@ -122,7 +122,6 @@ export function MessageBody({ text, tone = 'neutral' }: { text: string; tone?: '
       }
       elements.push(
         <blockquote key={elements.length} className="my-2 border-l-2 border-warning/60 bg-warning/5 px-3 py-2">
-          <p className="mb-0.5 font-mono text-[10px] uppercase tracking-widest text-warning">Важливо</p>
           <p className="text-foreground">{quoteLines.map((l, idx) => (<span key={idx}>{renderInline(l)}<br /></span>))}</p>
         </blockquote>,
       )
@@ -139,7 +138,7 @@ export function MessageBody({ text, tone = 'neutral' }: { text: string; tone?: '
         i += 1
       }
       elements.push(
-        <Tag key={elements.length} className="my-1.5 ml-3 list-disc space-y-0.5 pl-2">
+        <Tag key={elements.length} className={`my-1.5 ml-3 space-y-0.5 pl-2 ${isOrdered ? 'list-decimal' : 'list-disc'}`}>
           {items.map((item, idx) => (
             <li key={idx}>{renderInline(item)}</li>
           ))}

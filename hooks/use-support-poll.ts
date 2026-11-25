@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 type UseSupportPollOptions = {
-  /** Returns a URL to poll, or null to pause. Evaluated every tick (see note in docs). */
+  /** Returns a URL to poll, or null to pause. Evaluated before every tick. */
   getUrl: () => string | null
   enabled?: boolean
   intervalMs?: number
@@ -13,11 +13,11 @@ type UseSupportPollOptions = {
 }
 
 /**
- * HTTP-polling hook for support ticket lists.
+ * HTTP-polling hook for support tickets.
  *
- * Chain-based (setTimeout, not setInterval) with backoff: slow responses push
- * the next tick out rather than piling up concurrent requests. Uses an
- * AbortController per tick and ignores AbortError.
+ * Chain-based (setTimeout, not setInterval) with backoff: a slow response pushes
+ * the next tick out instead of piling up concurrent requests. One
+ * AbortController per tick; AbortError is ignored.
  */
 export function useSupportPoll(options: UseSupportPollOptions) {
   const { getUrl, enabled = true, intervalMs = 3000, hiddenIntervalMs = 15_000, onData, onError } = options
@@ -31,6 +31,14 @@ export function useSupportPoll(options: UseSupportPollOptions) {
   const getUrlRef = useRef(getUrl)
   const enabledRef = useRef(enabled)
   const intervalMsRef = useRef(intervalMs)
+  // Indirect self-reference: the compiler rejects `doPoll` inside its own
+  // initializer, and a stable ref keeps the timer chain readable.
+  const doPollRef = useRef<() => void>(() => {})
+
+  const schedule = useCallback((delayMs: number) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = window.setTimeout(() => void doPollRef.current(), delayMs)
+  }, [])
 
   useEffect(() => {
     onDataRef.current = onData
@@ -43,7 +51,6 @@ export function useSupportPoll(options: UseSupportPollOptions) {
     intervalMsRef.current = intervalMs
   }, [enabled, intervalMs])
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const doPoll = useCallback(async () => {
     if (activeRef.current) return
     activeRef.current = true
@@ -56,6 +63,9 @@ export function useSupportPoll(options: UseSupportPollOptions) {
     if (!url || !enabledRef.current) {
       activeRef.current = false
       setPolling(false)
+      // Enabled but nothing to poll yet (no ticket selected): keep the chain
+      // alive so polling resumes as soon as a URL exists. Disabled stops it.
+      if (enabledRef.current) schedule(delayRef.current)
       return
     }
 
@@ -78,36 +88,46 @@ export function useSupportPoll(options: UseSupportPollOptions) {
       onErrorRef.current?.(error instanceof Error ? error : new Error(String(error)))
     } finally {
       activeRef.current = false
-      if (controller === abortRef.current) {
-        timeoutRef.current = window.setTimeout(() => void doPoll(), delayRef.current)
-      }
+      if (controller === abortRef.current) schedule(delayRef.current)
     }
-  }, [])
+  }, [schedule])
 
-  // Visibility change: pause when hidden (if hiddenIntervalMs is 0, we set timeout to 0 → effectively pause),
-  // and immediately poll when returning to the page.
+  useEffect(() => {
+    doPollRef.current = doPoll
+  }, [doPoll])
+
+  // Visibility: pause (or slow down) while hidden, poll immediately on return.
   useEffect(() => {
     function onVisibility() {
       if (document.visibilityState === 'hidden') {
-        if (timeoutRef.current) clearTimeout(timeoutRef.current)
-        timeoutRef.current = hiddenIntervalMs
-          ? window.setTimeout(() => void doPoll(), hiddenIntervalMs)
-          : null // pause
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current)
+          timeoutRef.current = null
+        }
+        if (hiddenIntervalMs) schedule(hiddenIntervalMs)
       } else if (document.visibilityState === 'visible') {
         void doPoll()
       }
     }
     document.addEventListener('visibilitychange', onVisibility)
     return () => document.removeEventListener('visibilitychange', onVisibility)
-  }, [doPoll, hiddenIntervalMs])
+  }, [doPoll, schedule, hiddenIntervalMs])
 
   useEffect(() => {
-    timeoutRef.current = window.setTimeout(() => void doPoll(), 0)
+    schedule(0)
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
       abortRef.current?.abort()
     }
-  }, [doPoll])
+  }, [schedule])
+
+  // `doPoll` is stable, so enabling the hook later (a ticket was opened) must
+  // kick a fresh tick explicitly; otherwise the chain would stay idle.
+  const wasEnabled = useRef(enabled)
+  useEffect(() => {
+    if (enabled && !wasEnabled.current) void doPoll()
+    wasEnabled.current = enabled
+  }, [enabled, doPoll])
 
   return { polling }
 }

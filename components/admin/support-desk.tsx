@@ -9,7 +9,7 @@ import { TypingDots } from '@/components/support/chat/typing-dots'
 import { useFillHeight } from '@/hooks/use-fill-height'
 import { useSupportPoll } from '@/hooks/use-support-poll'
 import { mergeMessages, latestCreatedAt } from '@/lib/support/live'
-import { readBrief } from '@/lib/support/brief'
+import { findLatestBrief } from '@/lib/support/brief'
 import { cn } from '@/lib/utils'
 
 const CATEGORIES = ['GENERAL', 'CHALLENGE', 'PAYOUT', 'KYC', 'ACCOUNT', 'TECHNICAL', 'RULES'] as const
@@ -149,20 +149,35 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
   const { ref: fillRef, style: fillStyle } = useFillHeight<HTMLDivElement>()
   const selectedTicketSinceRef = useRef<string | null>(null)
 
-  // Poll the open ticket for new messages every 3s.
+  // Poll the open ticket for new messages every 3s (delta from the newest message we hold).
   useSupportPoll({
-    getUrl: () => (selectedId ? `/api/admin/support/tickets/${encodeURIComponent(selectedId)}?pageSize=50` : null),
+    getUrl: () => {
+      if (!selectedId) return null
+      const params = new URLSearchParams({ pageSize: '50' })
+      if (selectedTicketSinceRef.current) params.set('since', selectedTicketSinceRef.current)
+      return `/api/admin/support/tickets/${encodeURIComponent(selectedId)}?${params.toString()}`
+    },
     enabled: !!selectedId,
     intervalMs: 3_000,
     onData: (data: unknown) => {
-      const record = data as { messages?: { items?: StaffTicketDetail['messages']['items'] } } | null
-      if (!record?.messages?.items) return
-      const incoming = record.messages.items
+      const record = data as {
+        ticket?: StaffTicketDetail['ticket']
+        messages?: { items?: StaffTicketDetail['messages']['items']; total?: number }
+      } | null
+      const incoming = record?.messages?.items
+      if (!Array.isArray(incoming)) return
       setDetail((current) => {
         if (!current) return null
         const merged = mergeMessages(current.messages.items, incoming)
         selectedTicketSinceRef.current = latestCreatedAt(merged)
-        return { ...current, messages: { ...current.messages, items: merged } }
+        return {
+          ticket: record?.ticket ?? current.ticket,
+          messages: {
+            ...current.messages,
+            items: merged,
+            ...(typeof record?.messages?.total === 'number' ? { total: record.messages.total } : {}),
+          },
+        }
       })
     },
   })
@@ -662,7 +677,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
           {selectedId ? (
             <SupportAgentPanel
               ticketId={selectedId}
-              brief={readBrief(detail?.messages.items[0]?.metadata)}
+              brief={findLatestBrief(detail?.messages.items ?? [])}
               onInsertReply={(text) => setDraft((current) => (current.trim() ? current + '\n\n' + text : text))}
             />
           ) : (

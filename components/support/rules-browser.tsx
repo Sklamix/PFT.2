@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import rulebook from '@/lib/rules/rulebook.generated.json'
 import { MessageBody } from '@/components/support/chat/message-body'
-import { RULES_EFFECTIVE_DATE, RULES_VERSION } from '@/lib/rules/version'
+import { RULES_EFFECTIVE_DATE } from '@/lib/rules/version'
 import { cn } from '@/lib/utils'
 
 type Section = { num: number; title: string; markdown: string; keywords: string[] }
@@ -28,17 +28,19 @@ export const RULE_CATEGORY_NUMBERS: Record<string, number[]> = {
  */
 export function RulesBrowser({ onInsert }: Props) {
   const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<number[]>([])
 
   const sections = useMemo(() => rulebook.sections as Section[], [])
-  const needle = query.toLowerCase()
-  const filtered = useMemo(
-    () =>
-      needle
-        ? sections.filter((section) => `${section.title} ${section.markdown}`.toLowerCase().includes(needle))
-        : sections,
-    [sections, needle],
-  )
+  const filtered = useMemo(() => {
+    const numbers = category ? RULE_CATEGORY_NUMBERS[category] : null
+    const needle = query.trim().toLowerCase()
+    return sections.filter((section) => {
+      if (numbers && !numbers.includes(section.num)) return false
+      if (!needle) return true
+      return `${section.title} ${section.markdown} ${section.keywords.join(' ')}`.toLowerCase().includes(needle)
+    })
+  }, [sections, query, category])
 
   const toggle = (num: number) =>
     setExpanded((current) => (current.includes(num) ? current.filter((n) => n !== num) : [...current, num]))
@@ -58,27 +60,22 @@ export function RulesBrowser({ onInsert }: Props) {
         aria-label="Search rules"
       />
       <div className="flex flex-wrap gap-1.5">
-        {Object.keys(RULE_CATEGORY_NUMBERS).map((category) => (
+        {Object.keys(RULE_CATEGORY_NUMBERS).map((item) => (
           <button
-            key={category}
+            key={item}
             type="button"
-            onClick={() => setQuery((current) => (current.trim() === category ? '' : category))}
+            onClick={() => setCategory((current) => (current === item ? null : item))}
             className={cn(
               'rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
-              query.trim() === category ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground',
+              category === item ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground',
             )}
           >
-            {category}
+            {item}
           </button>
         ))}
       </div>
-      {rulebook.version !== RULES_VERSION ? (
-        <p className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-1.5 text-[10px] text-warning">
-          AI knowledge version differs from the rulebook — see the agent snapshot.
-        </p>
-      ) : null}
       {filtered.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No rules match "{query}".</p>
+        <p className="text-xs text-muted-foreground">No rules match the current search.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
           {filtered.map((section) => {

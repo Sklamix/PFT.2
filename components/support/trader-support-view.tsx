@@ -120,20 +120,32 @@ export function TraderSupportView() {
   const { ref: messagesRef } = useStickToBottom<HTMLDivElement>(detail?.messages.items ?? [], { threshold: 128 })
   const detailSinceRef = useRef<string | null>(null)
 
-  // Poll the open ticket for new messages every 3s.
+  // Poll the open ticket for new messages every 3s (delta from the newest message we hold).
   useSupportPoll({
-    getUrl: () => (selectedId ? `/api/support/tickets/${encodeURIComponent(selectedId)}?pageSize=50` : null),
+    getUrl: () => {
+      if (!selectedId) return null
+      const params = new URLSearchParams({ pageSize: '50' })
+      if (detailSinceRef.current) params.set('since', detailSinceRef.current)
+      return `/api/support/tickets/${encodeURIComponent(selectedId)}?${params.toString()}`
+    },
     enabled: !!selectedId,
     intervalMs: 3_000,
     onData: (data) => {
-      const record = data as { messages?: { items?: Message[] } } | null
-      if (!record?.messages?.items) return
-      const incoming = record.messages.items
+      const record = data as { ticket?: Ticket; messages?: { items?: Message[]; total?: number } } | null
+      const incoming = record?.messages?.items
+      if (!Array.isArray(incoming)) return
       setDetail((current) => {
         if (!current) return null
         const merged = mergeMessages(current.messages.items, incoming)
         detailSinceRef.current = latestCreatedAt(merged)
-        return { ...current, messages: { ...current.messages, items: merged } }
+        return {
+          ticket: record?.ticket ?? current.ticket,
+          messages: {
+            ...current.messages,
+            items: merged,
+            ...(typeof record?.messages?.total === 'number' ? { total: record.messages.total } : {}),
+          },
+        }
       })
     },
   })

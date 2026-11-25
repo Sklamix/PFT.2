@@ -5,30 +5,66 @@ import { Copy, ExternalLink } from 'lucide-react'
 import { MessageBody } from '@/components/support/chat/message-body'
 import { type SupportBrief } from '@/lib/support/brief'
 
+const LABELS = {
+  en: {
+    empty: 'No AI brief on this ticket.',
+    why: 'Why the AI handed off',
+    byAgent: 'Agent-suggested',
+    byUser: 'User-requested',
+    bySystem: 'System fallback',
+    turns: 'Last turns',
+    context: 'Trader context',
+    copy: 'Copy',
+    copied: 'Copied',
+    insert: 'Insert',
+  },
+  uk: {
+    empty: 'На цьому тикеті немає AI-шпаргалки.',
+    why: 'Чому AI передав людині',
+    byAgent: 'Запропонував агент',
+    byUser: 'Запросив трейдер',
+    bySystem: 'Системний фолбек',
+    turns: 'Останні репліки',
+    context: 'Контекст трейдера',
+    copy: 'Копіювати',
+    copied: 'Скопійовано',
+    insert: 'Вставити',
+  },
+} as const
+
 /** Renders Brief data passed from the desk: reason, context, history. */
-export function BriefPanel({ brief, onInsert }: { brief: SupportBrief | null; onInsert?: (text: string) => void }) {
+export function BriefPanel({
+  brief,
+  onInsert,
+  locale = 'en',
+}: {
+  brief: SupportBrief | null
+  onInsert?: (text: string) => void
+  locale?: 'en' | 'uk'
+}) {
+  const t = LABELS[locale]
   if (!brief) {
-    return <p className="px-3 py-8 text-center text-xs text-muted-foreground">No AI brief on this ticket.</p>
+    return <p className="px-3 py-8 text-center text-xs text-muted-foreground">{t.empty}</p>
   }
 
   return (
     <div className="flex flex-col gap-4">
       {/* Reason */}
       <div className="rounded-md border border-warning/40 bg-warning/10 p-2.5">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-warning">Why the AI handed off</p>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-warning">{t.why}</p>
         <p className="mt-1 text-sm text-foreground">{brief.reason}</p>
         <p className="mt-1 font-mono text-[9px] text-muted-foreground">
-          {brief.source === 'agent' ? 'Agent-suggested' : brief.source === 'user' ? 'User-requested' : 'System fallback'} · v{brief.rulesVersion}
+          {brief.source === 'agent' ? t.byAgent : brief.source === 'user' ? t.byUser : t.bySystem} · v{brief.rulesVersion}
         </p>
         <div className="mt-2">
-          <QuickCopy text={`Reason: ${brief.reason}\nSource: ${brief.source} · v${brief.rulesVersion}`} onInsert={onInsert} />
+          <QuickCopy text={`Reason: ${brief.reason}\nSource: ${brief.source} · v${brief.rulesVersion}`} onInsert={onInsert} labels={t} />
         </div>
       </div>
 
       {/* History */}
       {brief.history.length > 0 ? (
         <div>
-          <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Last turns</p>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{t.turns}</p>
           <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto">
             {brief.history.map((turn, index) => (
               <div key={index} className="rounded-md border border-border/60 bg-secondary/30 p-2 text-xs">
@@ -38,14 +74,14 @@ export function BriefPanel({ brief, onInsert }: { brief: SupportBrief | null; on
             ))}
           </div>
           <div className="mt-1">
-            <QuickCopy text={brief.history.map((t) => `${t.role === 'user' ? 'Trader' : 'Assistant'}: ${t.content}`).join('\n')} onInsert={onInsert} />
+            <QuickCopy text={brief.history.map((t2) => `${t2.role === 'user' ? 'Trader' : 'Assistant'}: ${t2.content}`).join('\n')} onInsert={onInsert} labels={t} />
           </div>
         </div>
       ) : null}
 
       {/* Context */}
       <div>
-        <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Trader context</p>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{t.context}</p>
         <div className="mt-2 space-y-1.5 text-xs">
           <div className="rounded-md border border-border/60 bg-secondary/30 p-2">
             <span className="font-mono text-[9px] text-muted-foreground">KYC: </span>
@@ -68,7 +104,15 @@ export function BriefPanel({ brief, onInsert }: { brief: SupportBrief | null; on
   )
 }
 
-function QuickCopy({ text, onInsert }: { text: string; onInsert?: (text: string) => void }) {
+function QuickCopy({
+  text,
+  onInsert,
+  labels,
+}: {
+  text: string
+  onInsert?: (text: string) => void
+  labels: { copy: string; copied: string; insert: string }
+}) {
   const [copied, setCopied] = useState(false)
   return (
     <div className="flex gap-1">
@@ -87,7 +131,7 @@ function QuickCopy({ text, onInsert }: { text: string; onInsert?: (text: string)
         aria-label="Copy brief text"
       >
         <Copy className="size-3" aria-hidden="true" />
-        {copied ? 'Copied' : 'Copy'}
+        {copied ? labels.copied : labels.copy}
       </button>
       <button
         type="button"
@@ -97,7 +141,7 @@ function QuickCopy({ text, onInsert }: { text: string; onInsert?: (text: string)
         aria-label="Insert brief into reply"
       >
         <ExternalLink className="size-3" aria-hidden="true" />
-        Insert
+        {labels.insert}
       </button>
     </div>
   )

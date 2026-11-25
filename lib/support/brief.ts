@@ -73,3 +73,16 @@ export function readBrief(metadata: unknown): SupportBrief | null {
     },
   }
 }
+
+/**
+ * Newest brief in a conversation. A reused handoff ticket carries the original
+ * brief on its first message and a fresher one on each later handoff, so the
+ * desk must read from the end, not from index 0.
+ */
+export function findLatestBrief(messages: { metadata?: unknown }[]): SupportBrief | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const brief = readBrief(messages[index]?.metadata)
+    if (brief) return brief
+  }
+  return null
+}
