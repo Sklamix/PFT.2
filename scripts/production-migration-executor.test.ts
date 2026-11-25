@@ -259,6 +259,7 @@ test('the production manifest carries the P1 migrations, the later additions and
       'analytics-event.sql',
       'price-alert.sql',
       'commission-backfill.sql',
+      'btcusd-instrument.sql',
     ],
   )
   for (const migration of PRODUCTION_MIGRATIONS) {

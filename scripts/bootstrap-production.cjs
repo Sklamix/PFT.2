@@ -45,6 +45,7 @@ const ALLOWED_SQL_FILES = [
   'checkout-identity.sql',
   'checkout-intent.sql',
   'commission-backfill.sql',
+  'btcusd-instrument.sql',
   'daily-loss-cet.sql',
   'economic-calendar-values.sql',
   'economic-events.sql',

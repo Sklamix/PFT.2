@@ -572,6 +572,31 @@ export const PRODUCTION_MIGRATIONS: readonly ProductionMigration[] = [
       },
     ],
   },
+  {
+    // Crypto had no instrument row and no tariff, so BTC/USD could never open a
+    // position. Rulebook §12.3 leaves the crypto rate to the terminal, so the
+    // 0.1%/0.1% notional terms are recorded here as an explicit operator decision.
+    file: 'btcusd-instrument.sql',
+    postconditions: [
+      {
+        label: 'BTCUSD instrument exists and its tariff is configured',
+        sql: `SELECT EXISTS (
+          SELECT 1 FROM "TradingInstrument"
+          WHERE "terminalSymbol" = 'BTCUSD' AND "commissionConfigured" = true
+        ) AS ok`,
+      },
+      {
+        label: 'BTCUSD has an active percent-notional commission plan',
+        sql: `SELECT EXISTS (
+          SELECT 1 FROM "CommissionPlan" p
+          JOIN "TradingInstrument" i ON i."id" = p."instrumentId"
+          WHERE i."terminalSymbol" = 'BTCUSD'
+            AND p."isActive" = true
+            AND p."model" = 'PERCENT_NOTIONAL'
+        ) AS ok`,
+      },
+    ],
+  },
 ] as const
 
 export function parseProductionMode(argv: readonly string[]): ProductionMode {
