@@ -47,6 +47,7 @@ export function SupportAssistant({ onHandoff, onRecover, className }: { onHandof
   // must confirm it. Holds the message and the history needed to re-send it.
   const [suggestedHandoff, setSuggestedHandoff] = useState<{ message: string; category: string; reason: string | null } | null>(null)
   const [confirming, setConfirming] = useState(false)
+  const [failedTurns, setFailedTurns] = useState(0)
   const pendingKey = useRef<PendingKey | null>(null)
   // Synchronous guard: `sending` is React state, so two clicks in the same tick
   // could both observe `false`. The ref is flipped before the first await.
@@ -82,7 +83,12 @@ export function SupportAssistant({ onHandoff, onRecover, className }: { onHandof
     try {
       const data = await requestAssistant({ message, history, idempotencyKey: pending.key })
       const next: Turn[] = [...history, { role: 'user', content: message }]
-      if (data.answer) next.push({ role: 'assistant', content: data.answer })
+      if (data.answer) {
+        next.push({ role: 'assistant', content: data.answer })
+        setFailedTurns(0)
+      } else {
+        setFailedTurns((current) => current + 1)
+      }
       setTurns(next)
       setDraft('')
       pendingKey.current = null
@@ -92,6 +98,7 @@ export function SupportAssistant({ onHandoff, onRecover, className }: { onHandof
         setSuggestedHandoff({ message, category: data.suggestedCategory ?? 'GENERAL', reason: data.handoffReason || null })
       }
     } catch (reason) {
+      setFailedTurns((current) => current + 1)
       if (reason instanceof AssistantRequestError && reason.status === 409) pendingKey.current = null
       // Reuse the key after uncertain failures; a conflict starts a fresh request.
       setError(assistantErrorMessage(reason))
@@ -303,9 +310,18 @@ export function SupportAssistant({ onHandoff, onRecover, className }: { onHandof
                 {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
                 <span className="hidden sm:inline">Ask</span>
               </Button>
-              <Button type="button" variant="ghost" size="xs" className="h-7" disabled={sending} onClick={() => void talkToHuman()}>
-                Talk to a human
-              </Button>
+              {failedTurns >= 1 && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="xs"
+                  className="h-7 px-0 text-[11px] text-muted-foreground"
+                  disabled={sending}
+                  onClick={() => void talkToHuman()}
+                >
+                  Talk to a human
+                </Button>
+              )}
             </div>
           </form>
         </div>
