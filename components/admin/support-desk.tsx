@@ -132,6 +132,8 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
   const [metricsError, setMetricsError] = useState<string | null>(null)
   const [auditItems, setAuditItems] = useState<AuditItem[]>([])
   const [auditError, setAuditError] = useState<string | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditLoaded, setAuditLoaded] = useState(false)
   const [auditExpanded, setAuditExpanded] = useState(false)
   const [tickets, setTickets] = useState<StaffTicket[]>([])
   const [total, setTotal] = useState(0)
@@ -271,6 +273,7 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
   }, [loadList])
 
   const loadAudit = useCallback(async () => {
+    setAuditLoading(true)
     try {
       const { status: code, data } = await api<{ items?: AuditItem[] }>('/api/admin/support/ai-audit')
       const items = 'items' in data ? data.items : undefined
@@ -278,12 +281,24 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
         setAuditItems(items)
         setAuditError(null)
       } else {
-        setAuditError('Could not load AI answers.')
+        setAuditError(`Could not load AI answers (HTTP ${code}).`)
       }
     } catch {
       setAuditError('Network error while loading AI answers.')
+    } finally {
+      setAuditLoading(false)
+      setAuditLoaded(true)
     }
   }, [])
+
+  // Load on mount, not on first click: a collapsed row with no data is
+  // indistinguishable from a broken panel, and that is exactly how it read.
+  // Deferred by a tick so the fetch does not set state synchronously in the effect.
+  useEffect(() => {
+    if (role !== 'ADMIN') return
+    const timer = window.setTimeout(() => void loadAudit(), 0)
+    return () => window.clearTimeout(timer)
+  }, [role, loadAudit])
 
   useEffect(() => {
     if (role !== 'ADMIN') return
@@ -421,21 +436,32 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
         <div className="rounded-xl border border-border bg-card">
           <button
             type="button"
-            onClick={() => {
-              if (auditExpanded) setAuditExpanded(false)
-              else void loadAudit()
-            }}
+            onClick={() => setAuditExpanded((value) => !value)}
             aria-expanded={auditExpanded}
             className="flex w-full items-center gap-2 px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
           >
             <span className="min-w-0 flex-1 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">AI answers · last 24h</span>
-            <span className="shrink-0 font-mono text-[9px] text-muted-foreground">{auditExpanded ? '−' : '+'}</span>
+            <span className="shrink-0 rounded border border-border px-1.5 font-mono text-[9px] tabular-nums text-muted-foreground">
+              {auditLoading ? '…' : auditError ? '!' : auditLoaded ? auditItems.length : '—'}
+            </span>
+            <span className="shrink-0 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">{auditExpanded ? 'hide' : 'show'}</span>
           </button>
           {auditExpanded ? (
             <div className="space-y-2 border-t border-border/70 p-3" aria-label="AI answers review">
-              {auditError ? <p role="alert" className="text-xs text-destructive">{auditError}</p> : null}
-              {auditItems.length === 0 && !auditError ? (
-                <p className="text-xs text-muted-foreground">No AI answers in the last 24 hours.</p>
+              {auditLoading && auditItems.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : null}
+              {auditError ? (
+                <div className="flex items-center gap-2 text-xs text-destructive">
+                  <span role="alert">{auditError}</span>
+                  <Button variant="outline" size="xs" onClick={() => void loadAudit()}>Retry</Button>
+                </div>
+              ) : null}
+              {!auditLoading && !auditError && auditLoaded && auditItems.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No AI answers in the last 24 hours. This list shows only requests that reached the AI chat
+                  (<span className="font-mono">/api/support/ai/chat</span>), including blocked answers.
+                </p>
               ) : null}
               {auditItems.map((item, index) => (
                 <div key={index} className="rounded-md border border-border/70 px-2.5 py-2">
@@ -486,7 +512,11 @@ export function SupportDesk({ role, userId }: { role: string; userId: string }) 
           variant="outline"
           size="sm"
           className="h-8 gap-1.5"
-          onClick={() => (escalatedOnly ? void loadEscalations() : void loadList(page))}
+          onClick={() => {
+            if (escalatedOnly) void loadEscalations()
+            else void loadList(page)
+            if (role === 'ADMIN') void loadAudit()
+          }}
           disabled={loading}
         >
           {loading ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
