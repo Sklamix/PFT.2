@@ -78,13 +78,14 @@ export function surfaceSection(): GroundingSection {
 }
 
 /**
- * The pricing block as a citable section (§-1). Prices live in the database, not
- * in the rulebook, so without this a price answer has nothing to quote and the
- * citation gate would reject every one of them.
+ * The pricing block as a citable section. Prices live in the database, not in
+ * the rulebook, so without this a price answer has nothing to quote and the
+ * citation gate would reject every one of them. Numbered 30 because 1–29 are
+ * taken by the rulebook; a negative number made the model cite the wrong one.
  */
 export function pricingGroundingSection(rows: PricingRow[]): GroundingSection {
   return {
-    num: -1,
+    num: 30,
     title: 'Current challenge pricing',
     kind: 'pricing',
     markdown: pricingSection(rows),

@@ -165,10 +165,10 @@ test('a correct answer can cite the §0 surface block', async () => {
   assert.equal(result.suggestedHandoff, false)
 })
 
-test('a price answer can cite the §-1 pricing block', async () => {
+test('a price answer can cite the §30 pricing block', async () => {
   const answer = 'Акаунт $25,000 у 1-Step коштує $199.00 — це базова ставка.'
   const result = await callWithPricing(
-    okGenerator({ answer, citations: [{ section: -1, quote: '1-Step · daily loss 4% — base fee $199.00' }] }),
+    okGenerator({ answer, citations: [{ section: 30, quote: '1-Step · daily loss 4% — base fee $199.00' }] }),
     'Скільки коштує акаунт 25000?',
     [{ accountSize: 25000, challengeType: '1-Step', dailyLossType: 4, price: 199 }],
   )
