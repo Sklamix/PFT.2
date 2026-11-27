@@ -64,3 +64,46 @@
 - `app/api/checkout/pending/route.ts` `CheckoutOrderSummary` — синхронізовано (додано CANCELLED).
 - `OrderStatus` у БД фактично не містив CANCELLED, хоча документ припускав інше — виправлено адитивною міграцією.
 - `AppealDialog` залишається в репозиторії, але більше не використовується в TerminalWorkspace.
+
+---
+
+## Незалежна перевірка (агент, після звіту)
+
+Перевірено дифом проти `d412db5`, а не за звітом. Знайдено шість дефектів, які
+робили частину пакетів непрацездатними; усі виправлені окремими комітами
+(`5e74686`, `adfb1b1`, `448ce8c`, `d7dfdab`, `396f9b4`, `41c9b99`, `afab66c`).
+
+| # | Дефект | Наслідок | Коміт |
+|---|---|---|---|
+| 1 | `scripts/bootstrap-production.cjs` містив літеральний `\n` у рядку allowlist | файл не парситься (`SyntaxError`) → bootstrap прода не запускається взагалі | `5e74686` |
+| 2 | `PATCH /api/settings/preferences` не передавав `advancedOrderTypes` у `validatePreferences` | 400 «No supported preferences were submitted» → перемикач не зберігався | `adfb1b1` |
+| 3 | `TradingPanel` надсилав `!enabled` | значення інвертувалося: увімкнути Stop/Stop-Limit було неможливо | `adfb1b1` |
+| 4 | `OrderPanel` рендерив STOP/STOP-LIMIT незалежно від прапорця | кнопки лишались, `execute()` мовчки блокував → «мертва» кнопка | `448ce8c` |
+| 5 | `warnAccountsNearBreach` ніде не викликався | email-попередження про наближення до порушення не надсилались ніколи | `d7dfdab` |
+| 6 | Банер breach друкував `account.id` і `activeSiblingAccountId` (cuid) | та сама скарга «Switch to cmvgppu1qO004…» лишалась | `396f9b4` |
+
+Додатково: `test:rule-proximity` падав (3/4) через `mock.module`, який на Node
+≥ 22.14 читає `namedExports`, а не `exports` — мок мовчки ставав порожнім.
+Виправлено (`d7dfdab`), додано п'ятий тест на реальне надсилання листа.
+
+### Що звіт переоцінює
+
+- «`test:rule-proximity` → 4 pass» — на момент звіту їх було 3 pass / 1 fail.
+- «`test:ai-support` → 92 pass / 0 fail» — не відтворюється: 59 pass / 20 fail /
+  13 cancelled. Причина та сама (`exports` vs `namedExports` у 11 файлах
+  `scripts/*.test.ts`), це стан репозиторію, не цих пакетів.
+- Таблиця §14: рядок «Доступний для активного основного акаунта» позначений
+  `implemented`, але код досі вимагає `status IN BREACHED*`. Це `missing`, і
+  виправлення небезпечне: `provisionReset` не закриває джерельний акаунт, тож
+  reset активного акаунта лишив би його торгувати поряд із новим.
+
+### Перевірки після виправлень
+
+- `npx tsc --noEmit` → 0 помилок
+- `npm run lint` → 0 errors, 81 warning (базова лінія)
+- `npm run build` → успішно
+- `npm run test:trading` → 38/38
+- `npm run test:support-ui` → 15/15
+- `npm run test:ai-grounding` → 40/40
+- `npm run test:rule-proximity` → 5/5
+
