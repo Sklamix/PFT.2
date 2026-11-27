@@ -10,6 +10,7 @@ import { warnFundedAccountsBeforeNews } from '@/lib/market/news-windows'
 import { prisma } from '@/lib/prisma'
 import { enforceBreachMatrix } from '@/lib/rules/enforcement'
 import { announceRuleChanges } from '@/lib/rules/notices'
+import { warnAccountsNearBreach } from '@/lib/rules/proximity'
 import { refreshUserRiskFlags } from '@/lib/rules/risk-flags'
 import { pruneAccessEvents } from '@/lib/security/session-risk'
 import { syncAccount } from '@/lib/trading/engine'
@@ -149,6 +150,25 @@ async function run() {
   const enforcement = await enforceBreachMatrix()
   const progression = await evaluateActiveAccountsPassing()
 
+  // Risk-rule proximity emails. Expensive (re-syncs every live account), so it runs
+  // hourly; the warning itself is deduped per rule per UTC day.
+  const lastProximityRun = await prisma.auditLog.findFirst({
+    where: { action: 'RULE_PROXIMITY_RUN' },
+    orderBy: { createdAt: 'desc' },
+    select: { createdAt: true },
+  })
+  let proximityWarnings = 0
+  if (!lastProximityRun || Date.now() - lastProximityRun.createdAt.getTime() > 60 * 60_000) {
+    proximityWarnings = await warnAccountsNearBreach()
+    await prisma.auditLog.create({
+      data: {
+        action: 'RULE_PROXIMITY_RUN',
+        reason: 'Hourly risk-rule proximity scan',
+        metadata: { sent: proximityWarnings },
+      },
+    })
+  }
+
   const lastReconciliation = await prisma.auditLog.findFirst({
     where: { action: 'ACCOUNT_LIMIT_RECONCILIATION_RUN' },
     orderBy: { createdAt: 'desc' },
@@ -222,6 +242,7 @@ async function run() {
     limitReconciliation,
     crossAccountHedges,
     inactivity,
+    proximityWarnings,
   }
 
   return { body, summary: buildTradingCronSummary(accounts.length, mappedResults) }

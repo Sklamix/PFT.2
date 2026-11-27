@@ -17,7 +17,6 @@ export async function warnAccountsNearBreach(now = new Date()): Promise<number> 
     quotes = await getFreshMarketQuotes()
   } catch (error) {
     console.warn('[pft rules] Could not fetch quotes for proximity check', error)
-    quotes = {}
   }
 
   const accounts = await prisma.tradingAccount.findMany({

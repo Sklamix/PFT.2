@@ -1,49 +1,83 @@
-import test, { before } from 'node:test'
+import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
+
+/**
+ * Node 22.14+ reads `namedExports`, older 22.x releases read `exports`. Passing both
+ * keeps the mock working on either, and a silently empty mock would otherwise turn
+ * every assertion below into a false negative.
+ */
+type MockExports = Record<string, unknown>
 
 let proximityReason: (rule: 'daily' | 'trailing', at: Date) => string
 let PROXIMITY_THRESHOLD: number
 let warnAccountsNearBreach: (now?: Date) => Promise<number>
 
 let emailCalls = 0
-const auditCreates: any[] = []
-let findManyResult: any[] = []
-let syncResult: any = { ok: true, book: { account: { dailyUsedRatio: 0.5, trailingUsedRatio: 0.5, dailyLossUsd: 100, dailyLossLimitUsd: 200, dailyBufferUsd: 100, trailingDrawdownUsd: 50, trailingDrawdownLimitUsd: 200 } } }
+const auditCreates: unknown[] = []
+let findManyResult: Array<{ id: string; displayId: string; user: { email: string; name: string } }> = []
+type SyncResult = {
+  ok: boolean
+  book?: {
+    account: {
+      dailyUsedRatio: number
+      trailingUsedRatio: number
+      dailyLossUsd: number
+      dailyLossLimitUsd: number
+      dailyBufferUsd: number
+      trailingDrawdownUsd: number
+      trailingDrawdownLimitUsd: number
+    }
+  }
+}
+let syncResult: SyncResult = {
+  ok: true,
+  book: {
+    account: {
+      dailyUsedRatio: 0.5,
+      trailingUsedRatio: 0.5,
+      dailyLossUsd: 100,
+      dailyLossLimitUsd: 200,
+      dailyBufferUsd: 100,
+      trailingDrawdownUsd: 50,
+      trailingDrawdownLimitUsd: 200,
+    },
+  },
+}
 
 before(async () => {
   process.env.DATABASE_URL = 'postgresql://test.invalid:5432/pft_dbtest'
 
   const { mock } = await import('node:test')
+  const register = (specifier: string, exports: MockExports) =>
+    mock.module(specifier, { exports, namedExports: exports })
 
-  mock.module('../lib/prisma', {
-    exports: {
-      prisma: {
-        tradingAccount: {
-          findMany: async () => findManyResult,
-        },
-        auditLog: {
-          findFirst: async () => null,
-          create: async (args: any) => { auditCreates.push(args); return { id: 'a1' } },
+  register('../lib/prisma', {
+    prisma: {
+      tradingAccount: {
+        findMany: async () => findManyResult,
+      },
+      auditLog: {
+        findFirst: async () => null,
+        create: async (args: unknown) => {
+          auditCreates.push(args)
+          return { id: 'a1' }
         },
       },
     },
   })
 
-  mock.module('../lib/trading/engine', {
-    exports: {
-      syncAccount: async () => syncResult,
-    },
+  register('../lib/trading/engine', {
+    syncAccount: async () => syncResult,
   })
 
-  mock.module('../lib/trading/market-quotes', {
-    exports: {
-      getFreshMarketQuotes: async () => ({}),
-    },
+  register('../lib/trading/market-quotes', {
+    getFreshMarketQuotes: async () => ({}),
   })
 
-  mock.module('../lib/email/resend', {
-    exports: {
-      sendEmail: async () => { emailCalls += 1; return { status: 'SENT' as const, id: 'e1' } },
+  register('../lib/email/rule-proximity', {
+    sendRuleProximityWarning: async () => {
+      emailCalls += 1
+      return { status: 'SENT' as const, id: 'e1' }
     },
   })
 
@@ -51,6 +85,11 @@ before(async () => {
   proximityReason = mod.proximityReason
   PROXIMITY_THRESHOLD = mod.PROXIMITY_THRESHOLD
   warnAccountsNearBreach = mod.warnAccountsNearBreach
+})
+
+after(async () => {
+  const { mock } = await import('node:test')
+  mock.restoreAll()
 })
 
 test('proximityReason is stable within a day', () => {
@@ -72,10 +111,48 @@ test('ratio below threshold sends no email', async () => {
   emailCalls = 0
   auditCreates.length = 0
   findManyResult = [{ id: 'acc1', displayId: 'ACC-1', user: { email: 't@x.com', name: 'T' } }]
-  syncResult = { ok: true, book: { account: { dailyUsedRatio: 0.5, trailingUsedRatio: 0.5, dailyLossUsd: 100, dailyLossLimitUsd: 200, dailyBufferUsd: 100, trailingDrawdownUsd: 50, trailingDrawdownLimitUsd: 200 } } }
+  syncResult = {
+    ok: true,
+    book: {
+      account: {
+        dailyUsedRatio: 0.5,
+        trailingUsedRatio: 0.5,
+        dailyLossUsd: 100,
+        dailyLossLimitUsd: 200,
+        dailyBufferUsd: 100,
+        trailingDrawdownUsd: 50,
+        trailingDrawdownLimitUsd: 200,
+      },
+    },
+  }
 
   const sent = await warnAccountsNearBreach(new Date('2026-01-15T10:00:00Z'))
   assert.equal(sent, 0)
   assert.equal(emailCalls, 0)
   assert.equal(auditCreates.length, 0)
+})
+
+test('ratio above threshold sends one email and records the dedupe key', async () => {
+  emailCalls = 0
+  auditCreates.length = 0
+  findManyResult = [{ id: 'acc1', displayId: 'ACC-1', user: { email: 't@x.com', name: 'T' } }]
+  syncResult = {
+    ok: true,
+    book: {
+      account: {
+        dailyUsedRatio: 0.85,
+        trailingUsedRatio: 0.1,
+        dailyLossUsd: 170,
+        dailyLossLimitUsd: 200,
+        dailyBufferUsd: 30,
+        trailingDrawdownUsd: 20,
+        trailingDrawdownLimitUsd: 200,
+      },
+    },
+  }
+
+  const sent = await warnAccountsNearBreach(new Date('2026-01-15T10:00:00Z'))
+  assert.equal(sent, 1)
+  assert.equal(emailCalls, 1)
+  assert.equal(auditCreates.length, 1)
 })
