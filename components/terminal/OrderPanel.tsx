@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Loader2 } from 'lucide-react'
+import { Loader2, MoveVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -15,7 +15,7 @@ import {
 import { formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
-import { useOrderTicketStore, type PendingTicketType } from '@/lib/stores/useOrderTicketStore'
+import { useOrderTicketStore, defaultPendingPrices, type PendingTicketType } from '@/lib/stores/useOrderTicketStore'
 import { LEVEL_CLASS } from '@/lib/terminal/level-tone'
 import type { OrderSide } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
@@ -78,7 +78,7 @@ export function OrderPanel() {
   const [lots, setLots] = useState('0.10')
   const [usdAmount, setUsdAmount] = useState('500')
   const [busy, setBusy] = useState(false)
-  const [notice, setNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  const [notice, setNotice] = useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(null)
 
   const meta = getSymbol(selectedSymbol)
   const sl = stopLoss === '' ? null : Number(stopLoss)
@@ -141,6 +141,13 @@ export function OrderPanel() {
 
   function choosePendingType(type: PendingTicketType) {
     openPending(selectedSymbol, side, entry, type)
+  }
+
+  function showDragHint(field: 'stopLoss' | 'takeProfit') {
+    const defaults = defaultPendingPrices(selectedSymbol, side, entry, orderType === 'pending' ? pendingType : 'LIMIT')
+    const value = field === 'stopLoss' ? defaults.stopLoss : defaults.takeProfit
+    setField(field, value.toFixed(priceDecimals))
+    setNotice({ tone: 'info', text: 'Drag the line on the chart to adjust' })
   }
 
   function chooseOrderTab(value: string) {
@@ -452,6 +459,7 @@ export function OrderPanel() {
           }
           toneSl={slTone}
           toneTp={tpTone}
+          onDragHint={showDragHint}
         />
         <ProtectionSummary rr={rr} riskPct={riskPct} />
 
@@ -507,6 +515,7 @@ function ProtectionBlock({
   resultTp,
   toneSl,
   toneTp,
+  onDragHint,
 }: {
   valueSl: string
   valueTp: string
@@ -516,11 +525,23 @@ function ProtectionBlock({
   resultTp: string | null
   toneSl: 'primary' | 'danger' | null
   toneTp: 'primary' | 'danger' | null
+  onDragHint: (field: 'stopLoss' | 'takeProfit') => void
 }) {
   return (
     <div className="grid grid-cols-2 gap-2">
       <div className={cn('rounded-lg border border-l-2 px-3 py-2', LEVEL_CLASS.sl.border)}>
-        <p className={cn('mb-1 font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.sl.text)}>STOP LOSS</p>
+        <div className="flex items-start justify-between gap-2">
+          <p className={cn('font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.sl.text)}>STOP LOSS</p>
+          <button
+            type="button"
+            onClick={() => onDragHint('stopLoss')}
+            aria-label="Show stop loss preview on the chart"
+            className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          >
+            <MoveVertical className="size-3" aria-hidden="true" />
+            drag
+          </button>
+        </div>
         <input
           inputMode="decimal"
           value={valueSl}
@@ -535,9 +556,20 @@ function ProtectionBlock({
         ) : null}
       </div>
       <div className={cn('rounded-lg border border-l-2 px-3 py-2', LEVEL_CLASS.tp.border)}>
-        <p className={cn('mb-1 font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.tp.text)}>
-          TAKE PROFIT
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className={cn('font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.tp.text)}>
+            TAKE PROFIT
+          </p>
+          <button
+            type="button"
+            onClick={() => onDragHint('takeProfit')}
+            aria-label="Show take profit preview on the chart"
+            className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          >
+            <MoveVertical className="size-3" aria-hidden="true" />
+            drag
+          </button>
+        </div>
         <input
           inputMode="decimal"
           value={valueTp}

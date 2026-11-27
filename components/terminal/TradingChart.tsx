@@ -196,6 +196,7 @@ function buildDraftLevels({
   stopPrice,
   stopLoss,
   takeProfit,
+  entry,
 }: {
   symbol: string
   draftSymbol: string
@@ -206,17 +207,19 @@ function buildDraftLevels({
   stopPrice: string
   stopLoss: string
   takeProfit: string
+  /** Live market price for market orders; pending execution price otherwise. */
+  entry: number
 }) {
-  if (orderType !== 'pending' || draftSymbol !== symbol) return []
+  if (draftSymbol !== symbol) return []
   const limit = Number(limitPrice)
   const stop = Number(stopPrice)
   const sl = Number(stopLoss)
   const tp = Number(takeProfit)
-  const executionPrice = pendingType === 'STOP' ? stop : limit
-  if (!Number.isFinite(executionPrice) || executionPrice <= 0) return []
+  const pending = orderType === 'pending'
+  const executionPrice = pending ? (pendingType === 'STOP' ? stop : limit) : entry
 
   const levels: ChartLevel[] = []
-  if ((pendingType === 'LIMIT' || pendingType === 'STOP_LIMIT') && Number.isFinite(limit) && limit > 0) {
+  if (pending && (pendingType === 'LIMIT' || pendingType === 'STOP_LIMIT') && Number.isFinite(limit) && limit > 0) {
     levels.push({
       key: 'draft:limit',
       kind: 'limit',
@@ -230,7 +233,7 @@ function buildDraftLevels({
       draftEntry: limit,
     })
   }
-  if ((pendingType === 'STOP' || pendingType === 'STOP_LIMIT') && Number.isFinite(stop) && stop > 0) {
+  if (pending && (pendingType === 'STOP' || pendingType === 'STOP_LIMIT') && Number.isFinite(stop) && stop > 0) {
     levels.push({
       key: 'draft:stop',
       kind: 'stop',
@@ -241,7 +244,7 @@ function buildDraftLevels({
       symbol,
       draftField: 'stopPrice',
       draftSide: side,
-      draftEntry: stop,
+      draftEntry: entry,
     })
   }
   if (Number.isFinite(sl) && sl > 0) {
@@ -485,7 +488,7 @@ export function TradingChart() {
       ...buildChartLevels(selectedSymbol, pendingOrders, openPositions),
       ...buildDraftLevels({
         symbol: selectedSymbol,
-        draftSymbol: ticketSymbol,
+        draftSymbol: ticketOrderType === 'market' ? selectedSymbol : ticketSymbol,
         orderType: ticketOrderType,
         side: ticketSide,
         pendingType: ticketPendingType,
@@ -493,12 +496,15 @@ export function TradingChart() {
         stopPrice: ticketStopPrice,
         stopLoss: ticketStopLoss,
         takeProfit: ticketTakeProfit,
+        entry: ticketOrderType === 'market' ? (ticketSide === 'BUY' ? ask : bid) : Number(ticketLimitPrice),
       }),
     ],
     [
       selectedSymbol,
       pendingOrders,
       openPositions,
+      ask,
+      bid,
       ticketSymbol,
       ticketOrderType,
       ticketSide,
