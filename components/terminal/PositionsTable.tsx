@@ -108,11 +108,9 @@ export function PositionsTable() {
 
   // A draft belongs to the position being edited; never carry it to another selection.
   useEffect(() => {
-    if (editingId === selectedPositionId) return
-    queueMicrotask(() => {
-      setEditingId(null)
-      setProtectionDraft(null)
-    })
+    if (editingId === null || editingId === selectedPositionId) return
+    setEditingId(null)
+    setProtectionDraft(null)
   }, [selectedPositionId, editingId, setProtectionDraft])
 
   // The chart previews whatever is typed here; clearing the edit removes the preview.
