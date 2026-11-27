@@ -2,6 +2,7 @@ import test, { after, before, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { mockModule } from './lib/mock-module'
 
 /**
  * DB-free guarantees for the support-agent tool registry.
@@ -168,19 +169,19 @@ function raisedRows() {
 }
 
 before(async () => {
-  mock.module('../lib/prisma', { exports: { prisma: mockedPrisma } })
-  mock.module('../lib/admin/activity', {
+  mockModule('../lib/prisma', { exports: { prisma: mockedPrisma } })
+  mockModule('../lib/admin/activity', {
     exports: { recordActivity: async (input: { action: string }) => void activityCalls.push(input) },
   })
-  mock.module('../lib/support/http', {
+  mockModule('../lib/support/http', {
     exports: {
       enforceRateLimit: async () => (rateLimiterActive ? { ok: false } : null),
     },
   })
-  mock.module('../lib/email/password-reset', {
+  mockModule('../lib/email/password-reset', {
     exports: { sendPasswordResetEmail: async () => ({ ok: true }) },
   })
-  mock.module('../lib/trader/accounts', {
+  mockModule('../lib/trader/accounts', {
     exports: { issuePasswordToken: async () => ({ token: 'x' }) },
   })
   agentTools = await import('../lib/ai/agent-tools')

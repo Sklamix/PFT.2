@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { AiUnavailableError } from '../lib/ai/errors'
 import { readBrief } from '../lib/support/brief'
 import { createMemoryIdempotencyStore } from './ai-support-test-store'
+import { mockModule } from './lib/mock-module'
 
 /**
  * KYC handoff contract, fully mocked.
@@ -36,7 +37,7 @@ const idempotencyStore = createMemoryIdempotencyStore()
 let handleSupportChat: typeof import('../lib/ai/support-chat').handleSupportChat
 
 before(async () => {
-  mock.module('../lib/prisma', {
+  mockModule('../lib/prisma', {
     exports: {
       prisma: {
         user: {
@@ -69,13 +70,13 @@ before(async () => {
     },
   })
 
-  mock.module('../lib/ai/support-pricing', {
+  mockModule('../lib/ai/support-pricing', {
     exports: {
       loadSupportPricing: async () => [],
     },
   })
 
-  mock.module('../lib/support/service', {
+  mockModule('../lib/support/service', {
     exports: {
       createTicket: async (input: CreateTicketInput) => {
         createTicketCalls.push(input)

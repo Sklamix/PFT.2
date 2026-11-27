@@ -1,5 +1,6 @@
 import test, { after, before, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { mockModule } from './lib/mock-module'
 
 /**
  * Route-level rate-limit regressions for the email-sending auth endpoints.
@@ -21,7 +22,7 @@ before(async () => {
   process.env.RESEND_API_KEY = 'test-key'
   process.env.TRADER_SESSION_SECRET = 'test-trader-secret-0123456789'
 
-  mock.module('../lib/trader/rate-limit', {
+  mockModule('../lib/trader/rate-limit', {
     exports: {
       isRateLimited: async (key: string, limit: number, windowMs: number) => {
         limitCalls.push({ key, limit, windowMs })
@@ -30,7 +31,7 @@ before(async () => {
       resetRateLimit: async () => undefined,
     },
   })
-  mock.module('../lib/email/resend', {
+  mockModule('../lib/email/resend', {
     exports: {
       isDevMailpitActive: () => false,
       sendEmail: async () => {
@@ -39,7 +40,7 @@ before(async () => {
       },
     },
   })
-  mock.module('../lib/prisma', {
+  mockModule('../lib/prisma', {
     exports: {
       prisma: {
         user: { findUnique: async () => null },

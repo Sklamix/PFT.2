@@ -1,6 +1,7 @@
 import test, { after, before, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { scryptSync } from 'node:crypto'
+import { mockModule } from './lib/mock-module'
 
 /**
  * PHASE 1.99 — admin login rate-limit atomicity + async scrypt regressions.
@@ -39,7 +40,7 @@ before(async () => {
   delete process.env.DATABASE_URL
   process.env.ADMIN_SESSION_SECRET = 'phase-1.99-test-admin-secret-0123456789'
 
-  mock.module('../lib/admin/repository', {
+  mockModule('../lib/admin/repository', {
     exports: {
       adminRepo: {
         findStaffByEmail: async (email: string) => {
@@ -51,7 +52,7 @@ before(async () => {
     },
   })
 
-  mock.module('../lib/admin/activity', {
+  mockModule('../lib/admin/activity', {
     exports: {
       recordActivity: async () => undefined,
     },

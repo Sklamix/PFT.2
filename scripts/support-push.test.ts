@@ -1,6 +1,7 @@
 import test, { after, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { beginTestPrismaInjection, endTestPrismaInjection } from './test-prisma-injection'
+import { mockModule } from './lib/mock-module'
 
 /**
  * DB-free tests for the staff push pipeline (lib/support/push.ts).
@@ -46,7 +47,7 @@ test('notifySupport sends review-safe payloads and drops gone endpoints', { skip
   const sentEndpoints: string[] = []
   const removedEndpoints: string[] = []
 
-  mock.module('web-push', {
+  mockModule('web-push', {
     defaultExport: {
       sendNotification: async (_sub: unknown, payload: Buffer) => {
         sentPayloads.push(payload.toString())
@@ -103,7 +104,7 @@ test('notifySupport swallows send failures', { skip: SKIP }, async () => {
   process.env.SUPPORT_PUSH_VAPID_PRIVATE_KEY = 'TestPrivateKey'
   process.env.SUPPORT_PUSH_CONTACT = 'support@example.com'
 
-  mock.module('web-push', {
+  mockModule('web-push', {
     defaultExport: {
       sendNotification: async () => {
         const err = new Error('network down') as Error & { statusCode: number }

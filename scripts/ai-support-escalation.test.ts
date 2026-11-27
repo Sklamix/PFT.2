@@ -4,6 +4,7 @@ import { readBrief } from '../lib/support/brief'
 import type { AssistantGenerator } from '../lib/ai/gemini'
 import { selectSections } from '../lib/ai/grounding'
 import { createMemoryIdempotencyStore } from './ai-support-test-store'
+import { mockModule } from './lib/mock-module'
 
 /**
  * Escalation boundaries for hostile messages, fully mocked.
@@ -42,7 +43,7 @@ const idempotencyStore = createMemoryIdempotencyStore()
 let handleSupportChat: typeof import('../lib/ai/support-chat').handleSupportChat
 
 before(async () => {
-  mock.module('../lib/prisma', {
+  mockModule('../lib/prisma', {
     exports: {
       prisma: {
         user: { findUnique: async () => ({ kycStatus: 'APPROVED', accounts: [] }) },
@@ -76,9 +77,9 @@ before(async () => {
     },
   })
 
-  mock.module('../lib/ai/support-pricing', { exports: { loadSupportPricing: async () => [] } })
+  mockModule('../lib/ai/support-pricing', { exports: { loadSupportPricing: async () => [] } })
 
-  mock.module('../lib/support/service', {
+  mockModule('../lib/support/service', {
     exports: {
       createTicket: async (input: CreateTicketInput) => {
         createTicketCalls.push(input)

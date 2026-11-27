@@ -617,11 +617,19 @@ test('nvidia times out even when the endpoint never answers', async () => {
         init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
       })) as unknown as typeof fetch
 
+    // AbortSignal.timeout() uses an unref'd timer, so on its own it does not keep the
+    // event loop alive: the runner exits before the 30 ms timeout can fire. Hold the
+    // loop open for the duration of the assertion.
+    const keepAlive = setTimeout(() => {}, 5_000)
     const started = Date.now()
-    await assert.rejects(
-      generateWithNvidia(nvidiaInput, { fetchImpl: hanging, timeoutMs: 30 }),
-      (error: unknown) => error instanceof AiUnavailableError && error.reason === 'timeout',
-    )
+    try {
+      await assert.rejects(
+        generateWithNvidia(nvidiaInput, { fetchImpl: hanging, timeoutMs: 30 }),
+        (error: unknown) => error instanceof AiUnavailableError && error.reason === 'timeout',
+      )
+    } finally {
+      clearTimeout(keepAlive)
+    }
     assert.ok(Date.now() - started < 2_000, 'timeout must settle quickly')
   })
 })

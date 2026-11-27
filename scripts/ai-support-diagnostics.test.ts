@@ -1,5 +1,6 @@
 import test, { after, before, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import { mockModule } from './lib/mock-module'
 
 /**
  * PHASE 1.10.41 — route-level authorization for owner-only diagnostics.
@@ -28,7 +29,7 @@ let signSession!: typeof import('../lib/admin/auth').signSession
 let ADMIN_COOKIE!: string
 
 before(async () => {
-  mock.module('next/headers', {
+  mockModule('next/headers', {
     exports: {
       cookies: async () => ({
         get: (name: string) => (name === ADMIN_COOKIE && cookieToken ? { name, value: cookieToken } : undefined),

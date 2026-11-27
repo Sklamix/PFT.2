@@ -11,6 +11,7 @@ import {
 } from './observability-db-gate'
 import { createTestPrismaClient } from './test-prisma-adapter'
 import { beginTestPrismaInjection, endTestPrismaInjection } from './test-prisma-injection'
+import { mockModule } from './lib/mock-module'
 
 /**
  * Route-level security tests for POST /api/support/ai/chat.
@@ -72,7 +73,7 @@ before(async () => {
   prisma = await assertClientIsTestDb(createTestPrismaClient(TEST_DB_URL!).prisma)
   beginTestPrismaInjection(prisma)
 
-  mock.module('next/headers', {
+  mockModule('next/headers', {
     exports: {
       cookies: async () => ({
         get: (name: string) =>

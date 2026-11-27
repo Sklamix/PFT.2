@@ -1,5 +1,6 @@
 import test, { after, before } from 'node:test'
 import assert from 'node:assert/strict'
+import { mockModule } from './lib/mock-module'
 
 /**
  * Node 22.14+ reads `namedExports`, older 22.x releases read `exports`. Passing both
@@ -47,9 +48,7 @@ let syncResult: SyncResult = {
 before(async () => {
   process.env.DATABASE_URL = 'postgresql://test.invalid:5432/pft_dbtest'
 
-  const { mock } = await import('node:test')
-  const register = (specifier: string, exports: MockExports) =>
-    mock.module(specifier, { exports, namedExports: exports })
+  const register = (specifier: string, exports: MockExports) => mockModule(specifier, { exports })
 
   register('../lib/prisma', {
     prisma: {

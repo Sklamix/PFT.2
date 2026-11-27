@@ -2,6 +2,7 @@ import test, { after, before, beforeEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, createHmac } from 'node:crypto'
 import { sortKeysDeep, isValidSignature } from '../lib/payments/nowpayments-ipn'
+import { mockModule } from './lib/mock-module'
 
 /**
  * NOWPayments IPN webhook route tests.
@@ -103,9 +104,9 @@ before(async () => {
   process.env.NOWPAYMENTS_IPN_SECRET = IPN_SECRET
   delete process.env.NOWPAYMENTS_IPN_KEY
 
-  mock.module('../lib/prisma', { exports: { prisma } })
+  mockModule('../lib/prisma', { exports: { prisma } })
 
-  mock.module('../lib/security/webhook-events', {
+  mockModule('../lib/security/webhook-events', {
     exports: {
       webhookEventId: (provider: string, rawBody: string) =>
         `${provider}:${createHash('sha256').update(rawBody, 'utf8').digest('hex')}`,
@@ -116,7 +117,7 @@ before(async () => {
     },
   })
 
-  mock.module('../lib/email/account-credentials', {
+  mockModule('../lib/email/account-credentials', {
     exports: {
       appUrl: () => 'https://app.test',
       sendCredentialsEmail: async (details: unknown) => {
@@ -126,20 +127,20 @@ before(async () => {
     },
   })
 
-  mock.module('../lib/email/password-reset', {
+  mockModule('../lib/email/password-reset', {
     exports: { setPasswordUrl: (token: string) => `https://app.test/set-password?token=${token}` },
   })
 
-  mock.module('../lib/trader/accounts', {
+  mockModule('../lib/trader/accounts', {
     exports: { hasUsablePassword: () => false, issuePasswordToken: async () => 'token-123' },
   })
 
-  mock.module('../lib/email/resend', {
+  mockModule('../lib/email/resend', {
     exports: { isEmailConfigured: () => emailState.configured },
   })
 
   class ResetError extends Error {}
-  mock.module('../lib/accounts/reset', {
+  mockModule('../lib/accounts/reset', {
     exports: {
       ResetError,
       isResetOrderPayload: () => false,
@@ -151,7 +152,7 @@ before(async () => {
 
   class InvalidOrderPayloadError extends Error {}
   class AccountProvisioningUserError extends Error {}
-  mock.module('../lib/provisioning/challenge-account', {
+  mockModule('../lib/provisioning/challenge-account', {
     exports: {
       InvalidOrderPayloadError,
       AccountProvisioningUserError,

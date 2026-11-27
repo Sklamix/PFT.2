@@ -1,7 +1,8 @@
-import test, { mock } from 'node:test'
+import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
+import { mockModule } from './lib/mock-module'
 
 /**
  * PHASE 1.95: runtime smoke of the TEST-only Prisma injection Proxy plus the production
@@ -81,7 +82,7 @@ test('proxy: importing lib/prisma does not construct PrismaClient', async () => 
   delete globalForPrisma.pftProductionPrisma
   delete process.env.PFT_TEST_PRISMA_INJECTION
   setNodeEnv('development')
-  mock.module('@prisma/client', { exports: { PrismaClient: FakePrismaClient } })
+  mockModule('@prisma/client', { exports: { PrismaClient: FakePrismaClient } })
 
   const mod = await import('../lib/prisma')
   assert.equal(FakePrismaClient.instances.length, 0, 'no eager construction on import')
