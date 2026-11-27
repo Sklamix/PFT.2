@@ -83,7 +83,8 @@ export function TerminalHeader() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-stretch gap-x-6 gap-y-3 border-t border-border pt-3">
+      {/* A description list: each Stat renders dt/dd, which must live inside a dl. */}
+      <dl className="flex flex-wrap items-stretch gap-x-6 gap-y-3 border-t border-border pt-3">
         {/* Zone A — how much money */}
         <div className="min-w-0 flex-1">
           <Stat
@@ -134,7 +135,7 @@ export function TerminalHeader() {
             />
           </div>
         </div>
-      </div>
+      </dl>
     </header>
   )
 }

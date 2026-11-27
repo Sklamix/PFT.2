@@ -42,6 +42,7 @@ export function NotificationCenter() {
   const remove = useNotifications((state) => state.remove)
   const clear = useNotifications((state) => state.clear)
   const selectPosition = useTerminalBook((state) => state.selectPosition)
+  const positions = useTerminalBook((state) => state.positions)
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState<NotificationKind | 'ALL'>('ALL')
   const [sort, setSort] = useState<'newest' | 'oldest'>('newest')
@@ -82,6 +83,12 @@ export function NotificationCenter() {
   }, [items, filter, sort])
 
   const lastItem = useMemo(() => items[0] ?? null, [items])
+
+  /** A closed trade keeps its notification, but there is no row left to jump to. */
+  function isOpenable(item: NotificationItem) {
+    if (item.ref?.kind !== 'position') return false
+    return positions.some((position) => position.id === item.ref?.id)
+  }
 
   function openNotification(item: NotificationItem) {
     markRead(item.id)
@@ -221,7 +228,7 @@ export function NotificationCenter() {
                     <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/70">{formatRelativeTime(item.createdAt)}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    {item.ref?.kind === 'position' ? (
+                    {isOpenable(item) ? (
                       <Button
                         type="button"
                         variant="ghost"
