@@ -7,7 +7,7 @@ const RECENT_WINDOW_MS = 24 * 60 * 60_000
 
 export interface CheckoutOrderSummary {
   id: string
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'CANCELLED'
   amount: number
   createdAt: string
   planSize: number | null

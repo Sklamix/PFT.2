@@ -13,7 +13,7 @@ export type BillingOrder = {
   amount: number
   currency: string
   provider: string
-  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
+  status: 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'CANCELLED'
   createdAt: number
   paidAt: number | null
   invoiceId: string | null
@@ -56,6 +56,11 @@ export async function getBillingData(userId: string): Promise<BillingData> {
       order.rawPayload && typeof order.rawPayload === 'object' && !Array.isArray(order.rawPayload)
         ? (order.rawPayload as Record<string, unknown>)
         : {}
+    const planSize = Number.isInteger(payload.planSize) ? Number(payload.planSize) : null
+    const evaluationLabel = typeof payload.evaluationType === 'string' ? payload.evaluationType : null
+    const drawdownMode = payload.drawdownMode === 'static' ? 'static' : payload.drawdownMode === 'trailing' ? 'trailing' : null
+    const dailyLossType = typeof payload.dailyLossType === 'number' ? payload.dailyLossType : null
+    const hasFrozenBackup = payload.hasFrozenBackup === true
     return {
       id: order.id,
       orderId: order.providerOrderId,
@@ -69,6 +74,11 @@ export async function getBillingData(userId: string): Promise<BillingData> {
       invoiceId: order.providerInvoiceId,
       accountDisplayId: order.account?.displayId ?? null,
       paymentUrl: order.paymentUrl,
+      planSize,
+      evaluationLabel,
+      drawdownMode,
+      dailyLossType,
+      hasFrozenBackup,
     }
   })
 

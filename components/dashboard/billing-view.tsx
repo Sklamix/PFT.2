@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, type ReactNode } from 'react'
-import { Download, Plus, ReceiptText, Wallet, X } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Download, Frown, Plus, ReceiptText, Wallet, X } from 'lucide-react'
 import { useBilling, type BillingOrder } from '@/lib/stores/useBilling'
 import { SpaceBackground } from './space-background'
 import { cn } from '@/lib/utils'
@@ -23,6 +23,7 @@ const STATUS: Record<BillingOrder['status'], { color: string; label: string }> =
   FAILED: { color: RED, label: 'Failed' },
   EXPIRED: { color: LABEL, label: 'Expired' },
   REFUNDED: { color: LABEL, label: 'Refunded' },
+  CANCELLED: { color: LABEL, label: 'Cancelled' },
 }
 
 function Card({ title, children, className = '' }: { title?: string; children: ReactNode; className?: string }) {
@@ -97,6 +98,59 @@ function InvoiceModal({ order, onClose }: { order: BillingOrder; onClose: () => 
   )
 }
 
+function CancelModal({
+  order,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  order: BillingOrder
+  busy: boolean
+  onClose: () => void
+  onConfirm: () => void
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-xl border border-slate-800/80 p-8"
+        style={{ backgroundColor: CARD }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h3 className="font-mono text-sm text-slate-100">Cancel this payment request?</h3>
+        <p className="mt-3 text-sm text-[#94A3B8]">
+          Order {order.orderId} will be closed. You can start a new checkout at any time — no money was taken.
+        </p>
+        <div className="mt-6 flex gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="h-9 flex-1 rounded-md border border-slate-800 px-4 text-xs text-slate-200 hover:border-slate-600"
+          >
+            Keep it
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className="h-9 flex-1 rounded-md bg-[#EF4444] px-4 text-xs font-semibold text-white transition hover:bg-[#dc2626] disabled:opacity-60"
+          >
+            {busy ? 'Cancelling…' : 'Yes, cancel'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function BillingView() {
   const data = useBilling((state) => state.data)
   const loadState = useBilling((state) => state.loadState)
@@ -105,12 +159,51 @@ export function BillingView() {
   const load = useBilling((state) => state.load)
   const setInvoice = useBilling((state) => state.setInvoice)
 
+  const [payingId, setPayingId] = useState<string | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<BillingOrder | null>(null)
+  const [cancelBusy, setCancelBusy] = useState(false)
+  const cancelTriggerRef = useRef<HTMLButtonElement | null>(null)
+
   useEffect(() => {
     void load()
     // Checkout sync: a new order placed in the challenge checkout appears here on the next poll.
     const timer = window.setInterval(() => void load(), 10_000)
     return () => window.clearInterval(timer)
   }, [load])
+
+  async function handlePay(order: BillingOrder) {
+    if (payingId) return
+    setPayingId(order.id)
+    try {
+      const response = await fetch(`/api/dashboard/billing/orders/${order.id}/pay`, { method: 'POST' })
+      const body = (await response.json().catch(() => ({}))) as { url?: string; error?: string }
+      if (!response.ok || typeof body.url !== 'string') {
+        window.alert(body.error ?? 'Unable to open payment.')
+        return
+      }
+      window.location.assign(body.url)
+    } finally {
+      setPayingId(null)
+    }
+  }
+
+  async function handleCancel() {
+    if (!cancelTarget || cancelBusy) return
+    setCancelBusy(true)
+    try {
+      const response = await fetch(`/api/dashboard/billing/orders/${cancelTarget.id}/cancel`, { method: 'POST' })
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string }
+        window.alert(body.error ?? 'Unable to cancel this payment request.')
+        return
+      }
+      setCancelTarget(null)
+      await load()
+    } finally {
+      setCancelBusy(false)
+      cancelTriggerRef.current?.focus()
+    }
+  }
 
   const orders = data?.orders ?? []
   const invoiceOrder = orders.find((order) => order.id === invoiceId) ?? null
@@ -163,15 +256,28 @@ export function BillingView() {
                           {tone.label}
                         </td>
                         <td className="py-2.5 text-right">
-                          {order.status === 'PENDING' && order.paymentUrl ? (
-                            <a
-                              href={order.paymentUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-2.5 text-[11px] font-semibold text-emerald-950 transition hover:bg-emerald-400"
-                            >
-                              <Plus className="size-3" /> Pay now
-                            </a>
+                          {order.status === 'PENDING' ? (
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => void handlePay(order)}
+                                disabled={payingId === order.id}
+                                className="group inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-2.5 text-[11px] font-semibold text-emerald-950 transition hover:bg-emerald-400 disabled:opacity-60"
+                              >
+                                <Plus className="size-3 transition-transform duration-200 group-hover:-rotate-90 motion-reduce:transition-none motion-reduce:group-hover:rotate-0" />
+                                {payingId === order.id ? 'Opening…' : 'Pay now'}
+                              </button>
+                              <button
+                                ref={cancelTarget?.id === order.id ? cancelTriggerRef : undefined}
+                                type="button"
+                                onClick={() => setCancelTarget(order)}
+                                aria-label="Cancel this payment request"
+                                className="group inline-flex h-7 w-7 items-center justify-center rounded-md text-[#94A3B8] hover:text-[#EF4444]"
+                              >
+                                <X className="size-3.5 group-hover:hidden" />
+                                <Frown className="hidden size-3.5 group-hover:block" />
+                              </button>
+                            </div>
                           ) : (
                             <button
                               type="button"
@@ -226,6 +332,14 @@ export function BillingView() {
       </div>
 
       {invoiceOrder ? <InvoiceModal order={invoiceOrder} onClose={() => setInvoice(null)} /> : null}
+      {cancelTarget ? (
+        <CancelModal
+          order={cancelTarget}
+          busy={cancelBusy}
+          onClose={() => setCancelTarget(null)}
+          onConfirm={() => void handleCancel()}
+        />
+      ) : null}
     </div>
   )
 }

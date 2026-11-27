@@ -51,7 +51,7 @@ export type PendingActionReview = {
 }
 export type RiskBadge = 'ACTIVE - PASSING' | 'NEAR LIMIT' | 'RULE BREACHED'
 export type PayoutStatus = 'PENDING' | 'APPROVED' | 'DISBURSED' | 'REJECTED' | 'MANUALLY_PAID'
-export type OrderStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED'
+export type OrderStatus = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REFUNDED' | 'CANCELLED'
 export type EmailDeliveryStatus = 'PENDING' | 'SENT' | 'FAILED' | 'SKIPPED'
 export type WalletNetwork = 'USDT_TRC20' | 'USDT_ERC20'
 export type TradeSide = 'BUY' | 'SELL'

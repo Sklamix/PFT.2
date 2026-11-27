@@ -63,7 +63,7 @@ const ALLOWED_SQL_FILES = [
   'kyc.sql',
   'ledger-baseline-watermark.sql',
   'observability-watermark-key.sql',
-  'order-ticket-settings.sql',
+  'order-ticket-settings.sql',\n  'order-status-cancelled.sql',
   'password-reset.sql',
   'payment-recovery.sql',
   'payout-forfeiture.sql',

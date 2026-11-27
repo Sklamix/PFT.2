@@ -61,6 +61,7 @@ enum OrderStatus {
   FAILED
   EXPIRED
   REFUNDED
+  CANCELLED
 }
 
 enum EmailDeliveryStatus {
