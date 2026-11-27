@@ -463,12 +463,12 @@ function NoticeBar() {
       {account && tradingDisabled ? (
         <Banner
           tone="danger"
-          message={`Account ${account.id} is ${account.status}${account.breachReason ? ` — ${account.breachReason}` : ''}. Trading is disabled.`}
+          message={`Account ${account.displayId} is ${account.status}${account.breachReason ? ` — ${account.breachReason}` : ''}. Trading is disabled.`}
           action={
             <div className="flex flex-wrap items-center gap-2">
               {account.activeSiblingAccountId ? (
                 <Button size="sm" variant="outline" onClick={() => switchAccount(account.activeSiblingAccountId!)}>
-                  Switch to {account.activeSiblingAccountId}
+                  Switch to {account.activeSiblingDisplayId ?? 'active account'}
                 </Button>
               ) : null}
               {breached ? (

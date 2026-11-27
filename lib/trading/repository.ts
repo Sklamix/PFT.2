@@ -15,6 +15,9 @@ import { classifyNewsExposure } from './news-window'
 
 const liveWorkerSymbols = new Set<string>(FOREX_MAJORS)
 
+/** Minimal account identity used in banners: never show a raw cuid to a trader. */
+export type AccountRef = { id: string; displayId: string }
+
 export type AccountRow = {
   id: string
   displayId: string
@@ -185,9 +188,9 @@ export interface BookTx {
   closePosition(request: CloseRequest): Promise<CloseResult | null>
   saveAccount(data: AccountSave): Promise<void>
   /** Promotes another FROZEN_STANDBY account owned by the same user to ACTIVE. */
-  activateStandby(): Promise<string | null>
+  activateStandby(): Promise<AccountRef | null>
   /** Another ACTIVE account owned by the same user, if any. */
-  findActiveSibling(): Promise<string | null>
+  findActiveSibling(): Promise<AccountRef | null>
   /** Finds a high-impact event that makes this position a news-window exposure. */
   newsExposure(position: Pick<Position, 'id' | 'symbol' | 'openedAt'>, closedAt: Date): Promise<NewsExposure | null>
   newsViolationCount(accountId: string): Promise<number>
@@ -854,16 +857,16 @@ function prismaBook(tx: Tx, account: AccountRow, positions: Position[], pendingO
           metadata: { breachedAccountId: accountId },
         },
       })
-      return standby.id
+      return { id: standby.id, displayId: standby.displayId }
     },
 
     async findActiveSibling() {
       const sibling = await tx.tradingAccount.findFirst({
         where: { userId: account.userId, id: { not: accountId }, status: 'ACTIVE' },
         orderBy: { createdAt: 'asc' },
-        select: { id: true },
+        select: { id: true, displayId: true },
       })
-      return sibling?.id ?? null
+      return sibling ? { id: sibling.id, displayId: sibling.displayId } : null
     },
   }
 }
@@ -1393,14 +1396,14 @@ function mockBook(state: MockState, account: MockAccount): BookTx {
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
       if (!standby) return null
       Object.assign(standby, { status: 'ACTIVE', frozenAt: null })
-      return standby.id
+      return { id: standby.id, displayId: standby.displayId }
     },
 
     async findActiveSibling() {
       const sibling = [...state.accounts.values()]
         .filter((item) => item.userId === account.userId && item.id !== accountId && item.status === 'ACTIVE')
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
-      return sibling?.id ?? null
+      return sibling ? { id: sibling.id, displayId: sibling.displayId } : null
     },
   }
 }

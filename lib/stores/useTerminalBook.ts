@@ -249,9 +249,11 @@ async function call(path: string, init?: RequestInit): Promise<{ ok: boolean; bo
 }
 
 function describeEvents(book: ServerBook): TerminalNotice | null {
-  const { breach, unfrozenAccountId, closed } = book.events
+  const { breach, unfrozenAccountId, unfrozenDisplayId, closed } = book.events
   if (breach) {
-    const standby = unfrozenAccountId ? ` Standby account ${unfrozenAccountId} is now ACTIVE.` : ''
+    const standby = unfrozenAccountId
+      ? ` Standby account ${unfrozenDisplayId ?? 'backup'} is now ACTIVE.`
+      : ''
     return { tone: 'danger', message: `${breach.reason}. All positions were liquidated.${standby}`, switchToAccountId: unfrozenAccountId ?? undefined, kind: 'account' }
   }
   const triggered = closed.filter((trade) => trade.closeReason === 'STOP_LOSS' || trade.closeReason === 'TAKE_PROFIT')

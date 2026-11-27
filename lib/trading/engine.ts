@@ -117,6 +117,8 @@ type Working = {
   negativeBalanceTradeId: string | null
   negativeBalanceTradeAt: Date | null
   unfrozenAccountId: string | null
+  /** Human-readable label for the promoted standby account (never show the cuid). */
+  unfrozenDisplayId: string | null
   /** Loss written off by negative balance protection in this sync. */
   negativeBalanceProtected: number
   negativeBalanceHit: boolean
@@ -174,6 +176,7 @@ function load(tx: BookTx): Working {
     negativeBalanceTradeId: null,
     negativeBalanceTradeAt: null,
     unfrozenAccountId: null,
+    unfrozenDisplayId: null,
     negativeBalanceProtected: 0,
     negativeBalanceHit: false,
   }
@@ -814,7 +817,9 @@ async function enforceRules(w: Working) {
       },
     })
   }
-  w.unfrozenAccountId = await w.tx.activateStandby()
+  const standby = await w.tx.activateStandby()
+  w.unfrozenAccountId = standby?.id ?? null
+  w.unfrozenDisplayId = standby?.displayId ?? null
   if (w.pendingOrders.length) {
     const firstPendingId = w.pendingOrders[0]?.id
     const firstPendingSymbol = w.pendingOrders[0]?.symbol
@@ -894,6 +899,7 @@ async function snapshot(w: Working): Promise<BookPayload> {
 }
 
 async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
+  const sibling = tradingAllowed(w) ? null : await w.tx.findActiveSibling()
   const account: AccountView = {
     ...metrics,
     id: w.tx.account.id,
@@ -901,7 +907,8 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
     userId: w.tx.account.userId,
     status: w.status,
     breachReason: w.breachReason,
-    activeSiblingAccountId: tradingAllowed(w) ? null : await w.tx.findActiveSibling(),
+    activeSiblingAccountId: sibling?.id ?? null,
+    activeSiblingDisplayId: sibling?.displayId ?? null,
     leverage: w.leverage,
     drawdownMode: w.drawdownMode,
     startingBalance: w.startingBalance,
@@ -925,6 +932,7 @@ async function payload(w: Working, metrics: RiskMetrics): Promise<BookPayload> {
       closed: w.closed,
       breach: w.breach,
       unfrozenAccountId: w.unfrozenAccountId,
+      unfrozenDisplayId: w.unfrozenDisplayId,
       newsViolations: w.newsViolations,
       orderUpdates: w.orderUpdates,
     },

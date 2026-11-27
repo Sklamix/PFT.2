@@ -80,6 +80,8 @@ export type AccountView = RiskMetrics & {
   breachReason: string | null
   /** Set when this account can no longer trade and the same user has another ACTIVE account. */
   activeSiblingAccountId: string | null
+  /** Human-readable label of the sibling account, so banners never print a cuid. */
+  activeSiblingDisplayId: string | null
   leverage: number
   drawdownMode: string
   startingBalance: number
@@ -95,6 +97,8 @@ export type BookEvents = {
   closed: TradeHistory[]
   breach: Breach | null
   unfrozenAccountId: string | null
+  /** Display id of the standby account promoted on breach. */
+  unfrozenDisplayId: string | null
   newsViolations: NewsViolationEvent[]
   orderUpdates: {
     status: 'FILLED' | 'REJECTED' | 'CANCELLED'
