@@ -53,7 +53,16 @@ export function NotificationCenter() {
 
   useEffect(() => {
     if (retryAt == null) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
+    // Stop ticking once the cooldown has elapsed instead of leaving a 1s interval
+    // running for the rest of the session.
+    const timer = setInterval(() => {
+      const nowMs = Date.now()
+      setNow(nowMs)
+      if (nowMs >= retryAt) {
+        clearInterval(timer)
+        setRetryAt(null)
+      }
+    }, 1000)
     return () => clearInterval(timer)
   }, [retryAt])
 
