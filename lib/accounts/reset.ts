@@ -27,6 +27,7 @@ export class ResetError extends Error {
     readonly code:
       | 'not_found'
       | 'not_breached'
+      | 'open_positions'
       | 'frozen'
       | 'limit'
       | 'abuse'
@@ -91,8 +92,31 @@ export async function getResetEligibility(accountId: string, db: Db = prisma): P
   if (account.isFrozenBackup || account.status === 'FROZEN_STANDBY') {
     throw new ResetError('Reset is not available while the backup account is frozen.', 'frozen')
   }
-  if (!['BREACHED', 'BREACHED_DAILY', 'BREACHED_MAX'].includes(account.status)) {
-    throw new ResetError('Reset is available only after a breach.', 'not_breached')
+  const breached = ['BREACHED', 'BREACHED_DAILY', 'BREACHED_MAX'].includes(account.status)
+  // §18.2 allows a reset of an active primary account too. It only makes sense for a
+  // flat account, otherwise the old and the new account would trade side by side.
+  const tradable = ['ACTIVE', 'FUNDED'].includes(account.status)
+  if (!breached && !tradable) {
+    throw new ResetError('Reset is available only for an active or breached account.', 'not_breached')
+  }
+  if (tradable) {
+    const [openPositions, workingOrders, pendingPayouts] = await Promise.all([
+      db.position.count({ where: { tradingAccountId: accountId, status: 'OPEN' } }),
+      db.pendingTradeOrder.count({ where: { tradingAccountId: accountId, status: 'PENDING' } }),
+      db.payout.count({ where: { accountId, status: { in: ['PENDING', 'APPROVED'] } } }),
+    ])
+    if (openPositions > 0) {
+      throw new ResetError(
+        'Close all open positions before resetting this account.',
+        'open_positions',
+      )
+    }
+    if (workingOrders > 0) {
+      throw new ResetError('Cancel all working orders before resetting this account.', 'open_positions')
+    }
+    if (pendingPayouts > 0) {
+      throw new ResetError('A payout is still being processed for this account.', 'risk')
+    }
   }
 
   const reason = (account.breachReason ?? '').toLowerCase()
@@ -119,8 +143,9 @@ export async function getResetEligibility(accountId: string, db: Db = prisma): P
     throw new ResetError('This account size is not supported for reset.', 'provisioning')
   }
 
+  // The 20% window is a breach goodwill gesture; an active account pays full price.
   const breachedAt = account.frozenAt ?? account.updatedAt
-  const withinDiscount = Date.now() - breachedAt.getTime() <= RESET_DISCOUNT_MS
+  const withinDiscount = breached && Date.now() - breachedAt.getTime() <= RESET_DISCOUNT_MS
   const discountPct = withinDiscount ? RESET_DISCOUNT_PCT : 0
   const discountValidUntil = withinDiscount ? breachedAt.getTime() + RESET_DISCOUNT_MS : undefined
   const basePrice = getChallengeFee(challengeType, planSize, drawdownMode)
@@ -261,6 +286,34 @@ async function provisionReset(
     where: { id: result.primary.id },
     data: { resetSourceAccountId: input.accountId },
   })
+
+  // An active source account must stop trading the moment its replacement exists,
+  // otherwise a single reset would leave two live accounts side by side.
+  const source = await tx.tradingAccount.findUnique({
+    where: { id: input.accountId },
+    select: { status: true },
+  })
+  if (source && ['ACTIVE', 'FUNDED'].includes(source.status)) {
+    await tx.tradingAccount.update({
+      where: { id: input.accountId },
+      data: {
+        status: 'ARCHIVED',
+        archivedAt: new Date(),
+        archivedReason: `Replaced by reset account ${result.primary.displayId}`,
+        archivedById: input.actorId,
+        frozenAt: new Date(),
+      },
+    })
+    await tx.auditLog.create({
+      data: {
+        actorId: input.actorId,
+        accountId: result.primary.id,
+        action: 'ACCOUNT_ARCHIVED',
+        reason: `Reset replaced active account ${input.displayId}`,
+        metadata: { archivedAccountId: input.accountId, archivedDisplayId: input.displayId },
+      },
+    })
+  }
   await tx.auditLog.create({
     data: {
       actorId: input.actorId,

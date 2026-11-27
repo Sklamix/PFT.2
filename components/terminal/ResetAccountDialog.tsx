@@ -105,10 +105,14 @@ export function ResetAccountDialog({
               </p>
             ) : (
               <p className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
-                Standard price — the 20% breach discount has expired
+                Standard price — no breach discount applies
               </p>
             )}
             <p className="text-xs text-muted-foreground">One reset per product every 30 days.</p>
+            <p className="text-xs text-muted-foreground">
+              A reset replaces this account: once the payment confirms, the current account is archived and the new one
+              starts at Phase 1.
+            </p>
             <p className="text-xs text-muted-foreground">
               Payment is collected in USDT (TRC20). The new account appears in your terminal automatically after the
               payment confirms.
