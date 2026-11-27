@@ -59,6 +59,7 @@ export function TerminalHeader() {
             <p className="text-[10px] uppercase tracking-widest text-muted-foreground">24h</p>
             <p className={cn('text-sm tabular-nums', up ? 'text-primary' : 'text-danger')}>{formatPct(change, true)}</p>
           </div>
+          <StatusChip status={account ? account.status : '—'} />
           <span
             className={cn(
               'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
@@ -80,25 +81,39 @@ export function TerminalHeader() {
         </div>
       </div>
 
-      <dl className="grid min-w-0 grid-cols-3 gap-x-4 gap-y-2 sm:grid-cols-5">
-        <Metric
-          label="Status"
-          value={account ? account.status : '—'}
-          dot={account ? (account.status === 'ACTIVE' ? 'ok' : 'risk') : undefined}
-          accent={account?.status === 'ACTIVE' ? 'text-primary' : account ? 'text-danger' : undefined}
-        />
-        <Metric label="Balance" value={formatUsd(snapshot.balance)} />
-        <Metric
-          label="Equity"
-          value={formatUsd(snapshot.equity)}
-          accent={snapshot.floatingPnl >= 0 ? 'text-primary' : 'text-danger'}
-        />
-        <Metric label="Margin" value={formatUsd(snapshot.marginUsed)} />
-        <Metric label="Free margin" value={formatUsd(snapshot.freeMargin)} />
-        <div className="col-span-2 sm:col-span-2">
+      <div className="flex flex-wrap items-stretch gap-x-6 gap-y-3 border-t border-border pt-3">
+        {/* Zone A — how much money */}
+        <div className="min-w-0 flex-1">
+          <Stat
+            label="EQUITY"
+            value={formatUsd(snapshot.equity)}
+            tone={snapshot.floatingPnl >= 0 ? 'primary' : 'danger'}
+            size="hero"
+          />
+          <div className="mt-1 flex flex-col gap-0.5">
+            <Stat label="BALANCE" value={formatUsd(snapshot.balance)} tone="muted" size="sm" />
+            <Stat label="FREE MARGIN" value={formatUsd(snapshot.freeMargin)} tone="muted" size="sm" />
+          </div>
+        </div>
+
+        {/* Zone B — how much is used */}
+        <div className="border-l border-border pl-6 shrink-0">
+          <Stat label="MARGIN" value={formatUsd(snapshot.marginUsed)} tone="normal" size="sm" />
+        </div>
+
+        {/* Zone C — how much is left before breach */}
+        <div className="border-l border-border pl-6 flex-1 min-w-0">
           <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-muted-foreground">
-            <span>Daily DD buffer</span>
+            <span>DAILY DD BUFFER</span>
             <span className="font-mono tabular-nums text-foreground">{formatUsd(snapshot.dailyBufferUsd)}</span>
+            <span
+              className={cn(
+                'font-mono tabular-nums text-[10px]',
+                ddRatio >= 0.8 ? 'text-danger' : ddRatio >= 0.5 ? 'text-warning' : 'text-muted-foreground',
+              )}
+            >
+              · {Math.round(ddRatio * 100)}% used
+            </span>
           </div>
           <div
             className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary"
@@ -117,7 +132,7 @@ export function TerminalHeader() {
             />
           </div>
         </div>
-      </dl>
+      </div>
     </header>
   )
 }
@@ -312,8 +327,8 @@ function TimezoneClock() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={<Button variant="outline" className="h-9 shrink-0 justify-between gap-2 border-border bg-card px-2.5" />}
-        aria-label={`Terminal time ${time} ${label}. Change timezone`}
-      >
+        aria-label={`Terminal time ${time} ${label}. Change timezone`}>
+
         <Clock className="size-4 text-primary" aria-hidden="true" />
         <span className="flex flex-col items-start leading-none">
           <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
@@ -354,21 +369,50 @@ function QuoteStack({ label, value, tone }: { label: string; value: string; tone
   )
 }
 
-function Metric({ label, value, accent, dot }: { label: string; value: string; accent?: string; dot?: 'ok' | 'risk' }) {
+/** Status chip — moved to row 1 per the terminal header spec. */
+function StatusChip({ status }: { status: string }) {
+  const active = status === 'ACTIVE'
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
+        active ? 'border-primary/30 bg-primary/10 text-primary' : 'border-danger/30 bg-danger/10 text-danger',
+      )}
+      aria-label={`Account status: ${status}`}
+    >
+      <span className="relative flex size-1.5" aria-hidden="true">
+        {active ? (
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:animate-none" />
+        ) : null}
+        <span className={cn('relative inline-flex size-1.5 rounded-full', active ? 'bg-primary' : 'bg-danger')} />
+      </span>
+      {status}
+    </span>
+  )
+}
+
+/**
+ * A single header metric with an explicit accent level.
+ * `size="hero"` is used for Equity; `size="sm"` for the rest.
+ */
+function Stat({ label, value, tone = 'normal', size = 'sm' }: {
+  label: string
+  value: string
+  tone?: 'normal' | 'primary' | 'danger' | 'muted' | 'warning'
+  size?: 'sm' | 'hero'
+}) {
   return (
     <div className="min-w-0">
-      <dt className="flex items-center gap-1.5 whitespace-nowrap text-[10px] uppercase tracking-widest text-muted-foreground">
-        {dot ? (
-          <span className="relative flex size-1.5" aria-hidden="true">
-            {dot === 'ok' ? (
-              <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:animate-none" />
-            ) : null}
-            <span className={cn('relative inline-flex size-1.5 rounded-full', dot === 'ok' ? 'bg-primary' : 'bg-danger')} />
-          </span>
-        ) : null}
-        {label}
-      </dt>
-      <dd className={cn('truncate font-mono text-[13px] tabular-nums text-foreground', accent)}>{value}</dd>
+      <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          'font-mono tabular-nums',
+          size === 'hero' ? 'text-2xl font-semibold' : 'text-[13px]',
+          tone === 'primary' ? 'text-primary' : tone === 'danger' ? 'text-danger' : tone === 'muted' ? 'text-muted-foreground' : tone === 'warning' ? 'text-warning' : 'text-foreground',
+        )}
+      >
+        {value}
+      </dd>
     </div>
   )
 }
