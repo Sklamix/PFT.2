@@ -17,6 +17,7 @@ type Eligibility =
       eligible: true
       price: number
       discountPct: number
+      discountValidUntil: number | null
       planSize: number
       challengeType: string
       drawdownMode: string
@@ -97,9 +98,17 @@ export function ResetAccountDialog({
             </div>
             {state.discountPct > 0 ? (
               <p className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
-                {state.discountPct}% breach-week discount applied. The discount is available for 2 days after the breach.
+                {state.discountPct}% off — valid until{' '}
+                {state.discountValidUntil
+                  ? new Date(state.discountValidUntil).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                  : 'the breach discount window closes'}
               </p>
-            ) : null}
+            ) : (
+              <p className="rounded-md border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+                Standard price — the 20% breach discount has expired
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">One reset per product every 30 days.</p>
             <p className="text-xs text-muted-foreground">
               Payment is collected in USDT (TRC20). The new account appears in your terminal automatically after the
               payment confirms.

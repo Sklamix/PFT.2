@@ -42,6 +42,7 @@ export type ResetEligibility = {
   eligible: boolean
   reason?: string
   discountPct: number
+  discountValidUntil?: number
   price: number
   planSize: number
   challengeType: PlanChallengeType
@@ -119,8 +120,9 @@ export async function getResetEligibility(accountId: string, db: Db = prisma): P
   }
 
   const breachedAt = account.frozenAt ?? account.updatedAt
-  const discountPct =
-    Date.now() - breachedAt.getTime() <= RESET_DISCOUNT_MS ? RESET_DISCOUNT_PCT : 0
+  const withinDiscount = Date.now() - breachedAt.getTime() <= RESET_DISCOUNT_MS
+  const discountPct = withinDiscount ? RESET_DISCOUNT_PCT : 0
+  const discountValidUntil = withinDiscount ? breachedAt.getTime() + RESET_DISCOUNT_MS : undefined
   const basePrice = getChallengeFee(challengeType, planSize, drawdownMode)
   const price = Math.round(basePrice * (1 - discountPct / 100) * 100) / 100
   const dailyLossType =
@@ -131,6 +133,7 @@ export async function getResetEligibility(accountId: string, db: Db = prisma): P
   return {
     eligible: true,
     discountPct,
+    discountValidUntil,
     price,
     planSize,
     challengeType,
@@ -273,18 +276,31 @@ async function provisionReset(
       },
     },
   })
-  if (input.requestReview) {
+  const dbChallengeType = input.eligibility.challengeType === 'one-step' ? 'ONE_STEP' : 'TWO_STEP'
+  const otherProductResetCount = await tx.tradingAccount.count({
+    where: {
+      userId: input.userId,
+      resetSourceAccountId: { not: null },
+      challengeType: { not: dbChallengeType },
+      createdAt: { gte: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) },
+    },
+  })
+  const shouldReview = input.requestReview || otherProductResetCount > 0
+  if (shouldReview) {
     await tx.auditLog.create({
       data: actionReviewRequestData({
         accountId: result.primary.id,
         actorId: input.actorId,
         kind: 'RESET',
         reason: `Reset from account ${input.accountId}`,
-        summary: `Admin reset from ${input.displayId}`,
+        summary: input.requestReview
+          ? `Admin reset from ${input.displayId}`
+          : `Paid reset from ${input.displayId} after a reset of another product`,
         details: {
           sourceAccountId: input.accountId,
           discountPct: input.eligibility.discountPct,
           price: input.eligibility.price,
+          otherProductReset: otherProductResetCount > 0,
         },
       }),
     })

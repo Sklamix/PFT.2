@@ -17,6 +17,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       eligible: true,
       price: eligibility.price,
       discountPct: eligibility.discountPct,
+      discountValidUntil: eligibility.discountValidUntil ?? null,
       planSize: eligibility.planSize,
       challengeType: eligibility.challengeType,
       drawdownMode: eligibility.drawdownMode,
