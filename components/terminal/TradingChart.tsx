@@ -92,7 +92,13 @@ type DragState = {
   moved: boolean
 }
 
-function activePositionFor(positions: Position[], symbol: string) {
+function activePositionFor(positions: Position[], symbol: string, selectedPositionId: string | null) {
+  let selected: Position | null = null
+  for (const position of positions) {
+    if (position.symbol !== symbol || position.status !== 'OPEN') continue
+    if (position.id === selectedPositionId) selected = position
+  }
+  if (selected) return selected
   let active: Position | null = null
   for (const position of positions) {
     if (position.symbol !== symbol || position.status !== 'OPEN') continue
@@ -101,7 +107,7 @@ function activePositionFor(positions: Position[], symbol: string) {
   return active
 }
 
-function buildChartLevels(symbol: string, pending: PendingTradeOrder[], positions: Position[]) {
+function buildChartLevels(symbol: string, pending: PendingTradeOrder[], positions: Position[], selectedPositionId: string | null) {
   const levels: ChartLevel[] = []
 
   for (const order of pending) {
@@ -157,7 +163,7 @@ function buildChartLevels(symbol: string, pending: PendingTradeOrder[], position
     })
   }
 
-  const position = activePositionFor(positions, symbol)
+  const position = activePositionFor(positions, symbol, selectedPositionId)
   if (position) {
     if (position.stopLoss != null) {
       levels.push({
@@ -452,6 +458,7 @@ export function TradingChart() {
   const placeMarket = useTerminalBook((state) => state.placeMarket)
   const modifyPending = useTerminalBook((state) => state.modifyPending)
   const updateProtection = useTerminalBook((state) => state.updateProtection)
+  const selectedPositionId = useTerminalBook((state) => state.selectedPositionId)
   const accountStatus = useTerminalBook((state) => state.account?.status)
   const openPositions = useTerminalBook((state) => state.positions)
   const pendingOrders = useTerminalBook((state) => state.pending)
@@ -485,7 +492,7 @@ export function TradingChart() {
   const setTicketField = useOrderTicketStore((state) => state.setField)
   const levels = useMemo(
     () => [
-      ...buildChartLevels(selectedSymbol, pendingOrders, openPositions),
+      ...buildChartLevels(selectedSymbol, pendingOrders, openPositions, selectedPositionId),
       ...buildDraftLevels({
         symbol: selectedSymbol,
         draftSymbol: ticketOrderType === 'market' ? selectedSymbol : ticketSymbol,
@@ -505,6 +512,7 @@ export function TradingChart() {
       openPositions,
       ask,
       bid,
+      selectedPositionId,
       ticketSymbol,
       ticketOrderType,
       ticketSide,

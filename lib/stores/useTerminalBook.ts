@@ -64,6 +64,7 @@ type TerminalBook = {
   cancelling: Record<string, boolean>
   marks: Marks
   snapshot: TerminalAccountSnapshot
+  selectedPositionId: string | null
   notice: TerminalNotice | null
   init: (accountId: string) => Promise<void>
   markMarket: (symbol: string, bid: number, ask: number, mid: number) => void
@@ -84,6 +85,7 @@ type TerminalBook = {
   closeAll: () => Promise<ActionResult<{ closed: number }>>
   cancelAll: () => Promise<ActionResult<{ cancelled: number }>>
   sync: () => Promise<void>
+  selectPosition: (id: string | null) => void
   dismissNotice: () => void
 }
 
@@ -282,11 +284,14 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
     if (book.account.id !== state.accountId || book.asOf < state.asOf) return
     const positions = revalueAll(book.positions.map(toPosition), state.marks)
     const pending = book.pendingOrders.map(toPendingOrder)
+    const selectedPositionId =
+      book.positions.some((position) => position.id === state.selectedPositionId) ? state.selectedPositionId : null
     set({
       account: book.account,
       asOf: book.asOf,
       positions,
       pending,
+      selectedPositionId,
       history: book.history.map(toTrade),
       snapshot: buildSnapshot(book.account, positions, pending),
       loadState: 'ready',
@@ -308,10 +313,11 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
     cancelling: {},
     marks: seedMarks(),
     snapshot: emptySnapshot(),
+    selectedPositionId: null,
     notice: null,
 
     init: async (accountId) => {
-      set({ accountId, loadState: 'loading', loadError: null, account: null, asOf: 0, positions: [], history: [], pending: [], closing: {}, cancelling: {}, snapshot: emptySnapshot(), notice: null })
+      set({ accountId, loadState: 'loading', loadError: null, account: null, asOf: 0, positions: [], history: [], pending: [], closing: {}, cancelling: {}, snapshot: emptySnapshot(), selectedPositionId: null, notice: null })
       const { ok, body } = await call(`/api/trading/account?accountId=${encodeURIComponent(accountId)}`)
       if (get().accountId !== accountId) return
       if (!ok || !body.book) {
@@ -484,6 +490,12 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       } finally {
         syncInFlight = false
       }
+    },
+
+    selectPosition: (id) => {
+      const state = get()
+      const exists = id != null && state.positions.some((position) => position.id === id)
+      set({ selectedPositionId: exists ? id : null })
     },
 
     dismissNotice: () => set({ notice: null }),

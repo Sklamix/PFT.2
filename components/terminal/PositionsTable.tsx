@@ -32,6 +32,8 @@ export function PositionsTable() {
   const updateProtection = useTerminalBook((state) => state.updateProtection)
   const closing = useTerminalBook((state) => state.closing)
   const cancelling = useTerminalBook((state) => state.cancelling)
+  const selectedPositionId = useTerminalBook((state) => state.selectedPositionId)
+  const selectPosition = useTerminalBook((state) => state.selectPosition)
   const timeZone = useTimezoneStore((state) => state.timeZone)
   const [closeError, setCloseError] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState<'close' | 'cancel' | null>(null)
@@ -224,7 +226,12 @@ export function PositionsTable() {
                   </TableRow>
                 ))}
                 {positions.map((position) => (
-                  <TableRow key={position.id} className="font-mono text-xs">
+                  <TableRow
+                    key={position.id}
+                    className={cn('font-mono text-xs', selectedPositionId === position.id && 'bg-primary/5 border-l-2 border-primary')}
+                    aria-selected={selectedPositionId === position.id}
+                    onClick={() => selectPosition(position.id)}
+                  >
                     <TableCell>{getSymbol(position.symbol).displayName}</TableCell>
                     <TableCell className="text-muted-foreground">{formatStamp(position.openedAt, timeZone)}</TableCell>
                     <TableCell>
