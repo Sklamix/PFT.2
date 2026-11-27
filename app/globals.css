@@ -111,6 +111,18 @@
   }
 }
 
+/* Static terminal text must not look editable: no I-beam, no caret. */
+[data-terminal-root] :where(dl, dt, dd, p, span, h1, h2, h3, h4, table, th, td, li) {
+  cursor: default;
+}
+[data-terminal-root] :where(dl, dt, dd, table, th, td) {
+  caret-color: transparent;
+}
+[data-terminal-root] :where(input, textarea, select, [contenteditable='true']) {
+  cursor: auto;
+  caret-color: auto;
+}
+
 @layer utilities {
   .bg-grid {
     background-image:

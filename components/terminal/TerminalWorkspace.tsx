@@ -164,7 +164,7 @@ export function TerminalWorkspace() {
   }, [accountStatus, openCount, pendingCount, sync])
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div data-terminal-root className="flex min-h-0 flex-1 flex-col">
       {trader && (
         <AccountBar
           trader={trader}
