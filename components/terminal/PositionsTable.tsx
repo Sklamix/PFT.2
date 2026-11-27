@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatPrice, getSymbol } from '@/lib/constants/symbols'
 import { formatPct, formatUsd } from '@/lib/dashboard-data'
+import { LEVEL_CLASS } from '@/lib/terminal/level-tone'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import type { CloseReason, OrderSide } from '@/lib/types/terminal'
@@ -167,8 +168,8 @@ export function PositionsTable() {
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Lots</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Entry</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Mark</TableHead>
-                  <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">SL</TableHead>
-                  <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">TP</TableHead>
+                  <TableHead className={cn('font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.sl.text)}>SL</TableHead>
+                  <TableHead className={cn('font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.tp.text)}>TP</TableHead>
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Floating P&amp;L</TableHead>
                   <TableHead className="w-16" />
                 </TableRow>
@@ -190,8 +191,24 @@ export function PositionsTable() {
                           : `Limit ${formatPrice(order.symbol, order.limitPrice)}`}
                     </TableCell>
                     <TableCell className="text-muted-foreground">{order.triggeredAt ? 'Triggered' : 'Working'}</TableCell>
-                    <TableCell className="tabular-nums">{order.stopLoss == null ? '—' : formatPrice(order.symbol, order.stopLoss)}</TableCell>
-                    <TableCell className="tabular-nums">{order.takeProfit == null ? '—' : formatPrice(order.symbol, order.takeProfit)}</TableCell>
+                    <TableCell
+                      className={cn(
+                        'tabular-nums',
+                        order.stopLoss == null ? 'text-muted-foreground' : LEVEL_CLASS.sl.text,
+                      )}
+                      aria-label={`Stop loss ${order.stopLoss == null ? 'none' : formatPrice(order.symbol, order.stopLoss)}`}
+                    >
+                      {order.stopLoss == null ? '—' : formatPrice(order.symbol, order.stopLoss)}
+                    </TableCell>
+                    <TableCell
+                      className={cn(
+                        'tabular-nums',
+                        order.takeProfit == null ? 'text-muted-foreground' : LEVEL_CLASS.tp.text,
+                      )}
+                      aria-label={`Take profit ${order.takeProfit == null ? 'none' : formatPrice(order.symbol, order.takeProfit)}`}
+                    >
+                      {order.takeProfit == null ? '—' : formatPrice(order.symbol, order.takeProfit)}
+                    </TableCell>
                     <TableCell className="text-muted-foreground">Pending</TableCell>
                     <TableCell>
                       <Button
@@ -227,9 +244,9 @@ export function PositionsTable() {
                           className={tableInputClass}
                         />
                       ) : position.stopLoss == null ? (
-                        '—'
+                        <span className="text-muted-foreground">—</span>
                       ) : (
-                        formatPrice(position.symbol, position.stopLoss)
+                        <span className={LEVEL_CLASS.sl.text}>{formatPrice(position.symbol, position.stopLoss)}</span>
                       )}
                     </TableCell>
                     <TableCell className="tabular-nums">
@@ -243,9 +260,9 @@ export function PositionsTable() {
                           className={tableInputClass}
                         />
                       ) : position.takeProfit == null ? (
-                        '—'
+                        <span className="text-muted-foreground">—</span>
                       ) : (
-                        formatPrice(position.symbol, position.takeProfit)
+                        <span className={LEVEL_CLASS.tp.text}>{formatPrice(position.symbol, position.takeProfit)}</span>
                       )}
                     </TableCell>
                     <TableCell className={cn('tabular-nums font-medium', position.floatingPnl >= 0 ? 'text-primary' : 'text-danger')}>

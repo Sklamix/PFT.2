@@ -16,6 +16,7 @@ import { formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { useOrderTicketStore, type PendingTicketType } from '@/lib/stores/useOrderTicketStore'
+import { LEVEL_CLASS } from '@/lib/terminal/level-tone'
 import type { OrderSide } from '@/lib/types/terminal'
 import { cn } from '@/lib/utils'
 
@@ -57,6 +58,7 @@ export function OrderPanel() {
   const placePending = useTerminalBook((state) => state.placePending)
   const accountStatus = useTerminalBook((state) => state.account?.status)
   const freeMargin = useTerminalBook((state) => state.snapshot.freeMargin)
+  const snapshot = useTerminalBook((state) => state.snapshot)
   const leverage = useTerminalBook((state) => state.account?.leverage ?? 100)
 
   const orderType = useOrderTicketStore((state) => state.orderType)
@@ -148,6 +150,15 @@ export function OrderPanel() {
       tp: tp && tp > 0 ? calculatePnlUsd(selectedSymbol, side, sizeLots, entry, tp) : null,
     }
   }, [entry, selectedSymbol, side, sizeLots, sl, tp, validLots])
+
+  const equity = snapshot.equity
+  const slTone = projections.sl != null ? (projections.sl >= 0 ? 'primary' : 'danger') : null
+  const tpTone = projections.tp != null ? (projections.tp >= 0 ? 'primary' : 'danger') : null
+  const rr =
+    sl != null && tp != null && entry != null && Math.abs(entry - sl) > 0
+      ? Math.abs(tp - entry) / Math.abs(entry - sl)
+      : null
+  const riskPct = equity > 0 && projections.sl != null ? (Math.abs(projections.sl) / equity) * 100 : null
 
   const canSubmit =
     tradable &&
@@ -415,36 +426,25 @@ export function OrderPanel() {
           ) : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Stop loss">
-            <input
-              inputMode="decimal"
-              value={stopLoss}
-              onChange={(event) => setField('stopLoss', formatPriceEntry(event.target.value, stopLoss, priceDigits, priceDecimals))}
-              placeholder="Optional"
-              className={inputClass}
-            />
-            {projections.sl != null && (
-              <p className={cn('mt-1 font-mono text-[11px]', projections.sl >= 0 ? 'text-primary' : 'text-danger')}>
-                {formatUsd(projections.sl, { signed: true })}
-              </p>
-            )}
-          </Field>
-          <Field label="Take profit">
-            <input
-              inputMode="decimal"
-              value={takeProfit}
-              onChange={(event) => setField('takeProfit', formatPriceEntry(event.target.value, takeProfit, priceDigits, priceDecimals))}
-              placeholder="Optional"
-              className={inputClass}
-            />
-            {projections.tp != null && (
-              <p className={cn('mt-1 font-mono text-[11px]', projections.tp >= 0 ? 'text-primary' : 'text-danger')}>
-                {formatUsd(projections.tp, { signed: true })}
-              </p>
-            )}
-          </Field>
-        </div>
+        <ProtectionBlock
+          valueSl={stopLoss}
+          valueTp={takeProfit}
+          onChangeSl={(event) =>
+            setField('stopLoss', formatPriceEntry(event.target.value, stopLoss, priceDigits, priceDecimals))
+          }
+          onChangeTp={(event) =>
+            setField('takeProfit', formatPriceEntry(event.target.value, takeProfit, priceDigits, priceDecimals))
+          }
+          resultSl={
+            projections.sl != null ? `Risk ${formatUsd(projections.sl, { signed: true })}` : null
+          }
+          resultTp={
+            projections.tp != null ? `Reward ${formatUsd(projections.tp, { signed: true })}` : null
+          }
+          toneSl={slTone}
+          toneTp={tpTone}
+        />
+        <ProtectionSummary rr={rr} riskPct={riskPct} />
 
         <Button
           className="mt-auto h-10 w-full shadow-[0_0_20px_-8px_rgba(67,136,255,0.9)] transition-shadow hover:shadow-[0_0_26px_-8px_rgba(67,136,255,1)] focus-visible:ring-2 focus-visible:ring-ring/60"
@@ -485,5 +485,75 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="mb-1 block font-mono text-[10px] uppercase tracking-widest text-muted-foreground">{label}</span>
       {children}
     </label>
+  )
+}
+
+/** Stop loss / take profit pair with coloured level accents, P&L result and R:R summary. */
+function ProtectionBlock({
+  valueSl,
+  valueTp,
+  onChangeSl,
+  onChangeTp,
+  resultSl,
+  resultTp,
+  toneSl,
+  toneTp,
+}: {
+  valueSl: string
+  valueTp: string
+  onChangeSl: (event: React.ChangeEvent<HTMLInputElement>) => void
+  onChangeTp: (event: React.ChangeEvent<HTMLInputElement>) => void
+  resultSl: string | null
+  resultTp: string | null
+  toneSl: 'primary' | 'danger' | null
+  toneTp: 'primary' | 'danger' | null
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div className={cn('rounded-lg border border-l-2 px-3 py-2', LEVEL_CLASS.sl.border)}>
+        <p className={cn('mb-1 font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.sl.text)}>STOP LOSS</p>
+        <input
+          inputMode="decimal"
+          value={valueSl}
+          onChange={onChangeSl}
+          placeholder="Optional"
+          className={inputClass}
+        />
+        {resultSl ? (
+          <p className={cn('mt-1 font-mono text-[13px] font-semibold', toneSl === 'danger' ? 'text-danger' : 'text-primary')}>
+            {resultSl}
+          </p>
+        ) : null}
+      </div>
+      <div className={cn('rounded-lg border border-l-2 px-3 py-2', LEVEL_CLASS.tp.border)}>
+        <p className={cn('mb-1 font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.tp.text)}>
+          TAKE PROFIT
+        </p>
+        <input
+          inputMode="decimal"
+          value={valueTp}
+          onChange={onChangeTp}
+          placeholder="Optional"
+          className={inputClass}
+        />
+        {resultTp ? (
+          <p className={cn('mt-1 font-mono text-[13px] font-semibold', toneTp === 'danger' ? 'text-danger' : 'text-primary')}>
+            {resultTp}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/** Risk/reward summary under the SL/TP pair. */
+function ProtectionSummary({ rr, riskPct }: { rr: number | null; riskPct: number | null }) {
+  if (rr == null) {
+    return <p className="mt-2 font-mono text-[10px] text-muted-foreground/70">Add SL/TP to see risk and reward.</p>
+  }
+  return (
+    <p className="mt-2 font-mono text-[10px] text-muted-foreground">
+      R:R 1 : {rr.toFixed(2)} &nbsp;·&nbsp; risk {riskPct?.toFixed(2) ?? 0}% of equity
+    </p>
   )
 }

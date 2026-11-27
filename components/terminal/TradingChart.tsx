@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { calculatePnlUsd, formatPrice, getSymbol, isTerminalSymbol } from '@/lib/constants/symbols'
 import { formatUsd } from '@/lib/dashboard-data'
+import { LEVEL_HEX } from '@/lib/terminal/level-tone'
 import { applyTick, parseTimeframe, TIMEFRAMES, type Candle } from '@/lib/terminal/candles'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
@@ -34,10 +35,7 @@ const CROSS = 'rgba(226, 232, 240, 0.35)'
 const CANDLES_TIMEOUT_MS = 8000
 const DAY_SECONDS = 86_400
 const VISIBLE_BARS = 140
-const PENDING_LIMIT_COLOR = '#3b82f6'
-const PENDING_STOP_COLOR = '#f59e0b'
-const STOP_LOSS_COLOR = '#fb923c'
-const TAKE_PROFIT_COLOR = '#22c55e'
+const PENDING_STOP_COLOR = LEVEL_HEX.stop
 const EMPTY_CHART_DRAWINGS: ChartDrawing[] = []
 
 type CandlesResponse = { candles?: Candle[]; lastPrice?: number; collecting?: boolean }
@@ -116,7 +114,7 @@ function buildChartLevels(symbol: string, pending: PendingTradeOrder[], position
         key: `${base}:limit`,
         kind: 'limit',
         price: order.limitPrice,
-        color: PENDING_LIMIT_COLOR,
+        color: side === 'SELL' ? LEVEL_HEX.limitSell : LEVEL_HEX.limitBuy,
         dashed: true,
         label: limitLabel,
         order,
@@ -152,7 +150,7 @@ function buildChartLevels(symbol: string, pending: PendingTradeOrder[], position
       key: `${base}:limit`,
       kind: 'limit',
       price: order.limitPrice,
-      color: PENDING_LIMIT_COLOR,
+      color: side === 'SELL' ? LEVEL_HEX.limitSell : LEVEL_HEX.limitBuy,
       dashed: true,
       label: `${side} ${order.triggeredAt ? 'LIMIT' : 'STOP-LIMIT'} · limit`,
       order,
@@ -166,7 +164,7 @@ function buildChartLevels(symbol: string, pending: PendingTradeOrder[], position
         key: `position:${position.id}:sl`,
         kind: 'sl',
         price: position.stopLoss,
-        color: STOP_LOSS_COLOR,
+        color: LEVEL_HEX.sl,
         dashed: false,
         label: 'SL',
         position,
@@ -177,7 +175,7 @@ function buildChartLevels(symbol: string, pending: PendingTradeOrder[], position
         key: `position:${position.id}:tp`,
         kind: 'tp',
         price: position.takeProfit,
-        color: TAKE_PROFIT_COLOR,
+        color: LEVEL_HEX.tp,
         dashed: false,
         label: 'TP',
         position,
@@ -223,7 +221,7 @@ function buildDraftLevels({
       key: 'draft:limit',
       kind: 'limit',
       price: limit,
-      color: PENDING_LIMIT_COLOR,
+      color: side === 'SELL' ? LEVEL_HEX.limitSell : LEVEL_HEX.limitBuy,
       dashed: true,
       label: `${side} LIMIT · preview`,
       symbol,
@@ -251,7 +249,7 @@ function buildDraftLevels({
       key: 'draft:sl',
       kind: 'sl',
       price: sl,
-      color: STOP_LOSS_COLOR,
+      color: LEVEL_HEX.sl,
       dashed: true,
       label: 'SL',
       symbol,
@@ -265,7 +263,7 @@ function buildDraftLevels({
       key: 'draft:tp',
       kind: 'tp',
       price: tp,
-      color: TAKE_PROFIT_COLOR,
+      color: LEVEL_HEX.tp,
       dashed: true,
       label: 'TP',
       symbol,
