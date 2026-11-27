@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Bell, CheckCheck, ChevronDown, Mail, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useNotifications, type NotificationItem, type NotificationKind } from '@/lib/stores/useNotifications'
@@ -51,6 +52,26 @@ export function NotificationCenter() {
   const [retryAt, setRetryAt] = useState<number | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const listRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  /** Fixed viewport anchor: the panel is portalled so the chart can never paint over it. */
+  const [anchor, setAnchor] = useState<{ top: number; right: number; width: number } | null>(null)
+
+  function openPanel(from?: HTMLElement | null) {
+    const rect = (from ?? triggerRef.current)?.getBoundingClientRect()
+    if (!rect) return
+    const width = Math.min(420, Math.max(280, window.innerWidth - 24))
+    setAnchor({
+      top: Math.round(rect.bottom + 8),
+      right: Math.round(Math.max(12, window.innerWidth - rect.right)),
+      width,
+    })
+    setOpen(true)
+  }
+
+  function closePanel() {
+    setOpen(false)
+  }
 
   useEffect(() => {
     if (retryAt == null) return
@@ -72,8 +93,21 @@ export function NotificationCenter() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false)
     }
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (!target) return
+      if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    const onResize = () => setOpen(false)
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('resize', onResize)
+    }
   }, [open])
 
   const unread = items.filter((item) => !item.read).length
@@ -128,11 +162,12 @@ export function NotificationCenter() {
   return (
     <div className="relative shrink-0">
       <Button
+        ref={triggerRef}
         type="button"
         aria-label={`Notifications${unread > 0 ? `, ${unread} unread` : ''}. Open notification center`}
         aria-expanded={open}
         aria-haspopup="dialog"
-        onClick={() => setOpen((value) => !value)}
+        onClick={(event) => (open ? closePanel() : openPanel(event.currentTarget))}
         className="h-7 rounded-md bg-emerald-500 px-3 text-emerald-950 hover:bg-emerald-400"
       >
         <Bell className="size-3.5" aria-hidden="true" />
@@ -147,18 +182,22 @@ export function NotificationCenter() {
       {lastItem && !open ? (
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={() => openPanel()}
           className="ml-2 hidden max-w-40 truncate text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:block"
         >
           {lastItem.title}: {lastItem.message}
         </button>
       ) : null}
-      {open ? (
-        <div
-          role="dialog"
-          aria-label="Notifications"
-          className="absolute right-0 top-full z-50 mt-2 w-96 max-w-[calc(100vw-3rem)] rounded-lg border border-border bg-card p-2 shadow-lg"
-        >
+      {open && anchor && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={panelRef}
+              data-terminal-root
+              role="dialog"
+              aria-label="Notifications"
+              style={{ position: 'fixed', top: anchor.top, right: anchor.right, width: anchor.width, zIndex: 2000 }}
+              className="max-h-[70vh] overflow-y-auto rounded-lg border border-border bg-card p-2 shadow-2xl"
+            >
           <div className="flex items-center justify-between gap-2 px-1 pb-2">
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Notifications</p>
             <div className="flex items-center gap-1">
@@ -292,8 +331,10 @@ export function NotificationCenter() {
           {retryAt != null ? (
             <p className="px-2 pt-2 font-mono text-[10px] text-warning">Try again in 0:{String(retrySeconds).padStart(2, '0')}</p>
           ) : null}
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }
