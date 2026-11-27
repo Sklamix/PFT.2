@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useTimezoneStore } from '@/lib/stores/useTimezoneStore'
+import { useTimezoneStore, loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -44,7 +44,8 @@ function localTimezone(): string {
 
 function resolvedTimezone(id: string, preferred: string): string {
   if (id !== 'local') return id
-  return preferred && preferred !== 'UTC' ? preferred : localTimezone()
+  // The trader's account zone wins over the browser zone; UTC is a real choice, not "unset".
+  return preferred || localTimezone()
 }
 
 function todayIn(tz: string): string {
@@ -123,6 +124,14 @@ export function EconomicCalendar({ compact = false }: { compact?: boolean }) {
 
   const storedZone = useTimezoneStore((state) => state.timeZone)
   const tz = useMemo(() => resolvedTimezone(timezone, storedZone), [timezone, storedZone])
+  // The standalone calendar page never mounts the terminal, so hydrate the zone here too.
+  useEffect(() => {
+    loadStoredTimeZone()
+  }, [])
+  const tzLabel = useMemo(() => {
+    if (timezone !== 'local') return TIMEZONES.find((option) => option.id === timezone)?.label ?? timezone
+    return tz === localTimezone() ? 'Local time' : tz
+  }, [timezone, tz])
 
   const load = useCallback(async () => {
     try {
@@ -373,7 +382,7 @@ export function EconomicCalendar({ compact = false }: { compact?: boolean }) {
         </div>
 
         <p className="mt-3 text-[11px] text-slate-600">
-          Timezone: {TIMEZONES.find((option) => option.id === timezone)?.label}. Calendar refreshes from the weekly
+          Timezone: {tzLabel}. Calendar refreshes from the weekly
           economic feed and is checked hourly.
         </p>
       </div>
