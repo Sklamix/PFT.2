@@ -227,6 +227,8 @@ model User {
   displayCurrency   String @default("USD")
   /** IANA timezone used for displaying timestamps. Stored timestamps stay in UTC. */
   timeZone          String @default("UTC")
+  /** Show STOP / STOP-LIMIT in the order ticket. Off by default: limit orders only. */
+  advancedOrderTypes Boolean @default(false)
   lastPasswordChangedAt DateTime?
   /// Users with financial history are archived, never hard-deleted.
   archivedAt      DateTime?

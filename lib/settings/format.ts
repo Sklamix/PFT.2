@@ -18,6 +18,8 @@ export type Preferences = {
   numberFormat: string
   displayCurrency: string
   timeZone: string
+  /** Show STOP / STOP-LIMIT in the order ticket. Off by default: limit orders only. */
+  advancedOrderTypes: boolean
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
@@ -26,6 +28,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   numberFormat: '1,234.56',
   displayCurrency: 'USD',
   timeZone: 'UTC',
+  advancedOrderTypes: false,
 }
 
 export function formatDate(value: Date | string, prefs: Pick<Preferences, 'dateFormat' | 'timeZone'>) {

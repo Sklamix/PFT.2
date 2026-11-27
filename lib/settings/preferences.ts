@@ -15,6 +15,7 @@ export type PreferenceInput = {
   numberFormat?: unknown
   interfaceLanguage?: unknown
   displayCurrency?: unknown
+  advancedOrderTypes?: unknown
 }
 
 export const PREFERENCE_SELECT = {
@@ -23,6 +24,7 @@ export const PREFERENCE_SELECT = {
   numberFormat: true,
   displayCurrency: true,
   timeZone: true,
+  advancedOrderTypes: true,
 } as const
 
 export function normalizePreferences(row: Partial<Preferences> | null | undefined): Preferences {
@@ -33,6 +35,7 @@ export function normalizePreferences(row: Partial<Preferences> | null | undefine
     numberFormat: row.numberFormat ?? DEFAULT_PREFERENCES.numberFormat,
     displayCurrency: row.displayCurrency ?? DEFAULT_PREFERENCES.displayCurrency,
     timeZone: row.timeZone ?? DEFAULT_PREFERENCES.timeZone,
+    advancedOrderTypes: row.advancedOrderTypes === true,
   }
 }
 
@@ -75,6 +78,12 @@ export function validatePreferences(input: PreferenceInput):
       return { ok: false, error: 'Unsupported display currency. Balances are settled in USD.' }
     }
     data.displayCurrency = value
+  }
+  if (input.advancedOrderTypes !== undefined) {
+    if (typeof input.advancedOrderTypes !== 'boolean') {
+      return { ok: false, error: 'advancedOrderTypes must be a boolean.' }
+    }
+    data.advancedOrderTypes = input.advancedOrderTypes
   }
 
   if (Object.keys(data).length === 0) return { ok: false, error: 'No supported preferences were submitted.' }

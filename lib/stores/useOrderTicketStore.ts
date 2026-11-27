@@ -17,10 +17,13 @@ type TicketState = {
   stopPrice: string
   stopLoss: string
   takeProfit: string
+  /** Show STOP / STOP-LIMIT in the order ticket. Synced with the trader's preferences. */
+  advancedOrderTypes: boolean
   setOrderType: (type: OrderTicketType) => void
   setPendingType: (type: PendingTicketType) => void
   setSide: (side: OrderSide) => void
   setField: (field: TicketPriceField, value: string) => void
+  setAdvancedOrderTypes: (value: boolean) => void
   openPending: (symbol: string, side: OrderSide, entry: number, type?: PendingTicketType) => void
   resetForSymbol: (symbol: string) => void
 }
@@ -64,6 +67,9 @@ export function defaultPendingPrices(symbol: string, side: OrderSide, entry: num
   }
 }
 
+const storedAdvancedOrderTypes =
+  typeof window !== 'undefined' && window.localStorage.getItem('pft:advancedOrderTypes') === 'true'
+
 export const useOrderTicketStore = create<TicketState>((set, get) => ({
   symbol: '',
   orderType: 'market',
@@ -73,11 +79,20 @@ export const useOrderTicketStore = create<TicketState>((set, get) => ({
   stopPrice: '',
   stopLoss: '',
   takeProfit: '',
+  advancedOrderTypes: storedAdvancedOrderTypes,
 
   setOrderType: (orderType) => set({ orderType }),
   setPendingType: (pendingType) => set({ pendingType }),
   setSide: (side) => set({ side }),
   setField: (field, value) => set({ [field]: value } as Pick<TicketState, TicketPriceField>),
+  setAdvancedOrderTypes: (value) => {
+    set({ advancedOrderTypes: value })
+    try {
+      window.localStorage.setItem('pft:advancedOrderTypes', String(value))
+    } catch {
+      // Storage unavailable; the choice still applies for this session.
+    }
+  },
 
   openPending: (symbol, side, entry, type = 'LIMIT') => {
     const defaults = defaultPendingPrices(symbol, side, entry, type)

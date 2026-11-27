@@ -1,15 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { KeyRound, Loader2, SlidersHorizontal, UserRound } from 'lucide-react'
+import { CandlestickChart, KeyRound, Loader2, SlidersHorizontal, UserRound } from 'lucide-react'
 import { SpaceBackground } from '@/components/dashboard/space-background'
 import { cn } from '@/lib/utils'
 import { SecurityPanel } from './security-panel'
 import { PreferencesPanel } from './preferences-panel'
 import { ProfilePanel } from './profile-panel'
+import { TradingPanel } from './trading-panel'
 import { Notice } from './ui'
 
-type Section = 'profile' | 'security' | 'preferences'
+type Section = 'profile' | 'security' | 'preferences' | 'trading'
 
 type SettingsPayload = {
   profile: {
@@ -26,6 +27,7 @@ type SettingsPayload = {
     numberFormat: string
     displayCurrency: string
     timeZone: string
+    advancedOrderTypes: boolean
   }
   security: {
     hasPassword: boolean
@@ -55,6 +57,13 @@ const SECTIONS = [
     shortLabel: 'Preferences',
     icon: SlidersHorizontal,
     description: 'Language, timezone and formats',
+  },
+  {
+    id: 'trading',
+    label: 'Trading',
+    shortLabel: 'Trading',
+    icon: CandlestickChart,
+    description: 'Order ticket and order types',
   },
 ] as const
 
@@ -151,6 +160,9 @@ export function SettingsView() {
                 ) : null}
                 {section === 'preferences' ? (
                   <PreferencesPanel preferences={data.preferences} onSaved={() => void load()} />
+                ) : null}
+                {section === 'trading' ? (
+                  <TradingPanel preferences={data.preferences} onSaved={() => void load()} />
                 ) : null}
               </>
             ) : null}

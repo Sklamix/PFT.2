@@ -63,6 +63,7 @@ export function OrderPanel() {
 
   const orderType = useOrderTicketStore((state) => state.orderType)
   const pendingType = useOrderTicketStore((state) => state.pendingType)
+  const advancedOrderTypes = useOrderTicketStore((state) => state.advancedOrderTypes)
   const side = useOrderTicketStore((state) => state.side)
   const stopLoss = useOrderTicketStore((state) => state.stopLoss)
   const takeProfit = useOrderTicketStore((state) => state.takeProfit)
@@ -123,6 +124,13 @@ export function OrderPanel() {
     resetForSymbol(selectedSymbol)
   }, [resetForSymbol, selectedSymbol])
 
+  // Turning advanced order types off collapses STOP / STOP-LIMIT back to a plain limit order.
+  useEffect(() => {
+    if (!advancedOrderTypes && useOrderTicketStore.getState().pendingType !== 'LIMIT') {
+      useOrderTicketStore.getState().setPendingType('LIMIT')
+    }
+  }, [advancedOrderTypes])
+
   function chooseSide(next: OrderSide) {
     if (orderType === 'pending') {
       openPending(selectedSymbol, next, next === 'BUY' ? ask : bid, pendingType)
@@ -174,6 +182,7 @@ export function OrderPanel() {
     (tp == null || Number.isFinite(tp))
 
   async function execute() {
+    if (!advancedOrderTypes && pendingType !== 'LIMIT') return
     if (!canSubmit) return
     setBusy(true)
     setNotice(null)
@@ -230,7 +239,7 @@ export function OrderPanel() {
         <Tabs value={orderType === 'pending' ? 'limit' : 'market'} onValueChange={chooseOrderTab}>
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="market">Market</TabsTrigger>
-            <TabsTrigger value="limit">Pending</TabsTrigger>
+            <TabsTrigger value="limit">{advancedOrderTypes ? 'Pending' : 'Limit'}</TabsTrigger>
           </TabsList>
           <TabsContent value="market" className="mt-3 text-xs text-muted-foreground">
             Live reference price with an indicative spread; not an executable broker bid/ask.

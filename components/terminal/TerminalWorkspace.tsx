@@ -10,6 +10,7 @@ import { formatPrice } from '@/lib/challenges'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { loadStoredFavorites } from '@/lib/stores/useFavoritesStore'
 import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
+import { useOrderTicketStore } from '@/lib/stores/useOrderTicketStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
 import { AppealDialog } from './AppealDialog'
@@ -104,6 +105,28 @@ export function TerminalWorkspace() {
   useEffect(() => {
     void loadTrader().then(loadOrders)
   }, [loadTrader, loadOrders])
+
+  // Account-level preference: survives reload and re-login. Local storage covers the
+  // first render before the settings response arrives; the server wins afterwards.
+  const setAdvancedOrderTypes = useOrderTicketStore((state) => state.setAdvancedOrderTypes)
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const response = await fetch('/api/settings', { cache: 'no-store' }).catch(() => null)
+      if (response?.ok) {
+        const data = (await response.json().catch(() => ({}))) as {
+          preferences?: { advancedOrderTypes?: boolean } | null
+        } | null
+        if (!cancelled && data?.preferences?.advancedOrderTypes !== undefined) {
+          setAdvancedOrderTypes(data.preferences.advancedOrderTypes)
+        }
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
+  }, [setAdvancedOrderTypes])
 
   const pendingOrders = (orders ?? []).filter((order) => order.status === 'PENDING' || order.status === 'PAID')
   const failedOrders = (orders ?? []).filter((order) => order.status === 'FAILED' || order.status === 'EXPIRED')
