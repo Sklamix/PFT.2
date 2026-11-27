@@ -23,6 +23,7 @@ export async function PATCH(request: Request) {
     numberFormat: body.numberFormat,
     interfaceLanguage: body.interfaceLanguage,
     displayCurrency: body.displayCurrency,
+    advancedOrderTypes: body.advancedOrderTypes,
   })
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
 

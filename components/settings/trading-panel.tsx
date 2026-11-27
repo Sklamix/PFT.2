@@ -27,7 +27,7 @@ export function TradingPanel({
       const response = await fetch('/api/settings/preferences', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ advancedOrderTypes: !enabled }),
+        body: JSON.stringify({ advancedOrderTypes: enabled }),
       })
       const data = (await response.json().catch(() => ({}))) as { error?: string; preferences?: Preferences }
       if (!response.ok || !data.preferences) throw new Error(data.error ?? 'Unable to save preferences.')
