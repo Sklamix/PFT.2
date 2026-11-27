@@ -36,13 +36,15 @@ const CANDLES_TIMEOUT_MS = 8000
 const DAY_SECONDS = 86_400
 const VISIBLE_BARS = 140
 const PENDING_STOP_COLOR = LEVEL_HEX.stop
+/** DESIGN.md moon-mist: inactive position levels. */
+const MUTED_LEVEL = '#8fa3c4'
 const EMPTY_CHART_DRAWINGS: ChartDrawing[] = []
 
 type CandlesResponse = { candles?: Candle[]; lastPrice?: number; collecting?: boolean }
 
 type MarketData = { candles: Candle[]; lastPrice: number; collecting: boolean }
 
-type ChartLevelKind = 'limit' | 'stop' | 'sl' | 'tp'
+type ChartLevelKind = 'entry' | 'limit' | 'stop' | 'sl' | 'tp'
 
 type ChartLevel = {
   key: string
@@ -59,6 +61,10 @@ type ChartLevel = {
   draftEntry?: number
   /** Order size of the draft, so the preview badge can show money instead of only points. */
   draftLots?: number
+  /** Inactive position levels: visible but not draggable. */
+  muted?: boolean
+  /** False for position levels until the trader selects that position. */
+  interactive?: boolean
 }
 
 type PriceLineApi = {
@@ -100,13 +106,7 @@ function activePositionFor(positions: Position[], symbol: string, selectedPositi
     if (position.symbol !== symbol || position.status !== 'OPEN') continue
     if (position.id === selectedPositionId) selected = position
   }
-  if (selected) return selected
-  let active: Position | null = null
-  for (const position of positions) {
-    if (position.symbol !== symbol || position.status !== 'OPEN') continue
-    if (!active || position.openedAt.getTime() > active.openedAt.getTime()) active = position
-  }
-  return active
+  return selected
 }
 
 function buildChartLevels(
@@ -171,11 +171,14 @@ function buildChartLevels(
     })
   }
 
-  const position = activePositionFor(positions, symbol, selectedPositionId)
-  if (position) {
+  const selected = activePositionFor(positions, symbol, selectedPositionId)
+  for (const position of positions) {
+    if (position.symbol !== symbol || position.status !== 'OPEN') continue
+    const isSelected = position.id === selectedPositionId
+    const muted = !isSelected
     // While the trader edits SL/TP in the table, the chart previews the typed values
     // instead of the saved ones, so the edit is visible before it is applied.
-    const draft = protectionDraft?.positionId === position.id ? protectionDraft : null
+    const draft = selected?.id === position.id && protectionDraft?.positionId === position.id ? protectionDraft : null
     const parseLevel = (raw: string) => {
       const value = Number(raw)
       return raw.trim() !== '' && Number.isFinite(value) && value > 0 ? value : null
@@ -183,15 +186,28 @@ function buildChartLevels(
     const stopLoss = draft ? parseLevel(draft.stopLoss) : position.stopLoss
     const takeProfit = draft ? parseLevel(draft.takeProfit) : position.takeProfit
 
+    levels.push({
+      key: `position:${position.id}:entry`,
+      kind: 'entry',
+      price: position.entryPrice,
+      color: muted ? MUTED_LEVEL : position.side === 'BUY' ? LEVEL_HEX.limitBuy : LEVEL_HEX.limitSell,
+      dashed: muted,
+      label: position.side,
+      position,
+      muted,
+      interactive: false,
+    })
     if (stopLoss != null) {
       levels.push({
         key: `position:${position.id}:sl`,
         kind: 'sl',
         price: stopLoss,
-        color: LEVEL_HEX.sl,
-        dashed: draft != null,
+        color: muted ? MUTED_LEVEL : LEVEL_HEX.sl,
+        dashed: muted || draft != null,
         label: draft ? 'SL · editing' : 'SL',
         position,
+        muted,
+        interactive: !muted,
       })
     }
     if (takeProfit != null) {
@@ -199,10 +215,12 @@ function buildChartLevels(
         key: `position:${position.id}:tp`,
         kind: 'tp',
         price: takeProfit,
-        color: LEVEL_HEX.tp,
-        dashed: draft != null,
+        color: muted ? MUTED_LEVEL : LEVEL_HEX.tp,
+        dashed: muted || draft != null,
         label: draft ? 'TP · editing' : 'TP',
         position,
+        muted,
+        interactive: !muted,
       })
     }
   }
@@ -417,6 +435,16 @@ function DrawingShape({ symbol, drawing, timeScale, series, width, height, draft
 }
 
 function levelBadge(level: ChartLevel, price: number) {
+  if (level.kind === 'entry') {
+    return { title: level.position?.side ?? level.label, price: '', detail: '' }
+  }
+  if (level.muted) {
+    return {
+      title: level.kind === 'sl' ? 'SL' : 'TP',
+      price: formatPrice(level.position?.symbol ?? level.symbol ?? 'EURUSD', price),
+      detail: '',
+    }
+  }
   if (level.position && (level.kind === 'sl' || level.kind === 'tp')) {
     const position = level.position
     const pnl = calculatePnlUsd(position.symbol, position.side, position.sizeLots, position.entryPrice, price)
@@ -496,6 +524,7 @@ export function TradingChart() {
   const modifyPending = useTerminalBook((state) => state.modifyPending)
   const updateProtection = useTerminalBook((state) => state.updateProtection)
   const selectedPositionId = useTerminalBook((state) => state.selectedPositionId)
+  const selectPosition = useTerminalBook((state) => state.selectPosition)
   const accountStatus = useTerminalBook((state) => state.account?.status)
   const openPositions = useTerminalBook((state) => state.positions)
   const pendingOrders = useTerminalBook((state) => state.pending)
@@ -775,6 +804,7 @@ export function TradingChart() {
         color: level.color,
         lineWidth: 1,
         lineStyle: level.dashed ? lineStylesRef.current.dashed : lineStylesRef.current.solid,
+        opacity: level.muted ? 0.55 : 1,
         axisLabelVisible: false,
         title: '',
       }
@@ -950,7 +980,15 @@ export function TradingChart() {
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
+  function selectLevel(level: ChartLevel) {
+    if (level.position) selectPosition(level.position.id)
+  }
+
   function startDrag(event: React.PointerEvent<HTMLDivElement>, level: ChartLevel) {
+    if (level.interactive === false) {
+      if (level.position) selectPosition(level.position.id)
+      return
+    }
     if (event.button !== 0) return
     const series = seriesRef.current
     const node = containerRef.current
@@ -1015,6 +1053,10 @@ export function TradingChart() {
     const step = 10 ** -meta.priceDecimals
     const current = dragPreviewRef.current?.key === level.key ? dragPreviewRef.current.price : level.price
     if (event.key === 'Escape') {
+      if (dragRef.current) {
+        dragRef.current = null
+        event.stopPropagation()
+      }
       setDragPreview(null)
       return
     }
@@ -1183,6 +1225,24 @@ export function TradingChart() {
         data-chart-surface
         tabIndex={-1}
         onContextMenu={onChartContextMenu}
+        onPointerDownCapture={(event) => {
+          if (drawingTool !== 'cursor' || dragRef.current) return
+          const target = event.target
+          if (!(target instanceof Element)) return
+          if (target.closest('[data-chart-ui]') || target.closest('[data-chart-level]')) return
+          selectPosition(null)
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.key === 'Escape' &&
+            drawingTool === 'cursor' &&
+            !dragRef.current &&
+            !dragPreviewRef.current &&
+            event.target === wrapperRef.current
+          ) {
+            selectPosition(null)
+          }
+        }}
       >
         <div ref={containerRef} className="absolute inset-0" />
         {quickNotice ? (
@@ -1219,40 +1279,64 @@ export function TradingChart() {
           />
         ) : null}
         <div className="pointer-events-none absolute inset-0 z-10">
-          {renderedLevels.map(({ level, price, y, badge }) => (
-            <div
-              key={level.key}
-              role="slider"
-              tabIndex={0}
-              aria-label={`${badge.title} at ${badge.price}. Drag or use arrow keys to modify.`}
-              aria-valuetext={`${badge.price}, ${badge.detail}`}
-              aria-valuenow={price}
-              aria-valuemin={0}
-              aria-valuemax={Number.MAX_SAFE_INTEGER}
-              title="Drag to modify"
-              onPointerDown={(event) => startDrag(event, level)}
-              onPointerMove={moveDrag}
-              onPointerUp={endDrag}
-              onPointerCancel={cancelDrag}
-              onKeyDown={(event) => nudgeLevel(event, level)}
-              className="pointer-events-auto absolute inset-x-0 top-0 h-3 -translate-y-1/2 cursor-ns-resize touch-none select-none outline-none focus-visible:bg-white/5"
-              style={{ top: y }}
-            >
-              <span
+          {renderedLevels.map(({ level, price, y, badge }) => {
+            const interactive = level.interactive !== false
+            const muted = level.muted === true
+            return (
+              <div
+                key={level.key}
+                data-chart-level
+                role={interactive ? 'slider' : 'button'}
+                tabIndex={0}
+                aria-label={
+                  interactive
+                    ? `${badge.title} at ${badge.price}. Drag or use arrow keys to modify.`
+                    : `Select ${badge.title} position`
+                }
+                aria-valuetext={interactive ? `${badge.price}, ${badge.detail}` : undefined}
+                aria-valuenow={interactive ? price : undefined}
+                aria-valuemin={interactive ? 0 : undefined}
+                aria-valuemax={interactive ? Number.MAX_SAFE_INTEGER : undefined}
+                title={interactive ? 'Drag to modify' : 'Click to select position'}
+                onPointerDown={(event) => (interactive ? startDrag(event, level) : selectLevel(level))}
+                onPointerMove={interactive ? moveDrag : undefined}
+                onPointerUp={interactive ? endDrag : undefined}
+                onPointerCancel={interactive ? cancelDrag : undefined}
+                onKeyDown={(event) => {
+                  if (!interactive) {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      selectLevel(level)
+                    }
+                    return
+                  }
+                  nudgeLevel(event, level)
+                }}
                 className={cn(
-                  'pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border bg-[#0b1122]/95 px-2 py-1 font-mono text-[10px] leading-none shadow-[0_4px_18px_rgba(0,0,0,0.45)]',
-                  level.order ? 'left-2' : 'right-2',
+                  'pointer-events-auto absolute inset-x-0 top-0 h-3 -translate-y-1/2 touch-none select-none outline-none focus-visible:bg-white/5',
+                  interactive ? 'cursor-ns-resize' : 'cursor-pointer',
                 )}
-                style={{ borderColor: level.color, color: level.color }}
+                style={{ top: y }}
               >
-                <span className="font-bold uppercase tracking-wide">{badge.title}</span>
-                <span className="font-semibold tabular-nums text-foreground">{badge.price}</span>
-                <span className={cn('hidden tabular-nums sm:inline', level.kind === 'sl' ? 'text-danger' : level.kind === 'tp' ? 'text-primary' : 'text-muted-foreground')}>
-                  {badge.detail}
+                <span
+                  className={cn(
+                    'pointer-events-none absolute top-1/2 flex -translate-y-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border bg-[#0b1122]/95 px-2 py-1 font-mono text-[10px] leading-none shadow-[0_4px_18px_rgba(0,0,0,0.45)]',
+                    level.kind === 'entry' && 'rounded-full px-2.5 py-0.5',
+                    level.order ? 'left-2' : 'right-2',
+                  )}
+                  style={{ borderColor: level.color, color: level.color, opacity: muted ? 0.55 : 1 }}
+                >
+                  <span className="font-bold uppercase tracking-wide">{badge.title}</span>
+                  {badge.price ? <span className="font-semibold tabular-nums text-foreground">{badge.price}</span> : null}
+                  {badge.detail ? (
+                    <span className={cn('hidden tabular-nums sm:inline', level.kind === 'sl' ? 'text-danger' : level.kind === 'tp' ? 'text-primary' : 'text-muted-foreground')}>
+                      {badge.detail}
+                    </span>
+                  ) : null}
                 </span>
-              </span>
-            </div>
-          ))}
+              </div>
+            )
+          })}
         </div>
         <ChartDrawingToolbar />
         {collecting && (

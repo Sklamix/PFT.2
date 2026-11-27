@@ -106,6 +106,15 @@ export function PositionsTable() {
     }
   }
 
+  // A draft belongs to the position being edited; never carry it to another selection.
+  useEffect(() => {
+    if (editingId === selectedPositionId) return
+    queueMicrotask(() => {
+      setEditingId(null)
+      setProtectionDraft(null)
+    })
+  }, [selectedPositionId, editingId, setProtectionDraft])
+
   // The chart previews whatever is typed here; clearing the edit removes the preview.
   useEffect(() => {
     if (!editingId) {
@@ -258,7 +267,7 @@ export function PositionsTable() {
                       flashId === position.id && 'ring-2 ring-primary',
                     )}
                     aria-selected={selectedPositionId === position.id}
-                    onClick={() => selectPosition(position.id)}
+                    onClick={() => selectPosition(selectedPositionId === position.id ? null : position.id)}
                   >
                     <TableCell>{getSymbol(position.symbol).displayName}</TableCell>
                     <TableCell className="text-muted-foreground">{formatStamp(position.openedAt, timeZone)}</TableCell>
@@ -331,7 +340,8 @@ export function PositionsTable() {
                             variant="ghost"
                             size="icon-xs"
                             aria-label={`Edit SL/TP for ${position.symbol}`}
-                            onClick={() => {
+                            onClick={(event) => {
+                              event.stopPropagation()
                               selectPosition(position.id)
                               startEdit(position.id, position.stopLoss, position.takeProfit)
                             }}
@@ -343,7 +353,10 @@ export function PositionsTable() {
                             size="icon-xs"
                             aria-label={`Close ${position.symbol} position`}
                             disabled={Boolean(closing[position.id])}
-                            onClick={() => void close(position.id)}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              void close(position.id)
+                            }}
                           >
                             {closing[position.id] ? <Loader2 className="size-3.5 animate-spin" /> : <X className="size-3.5" />}
                           </Button>
