@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import { ChevronLeft, ChevronRight, Radio } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -41,8 +42,9 @@ function localTimezone(): string {
   }
 }
 
-function resolvedTimezone(id: string): string {
-  return id === 'local' ? localTimezone() : id
+function resolvedTimezone(id: string, preferred: string): string {
+  if (id !== 'local') return id
+  return preferred && preferred !== 'UTC' ? preferred : localTimezone()
 }
 
 function todayIn(tz: string): string {
@@ -119,7 +121,8 @@ export function EconomicCalendar({ compact = false }: { compact?: boolean }) {
   const [currencyFilter, setCurrencyFilter] = useState<string>('all')
   const [now, setNow] = useState<number>(Date.now())
 
-  const tz = useMemo(() => resolvedTimezone(timezone), [timezone])
+  const storedZone = useTimezoneStore((state) => state.timeZone)
+  const tz = useMemo(() => resolvedTimezone(timezone, storedZone), [timezone, storedZone])
 
   const load = useCallback(async () => {
     try {

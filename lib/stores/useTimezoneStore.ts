@@ -71,3 +71,34 @@ export function loadStoredTimeZone() {
     // Ignore unavailable storage.
   }
 }
+
+/** Applies a zone to the store and to storage. Invalid zones are ignored. */
+export function syncTimeZone(value: string) {
+  if (!isSupported(value)) return
+  useTimezoneStore.setState({ timeZone: value })
+  try {
+    window.localStorage.setItem(TIMEZONE_STORAGE_KEY, value)
+  } catch {
+    // Storage may be unavailable; the in-memory zone still applies.
+  }
+}
+
+/** Cross-tab and in-page timezone updates. Call once from TerminalWorkspace. */
+export function subscribeTimeZone() {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === TIMEZONE_STORAGE_KEY && event.newValue) syncTimeZone(event.newValue)
+  }
+  const onCustom = () => {
+    try {
+      syncTimeZone(window.localStorage.getItem(TIMEZONE_STORAGE_KEY) ?? '')
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }
+  window.addEventListener('storage', onStorage)
+  window.addEventListener('pft-timezone-change', onCustom)
+  return () => {
+    window.removeEventListener('storage', onStorage)
+    window.removeEventListener('pft-timezone-change', onCustom)
+  }
+}

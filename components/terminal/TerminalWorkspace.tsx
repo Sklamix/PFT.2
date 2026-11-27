@@ -10,7 +10,7 @@ import { formatPrice } from '@/lib/challenges'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
 import { useNotifications } from '@/lib/stores/useNotifications'
 import { loadStoredFavorites } from '@/lib/stores/useFavoritesStore'
-import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
+import { loadStoredTimeZone, subscribeTimeZone, syncTimeZone } from '@/lib/stores/useTimezoneStore'
 import { useOrderTicketStore } from '@/lib/stores/useOrderTicketStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -76,6 +76,15 @@ export function TerminalWorkspace() {
   useEffect(() => {
     loadStoredTimeZone()
     void loadStoredFavorites()
+    return subscribeTimeZone()
+  }, [])
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadStoredTimeZone()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
   useEffect(() => {
@@ -98,6 +107,7 @@ export function TerminalWorkspace() {
       return
     }
     setTrader(data)
+    if (typeof data.timeZone === 'string') syncTimeZone(data.timeZone)
     // A background refresh must never re-init an account the trader is actively using.
     const activeId = useTerminalBook.getState().accountId
     if (mode === 'refresh' && activeId && data.accounts.some((account) => account.id === activeId)) return
@@ -366,6 +376,7 @@ interface TraderMe {
   trader: { sub: string; email: string; name: string }
   accounts: { id: string; displayId: string; status: string; planSize: number }[]
   lastActiveAccountId: string | null
+  timeZone?: string | null
 }
 
 async function signOut() {

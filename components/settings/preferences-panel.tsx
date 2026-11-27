@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Loader2, Save } from 'lucide-react'
-import { TIMEZONE_OPTIONS, timeZoneOffsetLabel } from '@/lib/stores/useTimezoneStore'
+import { TIMEZONE_OPTIONS, TIMEZONE_STORAGE_KEY, timeZoneOffsetLabel, useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import { DATE_FORMATS, DISPLAY_CURRENCIES, INTERFACE_LANGUAGES, NUMBER_FORMATS, formatAmount, formatDateTime } from '@/lib/settings/format'
 import type { Preferences } from '@/lib/settings/format'
 import { Field, Notice, Panel, SELECT_CLASS } from './ui'
@@ -25,6 +25,29 @@ export function PreferencesPanel({
 
   const preview = { dateFormat, numberFormat, timeZone }
 
+  // Keep the picker in step with changes made in the terminal or another tab.
+  useEffect(() => {
+    const sync = () => {
+      try {
+        const value = window.localStorage.getItem(TIMEZONE_STORAGE_KEY)
+        if (value && TIMEZONE_OPTIONS.some((option) => option.value === value)) setTimeZone(value)
+      } catch {
+        // Storage may be unavailable.
+      }
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sync()
+    }
+    window.addEventListener('pft-timezone-change', sync)
+    window.addEventListener('storage', sync)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('pft-timezone-change', sync)
+      window.removeEventListener('storage', sync)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [])
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
@@ -40,7 +63,7 @@ export function PreferencesPanel({
       if (!response.ok || !data.preferences) throw new Error(data.error ?? 'Unable to save preferences.')
       onSaved(data.preferences)
       // Keep the terminal clock, calendar and chart labels in sync immediately.
-      window.localStorage.setItem('pft-terminal-timezone', data.preferences.timeZone)
+      useTimezoneStore.getState().setTimeZone(data.preferences.timeZone)
       window.dispatchEvent(new Event('pft-timezone-change'))
       setSaved(true)
     } catch (reason) {
