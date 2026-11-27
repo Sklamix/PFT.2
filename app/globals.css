@@ -111,16 +111,25 @@
   }
 }
 
-/* Static terminal text must not look editable: no I-beam, no caret. */
-[data-terminal-root] :where(dl, dt, dd, p, span, h1, h2, h3, h4, table, th, td, li) {
-  cursor: default;
-}
-[data-terminal-root] :where(dl, dt, dd, table, th, td) {
-  caret-color: transparent;
-}
-[data-terminal-root] :where(input, textarea, select, [contenteditable='true']) {
-  cursor: auto;
-  caret-color: auto;
+/* Static terminal text must not look editable: no I-beam, no caret.
+   `cursor` and `caret-color` both inherit, so one rule on the root covers every
+   descendant — including widgets we do not control. Real editors opt back in.
+   Declared in @layer base so Tailwind cursor-* utilities still win on the chart. */
+@layer base {
+  [data-terminal-root] {
+    cursor: default;
+    caret-color: transparent;
+  }
+  [data-terminal-root] :where(input, textarea, select, [contenteditable], [role='textbox']) {
+    cursor: text;
+    caret-color: auto;
+  }
+  [data-terminal-root] :where(button, a, select, summary, [role='button']) {
+    cursor: pointer;
+  }
+  [data-terminal-root] :where(button, a, select, summary, [role='button']):disabled {
+    cursor: not-allowed;
+  }
 }
 
 @layer utilities {
