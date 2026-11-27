@@ -386,14 +386,14 @@ export function PositionsTable() {
 
         <TabsContent value="rules" className="p-4">
           <div className="grid gap-3 md:grid-cols-2">
-            <RuleCard
+            <RuleGauge
               title={`Daily loss vs ${formatPct(snapshot.dailyLossLimitPct * 100)} of day-start equity`}
               used={snapshot.dailyLossUsed}
               limit={snapshot.dailyLossLimitUsd}
               ratio={snapshot.dailyUsedRatio}
               caption={`Buffer remaining ${formatUsd(snapshot.dailyBufferUsd)}`}
             />
-            <RuleCard
+            <RuleGauge
               title={`Trailing drawdown vs ${formatPct(snapshot.trailingDrawdownLimitPct * 100)} below peak`}
               used={snapshot.trailingDrawdownUsed}
               limit={snapshot.trailingDrawdownLimitUsd}
@@ -427,7 +427,7 @@ function Empty({ message }: { message: string }) {
   return <p className="px-4 py-8 text-center text-sm text-muted-foreground">{message}</p>
 }
 
-function RuleCard({
+function RuleGauge({
   title,
   used,
   limit,
@@ -440,14 +440,59 @@ function RuleCard({
   ratio: number
   caption: string
 }) {
-  const tone = ratio >= 0.8 ? 'text-danger' : ratio >= 0.5 ? 'text-warning' : 'text-primary'
-  const bar = ratio >= 0.8 ? 'bg-danger' : ratio >= 0.5 ? 'bg-warning' : 'bg-primary'
+  const clamped = Math.max(0, Math.min(1, ratio))
+  const color = clamped >= 0.8 ? 'var(--danger)' : clamped >= 0.5 ? 'var(--warning)' : 'var(--primary)'
+  const radius = 54
+  const len = Math.PI * radius
+  const offset = len * (1 - clamped)
+  const pulse = clamped >= 0.9
   return (
     <article className="rounded-lg border border-border bg-background/50 p-4">
-      <h3 className="text-sm font-medium text-foreground">{title}</h3>
-      <p className={cn('mt-2 font-mono text-2xl font-semibold tabular-nums', tone)}>{formatPct(ratio * 100)} used</p>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-secondary" role="meter" aria-valuenow={Math.round(ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
-        <div className={cn('h-full rounded-full', bar)} style={{ width: `${Math.max(3, ratio * 100)}%` }} />
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-medium text-foreground">{title}</h3>
+        {pulse ? (
+          <span
+            className="size-2 rounded-full bg-danger animate-pulse motion-reduce:animate-none"
+            aria-hidden="true"
+          />
+        ) : (
+          <span className="size-2 rounded-full bg-muted" aria-hidden="true" />
+        )}
+      </div>
+      <div className="mt-2 flex justify-center">
+        <svg
+          viewBox="0 0 120 70"
+          className="h-24 w-full max-w-[220px]"
+          role="meter"
+          aria-valuenow={Math.round(clamped * 100)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={title}
+        >
+          <path
+            d="M 6 60 A 54 54 0 0 1 114 60"
+            fill="none"
+            stroke="var(--secondary)"
+            strokeWidth="10"
+            strokeLinecap="round"
+          />
+          <path
+            d="M 6 60 A 54 54 0 0 1 114 60"
+            fill="none"
+            stroke={color}
+            strokeWidth="10"
+            strokeLinecap="round"
+            strokeDasharray={len}
+            strokeDashoffset={offset}
+            className="transition-[stroke-dashoffset] duration-500"
+          />
+          <text x="60" y="46" textAnchor="middle" className="fill-foreground text-2xl font-semibold" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {Math.round(clamped * 100)}%
+          </text>
+          <text x="60" y="58" textAnchor="middle" className="fill-muted-foreground text-[10px] uppercase tracking-widest">
+            used
+          </text>
+        </svg>
       </div>
       <p className="mt-2 font-mono text-xs text-muted-foreground">
         {formatUsd(used)} / {formatUsd(limit)} · {caption}
