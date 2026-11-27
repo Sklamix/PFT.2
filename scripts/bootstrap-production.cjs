@@ -34,6 +34,7 @@ if (!process.env.DATABASE_URL) {
  * Excluded: test-role-provisioning.draft.sql (test-only), zz-payout-seed-cleanup.sql (test cleanup)
  */
 const ALLOWED_SQL_FILES = [
+  'active-account.sql',
   'account-appeals.sql',
   'account-breach-events.sql',
   'account-custom-name.sql',

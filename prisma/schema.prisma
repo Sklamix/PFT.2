@@ -202,6 +202,8 @@ model User {
   failedLoginCount Int @default(0)
   lastDeviceHash String?
   activeSessionId String?
+  /** Last terminal account opened by this trader; restored after navigation and re-login. */
+  lastActiveAccountId String?
   riskFlaggedAt DateTime?
   riskFlagReason String?
   /** Last rules version this trader was notified about. */

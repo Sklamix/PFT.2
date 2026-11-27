@@ -14,7 +14,6 @@ import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
 import { useOrderTicketStore } from '@/lib/stores/useOrderTicketStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
-import { AppealDialog } from './AppealDialog'
 import { EconomicCalendarPanel } from './EconomicCalendarPanel'
 import { OrderPanel } from './OrderPanel'
 import { PositionsTable } from './PositionsTable'
@@ -36,6 +35,12 @@ type CheckoutOrder = {
 }
 
 function switchAccount(accountId: string) {
+  // Fire-and-forget: the account memory endpoint must not block the switch.
+  void fetch('/api/terminal/active-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId }),
+  }).catch(() => null)
   const url = new URL(window.location.href)
   url.searchParams.set('account', accountId)
   window.history.replaceState(null, '', url)
@@ -97,8 +102,10 @@ export function TerminalWorkspace() {
     const activeId = useTerminalBook.getState().accountId
     if (mode === 'refresh' && activeId && data.accounts.some((account) => account.id === activeId)) return
     const requested = new URLSearchParams(window.location.search).get('account')?.trim()
+    const lastActiveAccountId = data.lastActiveAccountId
     const target =
       data.accounts.find((account) => account.id === requested) ??
+      data.accounts.find((account) => account.id === lastActiveAccountId) ??
       data.accounts.find((account) => account.status === 'ACTIVE') ??
       data.accounts[0]
     if (!target) {
@@ -358,6 +365,7 @@ function formatDate(value: Date) {
 interface TraderMe {
   trader: { sub: string; email: string; name: string }
   accounts: { id: string; displayId: string; status: string; planSize: number }[]
+  lastActiveAccountId: string | null
 }
 
 async function signOut() {
@@ -424,7 +432,6 @@ function NoticeBar() {
   const account = useTerminalBook((state) => state.account)
   const dismissNotice = useTerminalBook((state) => state.dismissNotice)
   const pushNotification = useNotifications((state) => state.push)
-  const [appealOpen, setAppealOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
 
   // Trade/account events leave the full-width banner and become history rows.
@@ -469,17 +476,14 @@ function NoticeBar() {
                   <Button size="sm" variant="outline" onClick={() => setResetOpen(true)}>
                     Reset account
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => setAppealOpen(true)}>
-                    Appeal decision
-                  </Button>
+                  <a href="/dashboard/support" className="text-xs underline text-foreground/80 transition-colors hover:text-foreground">
+                    Contact support
+                  </a>
                 </>
               ) : null}
             </div>
           }
         />
-      ) : null}
-      {breached ? (
-        <AppealDialog accountId={account.id} open={appealOpen} onOpenChange={setAppealOpen} />
       ) : null}
       {breached ? (
         <ResetAccountDialog accountId={account.id} open={resetOpen} onOpenChange={setResetOpen} />
