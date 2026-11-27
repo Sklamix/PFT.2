@@ -34,6 +34,7 @@ export function PositionsTable() {
   const cancelling = useTerminalBook((state) => state.cancelling)
   const selectedPositionId = useTerminalBook((state) => state.selectedPositionId)
   const selectPosition = useTerminalBook((state) => state.selectPosition)
+  const setProtectionDraft = useTerminalBook((state) => state.setProtectionDraft)
   const timeZone = useTimezoneStore((state) => state.timeZone)
   const [closeError, setCloseError] = useState<string | null>(null)
   const [bulkBusy, setBulkBusy] = useState<'close' | 'cancel' | null>(null)
@@ -104,6 +105,17 @@ export function PositionsTable() {
       setBulkBusy(null)
     }
   }
+
+  // The chart previews whatever is typed here; clearing the edit removes the preview.
+  useEffect(() => {
+    if (!editingId) {
+      setProtectionDraft(null)
+      return
+    }
+    setProtectionDraft({ positionId: editingId, stopLoss: slDraft, takeProfit: tpDraft })
+  }, [editingId, slDraft, tpDraft, setProtectionDraft])
+
+  useEffect(() => () => setProtectionDraft(null), [setProtectionDraft])
 
   // Notification deep-links flash the selected row for two seconds.
   useEffect(() => {

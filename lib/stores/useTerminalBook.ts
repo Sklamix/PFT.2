@@ -69,6 +69,8 @@ type TerminalBook = {
   marks: Marks
   snapshot: TerminalAccountSnapshot
   selectedPositionId: string | null
+  /** Live SL/TP being edited in the positions table, so the chart can preview it. */
+  protectionDraft: { positionId: string; stopLoss: string; takeProfit: string } | null
   notice: TerminalNotice | null
   init: (accountId: string) => Promise<void>
   markMarket: (symbol: string, bid: number, ask: number, mid: number) => void
@@ -90,6 +92,7 @@ type TerminalBook = {
   cancelAll: () => Promise<ActionResult<{ cancelled: number }>>
   sync: () => Promise<void>
   selectPosition: (id: string | null) => void
+  setProtectionDraft: (draft: { positionId: string; stopLoss: string; takeProfit: string } | null) => void
   dismissNotice: () => void
 }
 
@@ -328,6 +331,7 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
     marks: seedMarks(),
     snapshot: emptySnapshot(),
     selectedPositionId: null,
+    protectionDraft: null,
     notice: null,
 
     init: async (accountId) => {
@@ -511,6 +515,8 @@ export const useTerminalBook = create<TerminalBook>((set, get) => {
       const exists = id != null && state.positions.some((position) => position.id === id)
       set({ selectedPositionId: exists ? id : null })
     },
+
+    setProtectionDraft: (protectionDraft) => set({ protectionDraft }),
 
     dismissNotice: () => set({ notice: null }),
   }

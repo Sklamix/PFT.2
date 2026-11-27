@@ -57,6 +57,8 @@ type ChartLevel = {
   draftField?: TicketPriceField
   draftSide?: OrderSide
   draftEntry?: number
+  /** Order size of the draft, so the preview badge can show money instead of only points. */
+  draftLots?: number
 }
 
 type PriceLineApi = {
@@ -107,7 +109,13 @@ function activePositionFor(positions: Position[], symbol: string, selectedPositi
   return active
 }
 
-function buildChartLevels(symbol: string, pending: PendingTradeOrder[], positions: Position[], selectedPositionId: string | null) {
+function buildChartLevels(
+  symbol: string,
+  pending: PendingTradeOrder[],
+  positions: Position[],
+  selectedPositionId: string | null,
+  protectionDraft: { positionId: string; stopLoss: string; takeProfit: string } | null,
+) {
   const levels: ChartLevel[] = []
 
   for (const order of pending) {
@@ -165,25 +173,35 @@ function buildChartLevels(symbol: string, pending: PendingTradeOrder[], position
 
   const position = activePositionFor(positions, symbol, selectedPositionId)
   if (position) {
-    if (position.stopLoss != null) {
+    // While the trader edits SL/TP in the table, the chart previews the typed values
+    // instead of the saved ones, so the edit is visible before it is applied.
+    const draft = protectionDraft?.positionId === position.id ? protectionDraft : null
+    const parseLevel = (raw: string) => {
+      const value = Number(raw)
+      return raw.trim() !== '' && Number.isFinite(value) && value > 0 ? value : null
+    }
+    const stopLoss = draft ? parseLevel(draft.stopLoss) : position.stopLoss
+    const takeProfit = draft ? parseLevel(draft.takeProfit) : position.takeProfit
+
+    if (stopLoss != null) {
       levels.push({
         key: `position:${position.id}:sl`,
         kind: 'sl',
-        price: position.stopLoss,
+        price: stopLoss,
         color: LEVEL_HEX.sl,
-        dashed: false,
-        label: 'SL',
+        dashed: draft != null,
+        label: draft ? 'SL · editing' : 'SL',
         position,
       })
     }
-    if (position.takeProfit != null) {
+    if (takeProfit != null) {
       levels.push({
         key: `position:${position.id}:tp`,
         kind: 'tp',
-        price: position.takeProfit,
+        price: takeProfit,
         color: LEVEL_HEX.tp,
-        dashed: false,
-        label: 'TP',
+        dashed: draft != null,
+        label: draft ? 'TP · editing' : 'TP',
         position,
       })
     }
@@ -203,6 +221,7 @@ function buildDraftLevels({
   stopLoss,
   takeProfit,
   entry,
+  lots,
 }: {
   symbol: string
   draftSymbol: string
@@ -215,6 +234,8 @@ function buildDraftLevels({
   takeProfit: string
   /** Live market price for market orders; pending execution price otherwise. */
   entry: number
+  /** Ticket lot size; drives the money figure on the SL/TP preview badges. */
+  lots: number
 }) {
   if (draftSymbol !== symbol) return []
   const limit = Number(limitPrice)
@@ -265,6 +286,7 @@ function buildDraftLevels({
       draftField: 'stopLoss',
       draftSide: side,
       draftEntry: executionPrice,
+      draftLots: lots,
     })
   }
   if (Number.isFinite(tp) && tp > 0) {
@@ -279,6 +301,7 @@ function buildDraftLevels({
       draftField: 'takeProfit',
       draftSide: side,
       draftEntry: executionPrice,
+      draftLots: lots,
     })
   }
   return levels
@@ -406,6 +429,20 @@ function levelBadge(level: ChartLevel, price: number) {
     }
   }
 
+  // Draft protection levels: price the outcome before the position even exists.
+  if (level.draftField && (level.kind === 'sl' || level.kind === 'tp') && level.draftEntry && level.draftSide) {
+    const symbol = level.symbol ?? 'EURUSD'
+    const lots = level.draftLots ?? 0
+    const pnl = lots > 0 ? calculatePnlUsd(symbol, level.draftSide, lots, level.draftEntry, price) : null
+    const signedMove = level.draftSide === 'BUY' ? price - level.draftEntry : level.draftEntry - price
+    const points = signedMove / pointSizeFor(symbol)
+    return {
+      title: level.kind === 'tp' ? 'TP' : 'SL',
+      price: formatPrice(symbol, price),
+      detail: `${pnl != null ? `${formatUsd(pnl, { signed: true })} · ` : ''}${signedPoints(points)} points · preview`,
+    }
+  }
+
   const order = level.order
   return {
     title: level.label,
@@ -489,10 +526,12 @@ export function TradingChart() {
   const ticketStopPrice = useOrderTicketStore((state) => state.stopPrice)
   const ticketStopLoss = useOrderTicketStore((state) => state.stopLoss)
   const ticketTakeProfit = useOrderTicketStore((state) => state.takeProfit)
+  const ticketLots = useOrderTicketStore((state) => state.lots)
+  const protectionDraft = useTerminalBook((state) => state.protectionDraft)
   const setTicketField = useOrderTicketStore((state) => state.setField)
   const levels = useMemo(
     () => [
-      ...buildChartLevels(selectedSymbol, pendingOrders, openPositions, selectedPositionId),
+      ...buildChartLevels(selectedSymbol, pendingOrders, openPositions, selectedPositionId, protectionDraft),
       ...buildDraftLevels({
         symbol: selectedSymbol,
         draftSymbol: ticketOrderType === 'market' ? selectedSymbol : ticketSymbol,
@@ -504,6 +543,7 @@ export function TradingChart() {
         stopLoss: ticketStopLoss,
         takeProfit: ticketTakeProfit,
         entry: ticketOrderType === 'market' ? (ticketSide === 'BUY' ? ask : bid) : Number(ticketLimitPrice),
+        lots: Number(ticketLots) || 0,
       }),
     ],
     [
@@ -521,6 +561,8 @@ export function TradingChart() {
       ticketStopPrice,
       ticketStopLoss,
       ticketTakeProfit,
+      ticketLots,
+      protectionDraft,
     ],
   )
   const drawingTool = useChartLayoutStore((state) => state.tool)
