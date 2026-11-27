@@ -61,23 +61,25 @@ export function SidebarContent({ view, onNavigate, user }: SidebarContentProps) 
               href={TERMINAL_NAV.href}
               aria-current={view === 'terminal' ? 'page' : undefined}
               className={cn(
-                'group relative flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+                'group relative flex w-full items-center gap-3 rounded-lg border px-2.5 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
                 view === 'terminal'
-                  ? 'bg-primary/10 text-foreground shadow-[inset_0_0_0_1px_rgba(67,136,255,0.18)]'
-                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground',
+                  ? 'border-primary/30 bg-linear-to-r from-primary/20 via-primary/10 to-transparent font-semibold text-foreground shadow-[0_0_24px_-14px] shadow-primary'
+                  : 'border-transparent text-muted-foreground hover:bg-accent/60 hover:text-foreground',
               )}
             >
-              {view === 'terminal' && (
-                <span
-                  className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-linear-to-b from-primary to-nebula-violet shadow-[0_0_8px_rgba(67,136,255,0.8)]"
-                  aria-hidden="true"
-                />
-              )}
-              <TERMINAL_NAV.icon
-                className={cn('size-4 shrink-0', view === 'terminal' ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground')}
-                aria-hidden="true"
-              />
+              <span className="grid size-7 place-items-center rounded-md border border-primary/25 bg-primary/15">
+                <TERMINAL_NAV.icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              </span>
               {TERMINAL_NAV.label}
+              {view === 'terminal' && (
+                <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-primary/40 bg-primary/15 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-primary">
+                  <span className="relative flex size-1.5" aria-hidden="true">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-75 motion-reduce:animate-none" />
+                    <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+                  </span>
+                  LIVE
+                </span>
+              )}
             </Link>
           </li>
           {DASHBOARD_VIEWS.map((item) => {
