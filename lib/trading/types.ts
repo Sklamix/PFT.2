@@ -96,7 +96,13 @@ export type BookEvents = {
   breach: Breach | null
   unfrozenAccountId: string | null
   newsViolations: NewsViolationEvent[]
-  orderUpdates: { status: 'FILLED' | 'REJECTED' | 'CANCELLED'; message: string }[]
+  orderUpdates: {
+    status: 'FILLED' | 'REJECTED' | 'CANCELLED'
+    message: string
+    symbol?: string
+    positionId?: string
+    pendingId?: string
+  }[]
 }
 
 export type BookPayload = {

@@ -816,10 +816,14 @@ async function enforceRules(w: Working) {
   }
   w.unfrozenAccountId = await w.tx.activateStandby()
   if (w.pendingOrders.length) {
+    const firstPendingId = w.pendingOrders[0]?.id
+    const firstPendingSymbol = w.pendingOrders[0]?.symbol
     await w.tx.cancelPendingOrders('Account breached risk rules')
     w.orderUpdates.push({
       status: 'CANCELLED',
       message: `Cancelled ${w.pendingOrders.length} pending order${w.pendingOrders.length === 1 ? '' : 's'} because the account breached risk rules`,
+      symbol: firstPendingSymbol,
+      pendingId: firstPendingId,
     })
     w.pendingOrders = []
   }
@@ -947,6 +951,8 @@ async function processPendingOrders(w: Working, quotes: Quotes) {
       w.orderUpdates.push({
         status: 'CANCELLED',
         message: `Cancelled ${cancelled} pending order${cancelled === 1 ? '' : 's'}: profit target reached`,
+        symbol: w.pendingOrders[0]?.symbol,
+        pendingId: w.pendingOrders[0]?.id,
       })
       w.pendingOrders = []
     }
@@ -983,7 +989,7 @@ async function processPendingOrders(w: Working, quotes: Quotes) {
 
     if (protectionError) {
       await w.tx.updatePendingOrderStatus(order.id, 'REJECTED', protectionError)
-      w.orderUpdates.push({ status: 'REJECTED', message: pendingOrderMessage(order, `rejected (${protectionError})`) })
+      w.orderUpdates.push({ status: 'REJECTED', message: pendingOrderMessage(order, `rejected (${protectionError})`), symbol: order.symbol, pendingId: order.id })
       continue
     }
 
@@ -1007,11 +1013,13 @@ async function processPendingOrders(w: Working, quotes: Quotes) {
       w.orderUpdates.push({
         status: 'REJECTED',
         message: pendingOrderMessage(order, `rejected (${positionResult.error})`),
+        symbol: order.symbol,
+        pendingId: order.id,
       })
       continue
     }
 
-    w.orderUpdates.push({ status: 'FILLED', message: pendingOrderMessage(order, `filled at ${fill.toFixed(5)}`) })
+    w.orderUpdates.push({ status: 'FILLED', message: pendingOrderMessage(order, `filled at ${fill.toFixed(5)}`), symbol: order.symbol, pendingId: order.id })
     await settleProtectiveOrders(w)
     await enforceRules(w)
     if (!tradingAllowed(w)) break
@@ -1221,6 +1229,8 @@ export async function placeMarketOrder(input: OrderInput): Promise<EngineResult<
       w.orderUpdates.push({
         status: 'FILLED',
         message: `${input.side} ${input.lots.toFixed(2)} ${input.symbol}: market order filled at ${entry.toFixed(getSymbol(input.symbol).priceDecimals)}`,
+        symbol: input.symbol,
+        positionId: opened.position.id,
       })
     }
     await enforceRules(w)

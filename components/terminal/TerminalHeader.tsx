@@ -20,6 +20,7 @@ import { formatPct, formatUsd } from '@/lib/dashboard-data'
 import { useNow } from '@/hooks/use-now'
 import { useFavoritesStore } from '@/lib/stores/useFavoritesStore'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { NotificationCenter } from './NotificationCenter'
 import { TIMEZONE_OPTIONS, timeZoneOffsetLabel, useTimezoneStore } from '@/lib/stores/useTimezoneStore'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { cn } from '@/lib/utils'
@@ -76,7 +77,8 @@ export function TerminalHeader() {
           </span>
         </div>
 
-        <div className="ml-auto shrink-0">
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          <NotificationCenter />
           <TimezoneClock />
         </div>
       </div>

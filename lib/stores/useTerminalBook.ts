@@ -33,9 +33,13 @@ export type TerminalAccountSnapshot = {
 }
 
 export type TerminalNotice = {
+  id?: string
+  title?: string
   tone: 'info' | 'success' | 'danger'
   message: string
   switchToAccountId?: string
+  kind?: 'order' | 'account' | 'payment' | 'rule' | 'system'
+  ref?: { kind: 'position' | 'pending'; id: string }
 }
 
 type Mark = Quote & { mid: number; at: number }
@@ -248,17 +252,25 @@ function describeEvents(book: ServerBook): TerminalNotice | null {
   const { breach, unfrozenAccountId, closed } = book.events
   if (breach) {
     const standby = unfrozenAccountId ? ` Standby account ${unfrozenAccountId} is now ACTIVE.` : ''
-    return { tone: 'danger', message: `${breach.reason}. All positions were liquidated.${standby}`, switchToAccountId: unfrozenAccountId ?? undefined }
+    return { tone: 'danger', message: `${breach.reason}. All positions were liquidated.${standby}`, switchToAccountId: unfrozenAccountId ?? undefined, kind: 'account' }
   }
   const triggered = closed.filter((trade) => trade.closeReason === 'STOP_LOSS' || trade.closeReason === 'TAKE_PROFIT')
   if (triggered.length) {
+    const first = triggered[0]
+    const hitLabel = first.closeReason === 'STOP_LOSS' ? 'stop loss' : 'take profit'
     const parts = triggered.map((trade) => `${getSymbol(trade.symbol).displayName} ${trade.closeReason === 'STOP_LOSS' ? 'stop loss' : 'take profit'} hit (${trade.pnl >= 0 ? '+' : ''}${trade.pnl.toFixed(2)})`)
-    return { tone: 'info', message: parts.join(' · ') }
+    return { id: `close:${first.id}`, tone: 'info', message: parts.join(' · '), kind: 'order', title: `${getSymbol(first.symbol).displayName} ${hitLabel} hit`, ref: { kind: 'position', id: first.id } }
   }
   if (book.events.orderUpdates.length) {
+    const last = book.events.orderUpdates[book.events.orderUpdates.length - 1]
+    const statusLabel = last.status === 'FILLED' ? 'filled' : last.status === 'REJECTED' ? 'rejected' : 'cancelled'
     return {
+      id: `order:${last.status}:${last.message.slice(0, 40)}:${Math.floor(Date.now() / 60_000)}`,
       tone: book.events.orderUpdates.some((event) => event.status === 'REJECTED') ? 'danger' : 'success',
       message: book.events.orderUpdates.map((event) => event.message).join(' · '),
+      kind: 'order',
+      title: `Order ${statusLabel}`,
+      ref: last.positionId ? { kind: 'position', id: last.positionId } : last.pendingId ? { kind: 'pending', id: last.pendingId } : undefined,
     }
   }
   return null

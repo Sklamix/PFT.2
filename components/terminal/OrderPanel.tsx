@@ -14,6 +14,7 @@ import {
 } from '@/lib/constants/symbols'
 import { formatUsd } from '@/lib/dashboard-data'
 import { useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { useNotifications } from '@/lib/stores/useNotifications'
 import { useTradingStore } from '@/lib/stores/useTradingStore'
 import { useOrderTicketStore, defaultPendingPrices, type PendingTicketType } from '@/lib/stores/useOrderTicketStore'
 import { LEVEL_CLASS } from '@/lib/terminal/level-tone'
@@ -59,6 +60,7 @@ export function OrderPanel() {
   const accountStatus = useTerminalBook((state) => state.account?.status)
   const freeMargin = useTerminalBook((state) => state.snapshot.freeMargin)
   const snapshot = useTerminalBook((state) => state.snapshot)
+  const pushNotification = useNotifications((state) => state.push)
   const leverage = useTerminalBook((state) => state.account?.leverage ?? 100)
 
   const orderType = useOrderTicketStore((state) => state.orderType)
@@ -215,6 +217,13 @@ export function OrderPanel() {
             ? { tone: 'ok', text: `${label} ${side} ${sizeLots} ${meta.displayName} queued ${detail}` }
             : { tone: 'error', text: result.error },
         )
+        pushNotification({
+          id: `order-local:${pendingType}:${side}:${sizeLots.toFixed(2)}:${selectedSymbol}:${Date.now()}`,
+          kind: 'order',
+          tone: result.ok ? 'success' : 'danger',
+          title: result.ok ? 'Order queued' : 'Order rejected',
+          message: result.ok ? `${label} ${side} ${sizeLots} ${meta.displayName} queued ${detail}` : result.error,
+        })
         if (result.ok) setOrderType('market')
       } else {
         const result = await placeMarket({
@@ -229,6 +238,13 @@ export function OrderPanel() {
             ? { tone: 'ok', text: `Filled ${side} ${sizeLots} ${meta.displayName} @ ${formatPrice(selectedSymbol, result.position.entryPrice)}` }
             : { tone: 'error', text: result.error },
         )
+        pushNotification({
+          id: `order-local:${side}:${sizeLots.toFixed(2)}:${selectedSymbol}:${Date.now()}`,
+          kind: 'order',
+          tone: result.ok ? 'success' : 'danger',
+          title: result.ok ? 'Order filled' : 'Order rejected',
+          message: result.ok ? `Filled ${side} ${sizeLots} ${meta.displayName} @ ${formatPrice(selectedSymbol, result.position.entryPrice)}` : result.error,
+        })
       }
     } finally {
       setBusy(false)

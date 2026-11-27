@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { PFTMessageCard } from '@/components/messages/PFTMessageCard'
 import { formatPrice } from '@/lib/challenges'
 import { redirectToLogin, useTerminalBook } from '@/lib/stores/useTerminalBook'
+import { useNotifications } from '@/lib/stores/useNotifications'
 import { loadStoredFavorites } from '@/lib/stores/useFavoritesStore'
 import { loadStoredTimeZone } from '@/lib/stores/useTimezoneStore'
 import { useOrderTicketStore } from '@/lib/stores/useOrderTicketStore'
@@ -51,6 +52,8 @@ export function TerminalWorkspace() {
   const markMarket = useTerminalBook((state) => state.markMarket)
   const init = useTerminalBook((state) => state.init)
   const sync = useTerminalBook((state) => state.sync)
+  const pushNotification = useNotifications((state) => state.push)
+  const hydrateNotifications = useNotifications((state) => state.hydrate)
   const accountStatus = useTerminalBook((state) => state.account?.status)
   const loadState = useTerminalBook((state) => state.loadState)
   const loadError = useTerminalBook((state) => state.loadError)
@@ -69,6 +72,10 @@ export function TerminalWorkspace() {
     loadStoredTimeZone()
     void loadStoredFavorites()
   }, [])
+
+  useEffect(() => {
+    hydrateNotifications()
+  }, [hydrateNotifications])
 
   const loadOrders = useCallback(async () => {
     const response = await fetch('/api/checkout/pending', { cache: 'no-store' }).catch(() => null)
@@ -151,6 +158,34 @@ export function TerminalWorkspace() {
     if (added) setActivatedAccount({ id: added.id, displayId: added.displayId })
   }, [trader])
 
+  // A payment that is still processing becomes a persistent notification instead of a full-width banner.
+  const latestPendingOrderId = pendingOrders[0]?.id ?? null
+  useEffect(() => {
+    const order = orders?.find((candidate) => candidate.id === latestPendingOrderId) ?? null
+    if (!latestPendingOrderId || !order) return
+    pushNotification({
+      id: `payment:${order.id}`,
+      kind: 'payment',
+      tone: 'info',
+      title: 'New challenge is processing',
+      message: 'New challenge is processing — the account will appear in the selector automatically once the payment confirms.',
+      action: { label: 'Return to payment', href: order.paymentUrl ?? undefined },
+    })
+  }, [latestPendingOrderId, orders, pushNotification])
+
+  // An activated account becomes a notification with an action back into the terminal.
+  useEffect(() => {
+    if (!activatedAccount) return
+    pushNotification({
+      id: `account-ready:${activatedAccount.id}`,
+      kind: 'account',
+      tone: 'success',
+      title: 'Account ready',
+      message: `Account ${activatedAccount.displayId} is ready.`,
+      action: { label: 'Open account', onOpen: () => switchAccount(activatedAccount.id) },
+    })
+  }, [activatedAccount, pushNotification])
+
   useEffect(() => {
     if (connectionStatus !== 'CONNECTED') return
     if (!Number.isFinite(bid) || !Number.isFinite(ask) || !Number.isFinite(currentPrice)) return
@@ -200,43 +235,6 @@ export function TerminalWorkspace() {
         <>
           <TerminalHeader />
           <NoticeBar />
-          {pendingOrders.length > 0 && (
-            <Banner
-              tone="info"
-              message="New challenge is processing — the account will appear in the selector automatically once the payment confirms."
-              action={
-                pendingOrders[0]?.paymentUrl ? (
-                  <a
-                    href={pendingOrders[0].paymentUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500 px-3 text-xs font-semibold text-emerald-950 shadow-[0_0_18px_-6px_rgba(16,185,129,0.7)] transition hover:bg-emerald-400"
-                  >
-                    Return to payment
-                  </a>
-                ) : undefined
-              }
-            />
-          )}
-          {activatedAccount && (
-            <Banner
-              tone="success"
-              message={`Account ${activatedAccount.displayId} is ready.`}
-              onDismiss={() => setActivatedAccount(null)}
-              action={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    switchAccount(activatedAccount.id)
-                    setActivatedAccount(null)
-                  }}
-                >
-                  Open account
-                </Button>
-              }
-            />
-          )}
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
               <TradingChart />
@@ -424,9 +422,26 @@ function NoticeBar() {
   const loadState = useTerminalBook((state) => state.loadState)
   const loadError = useTerminalBook((state) => state.loadError)
   const account = useTerminalBook((state) => state.account)
-  const dismiss = useTerminalBook((state) => state.dismissNotice)
+  const dismissNotice = useTerminalBook((state) => state.dismissNotice)
+  const pushNotification = useNotifications((state) => state.push)
   const [appealOpen, setAppealOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
+
+  // Trade/account events leave the full-width banner and become history rows.
+  // Breach notices stay as the persistent status banner.
+  useEffect(() => {
+    if (!notice || notice.kind === 'account') return
+    if (!notice.id) return
+    pushNotification({
+      id: notice.id,
+      kind: notice.kind ?? 'system',
+      tone: notice.tone === 'success' ? 'success' : notice.tone === 'danger' ? 'danger' : 'info',
+      title: notice.title ?? 'Notification',
+      message: notice.message,
+      ref: notice.ref,
+    })
+    dismissNotice()
+  }, [notice, pushNotification, dismissNotice])
 
   if (loadState === 'error') {
     return <Banner tone="danger" message={`Trading account unavailable: ${loadError ?? 'unknown error'}`} />
@@ -469,11 +484,11 @@ function NoticeBar() {
       {breached ? (
         <ResetAccountDialog accountId={account.id} open={resetOpen} onOpenChange={setResetOpen} />
       ) : null}
-      {notice ? (
+      {notice && notice.kind === 'account' ? (
         <Banner
           tone={notice.tone}
           message={notice.message}
-          onDismiss={dismiss}
+          onDismiss={dismissNotice}
           action={
             notice.switchToAccountId && notice.switchToAccountId !== account?.activeSiblingAccountId ? (
               <Button size="sm" variant="outline" onClick={() => switchAccount(notice.switchToAccountId!)}>

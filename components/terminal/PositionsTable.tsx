@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, Loader2, Pencil, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -41,6 +41,7 @@ export function PositionsTable() {
   const [slDraft, setSlDraft] = useState('')
   const [tpDraft, setTpDraft] = useState('')
   const [savingProtection, setSavingProtection] = useState(false)
+  const [flashId, setFlashId] = useState<string | null>(null)
 
   async function close(id: string) {
     setCloseError(null)
@@ -104,6 +105,17 @@ export function PositionsTable() {
     }
   }
 
+  // Notification deep-links flash the selected row for two seconds.
+  useEffect(() => {
+    if (!selectedPositionId) return
+    const timer = setTimeout(() => setFlashId(selectedPositionId), 0)
+    const clearTimer = setTimeout(() => setFlashId(null), 2000)
+    return () => {
+      clearTimeout(timer)
+      clearTimeout(clearTimer)
+    }
+  }, [selectedPositionId])
+
   async function handleCancelAll() {
     if (!pending.length || !window.confirm(`Cancel all ${pending.length} working order${pending.length === 1 ? '' : 's'}?`)) return
     setBulkBusy('cancel')
@@ -161,7 +173,7 @@ export function PositionsTable() {
           {positions.length === 0 && pending.length === 0 ? (
             <Empty message="No open positions. Use the ticket on the right to send a market or limit order." />
           ) : (
-            <Table>
+            <Table id="positions-table">
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
                   <TableHead className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</TableHead>
@@ -228,7 +240,11 @@ export function PositionsTable() {
                 {positions.map((position) => (
                   <TableRow
                     key={position.id}
-                    className={cn('font-mono text-xs', selectedPositionId === position.id && 'bg-primary/5 border-l-2 border-primary')}
+                    className={cn(
+                      'font-mono text-xs',
+                      selectedPositionId === position.id && 'bg-primary/5 border-l-2 border-primary',
+                      flashId === position.id && 'ring-2 ring-primary',
+                    )}
                     aria-selected={selectedPositionId === position.id}
                     onClick={() => selectPosition(position.id)}
                   >
@@ -303,7 +319,10 @@ export function PositionsTable() {
                             variant="ghost"
                             size="icon-xs"
                             aria-label={`Edit SL/TP for ${position.symbol}`}
-                            onClick={() => startEdit(position.id, position.stopLoss, position.takeProfit)}
+                            onClick={() => {
+                              selectPosition(position.id)
+                              startEdit(position.id, position.stopLoss, position.takeProfit)
+                            }}
                           >
                             <Pencil className="size-3" />
                           </Button>
