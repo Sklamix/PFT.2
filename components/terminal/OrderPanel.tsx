@@ -263,11 +263,34 @@ export function OrderPanel() {
     }
   }
 
+  const accountDetail =
+    !tradable && accountStatus
+      ? accountStatus !== 'ACTIVE' && accountStatus !== 'FUNDED'
+        ? `Account ${accountStatus.toLowerCase()} — orders disabled`
+        : 'Symbol not tradable on this account'
+      : ''
+  const quoteWaitDetail = tradable && connectionStatus !== 'CONNECTED' ? 'Waiting for a fresh market quote — orders disabled' : ''
+  const quoteDetail = [accountDetail, quoteWaitDetail].filter(Boolean).join(' · ') || 'Market quote connected'
+  const quoteLabel = connectionStatus === 'CONNECTED' ? 'LIVE' : connectionStatus === 'CONNECTING' ? 'SYNCING' : 'NO QUOTE'
+  const quoteTone = connectionStatus === 'CONNECTED' ? 'text-primary' : 'text-warning'
+
   return (
     <aside className="flex w-full shrink-0 flex-col rounded-xl border border-border bg-card lg:w-80">
-      <div className="border-b border-border px-4 py-3">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Order ticket</p>
-        <p className="mt-1 text-sm font-medium text-foreground">{meta.name}</p>
+      <div className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
+        <div className="min-w-0">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">Order ticket</p>
+          <p className="mt-1 truncate text-sm font-medium text-foreground">{meta.name}</p>
+        </div>
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label={quoteDetail}
+          title={quoteDetail}
+          className={cn('flex shrink-0 items-center gap-1.5 font-mono text-[9px] uppercase tracking-wide', quoteTone)}
+        >
+          <span className="size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
+          <span className="max-w-[7.5rem] truncate">{quoteLabel}</span>
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col gap-4 p-4">
@@ -505,14 +528,6 @@ export function OrderPanel() {
               ? `Place ${pendingType === 'STOP_LIMIT' ? 'stop-limit' : pendingType.toLowerCase()} order`
               : 'Execute trade'}
         </Button>
-        {!tradable && accountStatus ? (
-          <p className="font-mono text-[11px] text-muted-foreground">
-            {accountStatus !== 'ACTIVE' && accountStatus !== 'FUNDED' ? `Account ${accountStatus.toLowerCase()} — orders disabled` : 'Symbol not tradable on this account'}
-          </p>
-        ) : null}
-        {tradable && connectionStatus !== 'CONNECTED' ? (
-          <p className="font-mono text-[11px] text-warning">Waiting for a fresh market quote — orders disabled</p>
-        ) : null}
         {notice ? (
           <p role={notice.tone === 'error' ? 'alert' : 'status'} className={cn('font-mono text-[11px]', notice.tone === 'error' ? 'text-danger' : 'text-highlight')}>
             {notice.text}
