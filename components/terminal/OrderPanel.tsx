@@ -268,23 +268,36 @@ export function OrderPanel() {
             Live reference price with an indicative spread; not an executable broker bid/ask.
           </TabsContent>
           <TabsContent value="limit" className="mt-3 space-y-3">
-            <div className="grid grid-cols-3 gap-1">
-              {(['LIMIT', 'STOP', 'STOP_LIMIT'] as const).map((type) => (
+            {advancedOrderTypes ? (
+              <div className="grid grid-cols-3 gap-1">
+                {(['LIMIT', 'STOP', 'STOP_LIMIT'] as const).map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => choosePendingType(type)}
+                    className={cn(
+                      'rounded-md border px-1.5 py-1.5 font-mono text-[10px] uppercase tracking-wide transition-colors',
+                      pendingType === type
+                        ? 'border-primary/50 bg-primary/15 text-primary'
+                        : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {type === 'STOP_LIMIT' ? 'Stop-limit' : type === 'STOP' ? 'Stop' : 'Limit'}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              // Stop / Stop-Limit are switched off in Settings → Trading: one type only.
+              <div className="grid grid-cols-1">
                 <button
-                  key={type}
                   type="button"
-                  onClick={() => choosePendingType(type)}
-                  className={cn(
-                    'rounded-md border px-1.5 py-1.5 font-mono text-[10px] uppercase tracking-wide transition-colors',
-                    pendingType === type
-                      ? 'border-primary/50 bg-primary/15 text-primary'
-                      : 'border-border bg-secondary/40 text-muted-foreground hover:text-foreground',
-                  )}
+                  aria-pressed="true"
+                  className="rounded-md border border-primary/50 bg-primary/15 px-1.5 py-1.5 font-mono text-[10px] uppercase tracking-wide text-primary"
                 >
-                  {type === 'STOP_LIMIT' ? 'Stop-limit' : type === 'STOP' ? 'Stop' : 'Limit'}
+                  Limit
                 </button>
-              ))}
-            </div>
+              </div>
+            )}
             {pendingType !== 'LIMIT' ? (
               <Field label="Stop price">
                 <input
