@@ -77,7 +77,8 @@ export function OrderPanel() {
   const openPending = useOrderTicketStore((state) => state.openPending)
   const resetForSymbol = useOrderTicketStore((state) => state.resetForSymbol)
   const [sizeSource, setSizeSource] = useState<'lots' | 'usd'>('lots')
-  const [lots, setLots] = useState('0.10')
+  const lots = useOrderTicketStore((state) => state.lots)
+  const setLots = useOrderTicketStore((state) => state.setLots)
   const [usdAmount, setUsdAmount] = useState('500')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'ok' | 'error' | 'info'; text: string } | null>(null)
@@ -145,7 +146,18 @@ export function OrderPanel() {
     openPending(selectedSymbol, side, entry, type)
   }
 
-  function showDragHint(field: 'stopLoss' | 'takeProfit') {
+  /**
+   * The `drag` control is a toggle: it plants a default level and draws the preview on
+   * the chart, and a second press removes it again.
+   */
+  function toggleDragPreview(field: 'stopLoss' | 'takeProfit') {
+    const current = field === 'stopLoss' ? stopLoss : takeProfit
+    const label = field === 'stopLoss' ? 'Stop loss' : 'Take profit'
+    if (current.trim() !== '') {
+      setField(field, '')
+      setNotice({ tone: 'info', text: `${label} preview removed.` })
+      return
+    }
     const defaults = defaultPendingPrices(selectedSymbol, side, entry, orderType === 'pending' ? pendingType : 'LIMIT')
     const value = field === 'stopLoss' ? defaults.stopLoss : defaults.takeProfit
     setField(field, value.toFixed(priceDecimals))
@@ -286,18 +298,7 @@ export function OrderPanel() {
                   </button>
                 ))}
               </div>
-            ) : (
-              // Stop / Stop-Limit are switched off in Settings → Trading: one type only.
-              <div className="grid grid-cols-1">
-                <button
-                  type="button"
-                  aria-pressed="true"
-                  className="rounded-md border border-primary/50 bg-primary/15 px-1.5 py-1.5 font-mono text-[10px] uppercase tracking-wide text-primary"
-                >
-                  Limit
-                </button>
-              </div>
-            )}
+            ) : null}
             {pendingType !== 'LIMIT' ? (
               <Field label="Stop price">
                 <input
@@ -488,7 +489,7 @@ export function OrderPanel() {
           }
           toneSl={slTone}
           toneTp={tpTone}
-          onDragHint={showDragHint}
+          onTogglePreview={toggleDragPreview}
         />
         <ProtectionSummary rr={rr} riskPct={riskPct} />
 
@@ -544,7 +545,7 @@ function ProtectionBlock({
   resultTp,
   toneSl,
   toneTp,
-  onDragHint,
+  onTogglePreview,
 }: {
   valueSl: string
   valueTp: string
@@ -554,64 +555,96 @@ function ProtectionBlock({
   resultTp: string | null
   toneSl: 'primary' | 'danger' | null
   toneTp: 'primary' | 'danger' | null
-  onDragHint: (field: 'stopLoss' | 'takeProfit') => void
+  onTogglePreview: (field: 'stopLoss' | 'takeProfit') => void
 }) {
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <div className={cn('rounded-lg border border-l-2 px-3 py-2', LEVEL_CLASS.sl.border)}>
-        <div className="flex items-start justify-between gap-2">
-          <p className={cn('font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.sl.text)}>STOP LOSS</p>
-          <button
-            type="button"
-            onClick={() => onDragHint('stopLoss')}
-            aria-label="Show stop loss preview on the chart"
-            className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-          >
-            <MoveVertical className="size-3" aria-hidden="true" />
-            drag
-          </button>
-        </div>
-        <input
-          inputMode="decimal"
-          value={valueSl}
-          onChange={onChangeSl}
-          placeholder="Optional"
-          className={inputClass}
-        />
-        {resultSl ? (
-          <p className={cn('mt-1 font-mono text-[13px] font-semibold', toneSl === 'danger' ? 'text-danger' : 'text-primary')}>
-            {resultSl}
-          </p>
-        ) : null}
+    <div className="grid grid-cols-2 items-stretch gap-2">
+      <ProtectionCard
+        label="STOP LOSS"
+        palette="sl"
+        value={valueSl}
+        onChange={onChangeSl}
+        result={resultSl}
+        resultTone={toneSl}
+        previewActive={valueSl.trim() !== ''}
+        onToggle={() => onTogglePreview('stopLoss')}
+        actionLabel="Toggle stop loss preview on the chart"
+      />
+      <ProtectionCard
+        label="TAKE PROFIT"
+        palette="tp"
+        value={valueTp}
+        onChange={onChangeTp}
+        result={resultTp}
+        resultTone={toneTp}
+        previewActive={valueTp.trim() !== ''}
+        onToggle={() => onTogglePreview('takeProfit')}
+        actionLabel="Toggle take profit preview on the chart"
+      />
+    </div>
+  )
+}
+
+/**
+ * One protection input. Header height is fixed so the SL and TP boxes always align,
+ * even when a label would wrap on a narrow ticket.
+ */
+function ProtectionCard({
+  label,
+  palette,
+  value,
+  onChange,
+  result,
+  resultTone,
+  previewActive,
+  onToggle,
+  actionLabel,
+}: {
+  label: string
+  palette: 'sl' | 'tp'
+  value: string
+  onChange: (event: React.ChangeEvent<HTMLInputElement>) => void
+  result: string | null
+  resultTone: 'primary' | 'danger' | null
+  previewActive: boolean
+  onToggle: () => void
+  actionLabel: string
+}) {
+  const tone = palette === 'sl' ? LEVEL_CLASS.sl : LEVEL_CLASS.tp
+  return (
+    <div className={cn('flex flex-col gap-1.5 rounded-lg border border-l-2 px-2.5 py-2', tone.border)}>
+      <div className="flex h-5 items-center justify-between gap-1">
+        <p className={cn('truncate font-mono text-[9px] uppercase tracking-widest', tone.text)}>{label}</p>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-pressed={previewActive}
+          aria-label={actionLabel}
+          title={previewActive ? 'Hide preview on the chart' : 'Show preview on the chart'}
+          className={cn(
+            'inline-flex shrink-0 items-center gap-0.5 rounded px-0.5 font-mono text-[9px] uppercase tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+            previewActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          <MoveVertical className="size-2.5" aria-hidden="true" />
+          drag
+        </button>
       </div>
-      <div className={cn('rounded-lg border border-l-2 px-3 py-2', LEVEL_CLASS.tp.border)}>
-        <div className="flex items-start justify-between gap-2">
-          <p className={cn('font-mono text-[10px] uppercase tracking-widest', LEVEL_CLASS.tp.text)}>
-            TAKE PROFIT
-          </p>
-          <button
-            type="button"
-            onClick={() => onDragHint('takeProfit')}
-            aria-label="Show take profit preview on the chart"
-            className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-          >
-            <MoveVertical className="size-3" aria-hidden="true" />
-            drag
-          </button>
-        </div>
-        <input
-          inputMode="decimal"
-          value={valueTp}
-          onChange={onChangeTp}
-          placeholder="Optional"
-          className={inputClass}
-        />
-        {resultTp ? (
-          <p className={cn('mt-1 font-mono text-[13px] font-semibold', toneTp === 'danger' ? 'text-danger' : 'text-primary')}>
-            {resultTp}
-          </p>
-        ) : null}
-      </div>
+      <input
+        inputMode="decimal"
+        value={value}
+        onChange={onChange}
+        placeholder="Optional"
+        className={inputClass}
+      />
+      <p
+        className={cn(
+          'mt-auto min-h-4 font-mono text-[12px] font-semibold',
+          result == null ? 'text-transparent' : resultTone === 'danger' ? 'text-danger' : 'text-primary',
+        )}
+      >
+        {result ?? '—'}
+      </p>
     </div>
   )
 }

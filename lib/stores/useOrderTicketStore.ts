@@ -17,12 +17,15 @@ type TicketState = {
   stopPrice: string
   stopLoss: string
   takeProfit: string
+  /** Ticket size in lots. Shared so the chart can price the SL/TP preview. */
+  lots: string
   /** Show STOP / STOP-LIMIT in the order ticket. Synced with the trader's preferences. */
   advancedOrderTypes: boolean
   setOrderType: (type: OrderTicketType) => void
   setPendingType: (type: PendingTicketType) => void
   setSide: (side: OrderSide) => void
   setField: (field: TicketPriceField, value: string) => void
+  setLots: (value: string) => void
   setAdvancedOrderTypes: (value: boolean) => void
   openPending: (symbol: string, side: OrderSide, entry: number, type?: PendingTicketType) => void
   resetForSymbol: (symbol: string) => void
@@ -79,12 +82,14 @@ export const useOrderTicketStore = create<TicketState>((set, get) => ({
   stopPrice: '',
   stopLoss: '',
   takeProfit: '',
+  lots: '0.10',
   advancedOrderTypes: storedAdvancedOrderTypes,
 
   setOrderType: (orderType) => set({ orderType }),
   setPendingType: (pendingType) => set({ pendingType }),
   setSide: (side) => set({ side }),
   setField: (field, value) => set({ [field]: value } as Pick<TicketState, TicketPriceField>),
+  setLots: (lots) => set({ lots }),
   setAdvancedOrderTypes: (value) => {
     set({ advancedOrderTypes: value })
     try {
