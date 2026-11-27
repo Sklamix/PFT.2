@@ -181,7 +181,9 @@ export function BillingView() {
         window.alert(body.error ?? 'Unable to open payment.')
         return
       }
-      window.location.assign(body.url)
+      // Open the provider page in its own tab: the trader keeps the order list in view.
+      const opened = window.open(body.url, '_blank', 'noopener,noreferrer')
+      if (!opened) window.location.assign(body.url)
     } finally {
       setPayingId(null)
     }

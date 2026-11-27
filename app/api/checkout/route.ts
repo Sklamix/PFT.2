@@ -17,10 +17,10 @@ import {
 } from '@/lib/challenges'
 import { isEmailConfigured } from '@/lib/email/resend'
 import { sendCheckoutInvoiceEmail, type CheckoutInvoiceDetails } from '@/lib/email/checkout-invoice'
-import { appUrl } from '@/lib/email/account-credentials'
 import { recordActivity } from '@/lib/admin/activity'
 import { RULES_VERSION } from '@/lib/rules/version'
 import { getTraderSession } from '@/lib/trader/auth'
+import { PAY_CURRENCY, createNowPaymentsInvoice } from '@/lib/payments/nowpayments-invoice'
 import {
   claimCheckoutIntent,
   checkoutIntentKey,
@@ -29,15 +29,7 @@ import {
   normalizeEmail,
 } from '@/lib/payments/checkout-intent'
 
-const PAY_CURRENCY = 'usdttrc20'
 const PAY_CURRENCY_LABEL = 'USDT (TRC20)'
-const INVOICE_TIMEOUT_MS = 15_000
-
-interface NowPaymentsInvoice {
-  id?: string | number
-  invoice_url?: string
-  message?: string
-}
 
 function parsePlanSize(value: unknown): AccountSize | null {
   const size = typeof value === 'number' ? value : Number(value)
@@ -222,43 +214,18 @@ export async function POST(req: Request) {
     // Collision-resistant: providerOrderId is unique and is the webhook's only lookup key.
     // A millisecond-only id could collide and strand a paid invoice without an order.
     const orderId = `PFT-${Date.now()}-${randomUUID().slice(0, 8)}`
-    const baseUrl = appUrl()
-    const apiKey = process.env.NOWPAYMENTS_API_KEY
-    if (!apiKey) {
-      console.error('Checkout misconfigured: NOWPAYMENTS_API_KEY is not set')
-      return NextResponse.json({ error: 'Crypto checkout is temporarily unavailable.' }, { status: 503 })
-    }
-
-    const payload = {
-      price_amount: amount,
-      price_currency: 'usd',
-      pay_currency: PAY_CURRENCY,
-      order_id: orderId,
-      order_description: `PFT Challenge ${planSize / 1000}k (${evaluationLabel})`,
-      ipn_callback_url: `${baseUrl}/api/webhooks/payment-success`,
-      success_url: `${baseUrl}/dashboard/terminal`,
-      cancel_url: `${baseUrl}/dashboard/terminal`,
-      customer_email: traderEmail,
-    }
-
-    const response = await fetch('https://api.nowpayments.io/v1/invoice', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(INVOICE_TIMEOUT_MS),
+    const invoice = await createNowPaymentsInvoice({
+      orderId,
+      amount,
+      description: `PFT Challenge ${planSize / 1000}k (${evaluationLabel})`,
+      email: traderEmail,
     })
-
-    const data = (await response.json().catch(() => null)) as NowPaymentsInvoice | null
-    const invoiceUrl = data?.invoice_url
-    if (!response.ok || typeof invoiceUrl !== 'string' || !invoiceUrl.startsWith('https://')) {
-      console.error('NOWPayments invoice error:', response.status, data)
+    if (!invoice.ok) {
       await failCheckoutIntent(prisma, intentKey)
-      return NextResponse.json({ error: data?.message || 'Unable to generate a payment invoice.' }, { status: 400 })
+      return NextResponse.json({ error: invoice.error }, { status: 400 })
     }
-    const providerInvoiceId = data?.id != null ? String(data.id) : null
+    const invoiceUrl = invoice.url
+    const providerInvoiceId = invoice.providerInvoiceId
 
     const invoiceDetails: CheckoutInvoiceDetails = {
       orderId,

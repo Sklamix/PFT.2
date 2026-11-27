@@ -1,22 +1,18 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireTrader } from '@/lib/trader/auth'
-import { checkoutIntentKey, normalizeEmail } from '@/lib/payments/checkout-intent'
+import { createNowPaymentsInvoice } from '@/lib/payments/nowpayments-invoice'
 
 export const dynamic = 'force-dynamic'
 
-function isExpired(expiresAt: unknown): boolean {
-  if (typeof expiresAt === 'number') return expiresAt <= Date.now()
-  if (typeof expiresAt === 'string') {
-    const parsed = Date.parse(expiresAt)
-    if (!Number.isNaN(parsed)) return parsed <= Date.now()
-  }
-  return false
-}
-
 /**
- * Opens (or reuses) the payment invoice for a PENDING order without creating a
- * second PENDING row for the same product.
+ * Opens the payment page for an existing PENDING order.
+ *
+ * Hard rule: this endpoint never creates a second Order row. It either returns the
+ * invoice URL already stored on the order, or reissues an invoice for the *same*
+ * provider order id and writes the new URL back onto the same row. The checkout
+ * intent table is deliberately not consulted — its key is per product, so it can
+ * hold an older invoice belonging to a different order.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -31,6 +27,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         userId: true,
         status: true,
         paymentUrl: true,
+        providerOrderId: true,
+        amount: true,
         rawPayload: true,
       },
     })
@@ -41,76 +39,40 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Only pending orders can be paid.' }, { status: 409 })
     }
 
+    // 1. The invoice already stored on this order wins. No expiry guesswork: an
+    //    invoice URL stays the canonical entry point for that order.
+    if (order.paymentUrl) {
+      return NextResponse.json({ url: order.paymentUrl, reused: true })
+    }
+
+    // 2. No URL on the row: issue one for the same provider order id.
     const payload =
       order.rawPayload && typeof order.rawPayload === 'object' && !Array.isArray(order.rawPayload)
         ? (order.rawPayload as Record<string, unknown>)
         : {}
-
     const planSize = Number.isInteger(payload.planSize) ? Number(payload.planSize) : null
     const evaluationLabel = typeof payload.evaluationType === 'string' ? payload.evaluationType : null
-    const drawdownMode = payload.drawdownMode === 'static' ? 'static' : 'trailing'
-    const dailyLossType = typeof payload.dailyLossType === 'number' ? payload.dailyLossType : null
-    const hasFrozenBackup = payload.hasFrozenBackup === true
+    const description =
+      planSize && evaluationLabel
+        ? `PFT Challenge ${planSize / 1000}k (${evaluationLabel})`
+        : `PFT Challenge ${order.providerOrderId}`
 
-    // 1. Live invoice already on the order.
-    if (order.paymentUrl && !isExpired(payload.expiresAt)) {
-      return NextResponse.json({ url: order.paymentUrl, reused: true })
+    const invoice = await createNowPaymentsInvoice({
+      orderId: order.providerOrderId,
+      amount: Number(order.amount),
+      description,
+      email: session.email,
+    })
+    if (!invoice.ok) {
+      return NextResponse.json({ error: invoice.error }, { status: 502 })
     }
 
-    // 2. Resolve via the existing intent mechanism.
-    if (planSize && evaluationLabel && dailyLossType != null) {
-      const intentKey = checkoutIntentKey({
-        email: normalizeEmail(session.email),
-        planSize,
-        evaluationType: evaluationLabel,
-        drawdownMode,
-        dailyLossType,
-        hasFrozenBackup,
-      })
-      const intent = await prisma.checkoutIntent.findUnique({
-        where: { key: intentKey },
-        select: { status: true, paymentUrl: true, expiresAt: true },
-      })
-      if (intent?.status === 'READY' && intent.paymentUrl && intent.expiresAt.getTime() > Date.now()) {
-        return NextResponse.json({ url: intent.paymentUrl, reused: true })
-      }
+    await prisma.order.update({
+      where: { id: order.id },
+      data: { paymentUrl: invoice.url, providerInvoiceId: invoice.providerInvoiceId },
+    })
 
-      // 3. No live invoice: hand off to the checkout resume/create path (no second PENDING).
-      const origin = new URL(request.url).origin
-      const checkoutResponse = await fetch(`${origin}/api/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          cookie: request.headers.get('cookie') ?? '',
-        },
-        body: JSON.stringify({
-          email: session.email,
-          planSize,
-          evaluationType: evaluationLabel,
-          drawdownMode,
-          dailyLossType,
-          hasFrozenBackup,
-          paymentMethod: 'crypto',
-        }),
-      })
-      const checkoutData = await checkoutResponse.json().catch(() => ({} as Record<string, unknown>))
-      if (!checkoutResponse.ok || typeof checkoutData.url !== 'string') {
-        return NextResponse.json(
-          { error: (checkoutData as { error?: string }).error || 'Unable to open payment.' },
-          { status: 502 },
-        )
-      }
-      return NextResponse.json({
-        url: checkoutData.url,
-        reused: Boolean((checkoutData as { resumed?: boolean }).resumed),
-      })
-    }
-
-    // Fallback: if we cannot reconstruct the product, reuse the stored url if any.
-    if (order.paymentUrl) {
-      return NextResponse.json({ url: order.paymentUrl, reused: true })
-    }
-    return NextResponse.json({ error: 'Unable to open payment.' }, { status: 409 })
+    return NextResponse.json({ url: invoice.url, reused: false })
   } catch (error) {
     console.error('[pft billing] Pay failed', error)
     return NextResponse.json({ error: 'Unable to open payment.' }, { status: 500 })
