@@ -35,9 +35,12 @@ const CROSS = 'rgba(226, 232, 240, 0.35)'
 const CANDLES_TIMEOUT_MS = 8000
 const DAY_SECONDS = 86_400
 const VISIBLE_BARS = 140
+/** Minimum vertical distance between two level badges so their text never collides. */
+const BADGE_GAP = 20
 const PENDING_STOP_COLOR = LEVEL_HEX.stop
-/** DESIGN.md moon-mist: inactive position levels. */
-const MUTED_LEVEL = '#8fa3c4'
+/** DESIGN.md moon-mist at 55%: inactive position levels. Alpha lives in the colour —
+ *  lightweight-charts price lines have no opacity option, so an rgba value is the only way. */
+const MUTED_LEVEL = 'rgba(143, 163, 196, 0.55)'
 const EMPTY_CHART_DRAWINGS: ChartDrawing[] = []
 
 type CandlesResponse = { candles?: Candle[]; lastPrice?: number; collecting?: boolean }
@@ -804,7 +807,6 @@ export function TradingChart() {
         color: level.color,
         lineWidth: 1,
         lineStyle: level.dashed ? lineStylesRef.current.dashed : lineStylesRef.current.solid,
-        opacity: level.muted ? 0.55 : 1,
         axisLabelVisible: false,
         title: '',
       }
@@ -818,12 +820,22 @@ export function TradingChart() {
     const series = seriesRef.current
     if (!series) return []
     const height = containerRef.current?.clientHeight ?? Infinity
-    return levels.flatMap((level) => {
+    const items = levels.flatMap((level) => {
       const price = dragPreview?.key === level.key ? dragPreview.price : level.price
       const y = series.candle.priceToCoordinate(price)
       if (y == null || y < -8 || y > height + 8) return []
-      return [{ level, price, y, badge: levelBadge(level, price) }]
+      return [{ level, price, y, labelY: y, badge: levelBadge(level, price) }]
     })
+    // Two levels a few pips apart (entry next to TP, SL next to TP) would print their badges
+    // on top of each other and neither stays readable. Push the labels apart in price order;
+    // the lines themselves stay on their real price.
+    const ordered = [...items].sort((a, b) => a.y - b.y)
+    let previous = Number.NEGATIVE_INFINITY
+    for (const item of ordered) {
+      item.labelY = Math.max(item.y, previous + BADGE_GAP)
+      previous = item.labelY
+    }
+    return items
   }, [levels, dragPreview, overlayRevision, chartReady, selectedSymbol])
 
   const drawingShapes = useMemo(() => {
@@ -1279,7 +1291,7 @@ export function TradingChart() {
           />
         ) : null}
         <div className="pointer-events-none absolute inset-0 z-10">
-          {renderedLevels.map(({ level, price, y, badge }) => {
+          {renderedLevels.map(({ level, price, y, labelY, badge }) => {
             const interactive = level.interactive !== false
             const muted = level.muted === true
             return (
@@ -1324,10 +1336,14 @@ export function TradingChart() {
                     level.kind === 'entry' && 'rounded-full px-2.5 py-0.5',
                     level.order ? 'left-2' : 'right-2',
                   )}
-                  style={{ borderColor: level.color, color: level.color, opacity: muted ? 0.55 : 1 }}
+                  style={{ borderColor: level.color, color: level.color, top: `calc(50% + ${labelY - y}px)` }}
                 >
                   <span className="font-bold uppercase tracking-wide">{badge.title}</span>
-                  {badge.price ? <span className="font-semibold tabular-nums text-foreground">{badge.price}</span> : null}
+                  {badge.price ? (
+                    <span className={cn('font-semibold tabular-nums', muted ? 'text-muted-foreground' : 'text-foreground')}>
+                      {badge.price}
+                    </span>
+                  ) : null}
                   {badge.detail ? (
                     <span className={cn('hidden tabular-nums sm:inline', level.kind === 'sl' ? 'text-danger' : level.kind === 'tp' ? 'text-primary' : 'text-muted-foreground')}>
                       {badge.detail}
