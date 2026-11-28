@@ -37,3 +37,6 @@ backup-before-db-push-*.json
 
 # Local agent workspace notes (per-machine, like .agents/)
 .workbuddy-ai/
+
+# graphify knowledge-graph build artifacts (regenerate with `graphify . --code-only`)
+graphify-out/

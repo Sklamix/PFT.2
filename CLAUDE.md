@@ -21,3 +21,14 @@ Bias: caution over speed on non-trivial work.
 ## 4. Goal-Driven Execution
 - Define strict success criteria. Loop until verified.
 - Write tests for invalid inputs or bugs first, then make them pass.
+
+## 5. Code Orientation
+- For questions about structure, callers, or blast radius, query the knowledge graph
+  before grepping: `graphify query "<question>"`, `graphify explain "<symbol>"`,
+  `graphify path "<A>" "<B>"`. Output lands in `graphify-out/` (gitignored).
+- Fall back to `grep` for exact-string lookups, and to `Read` for the file you are
+  about to edit — the graph tells you which file, not its contents.
+- The graph is a snapshot. Run `graphify update .` after changing code, otherwise
+  answers describe an older tree.
+- The graph covers code only. Never use it to infer database state, migration
+  status, or runtime configuration — query the database for that.
