@@ -71,6 +71,7 @@ export async function GET() {
       },
       preferences: prefs,
       security: {
+        email: user.email,
         // The architecture keeps one active session per trader; there is no multi-device session table.
         singleSessionModel: true,
         // Drives the SecurityPanel form: passwordless accounts verify with a STEP_UP email code.

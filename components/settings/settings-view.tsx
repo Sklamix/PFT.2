@@ -30,6 +30,7 @@ type SettingsPayload = {
     advancedOrderTypes: boolean
   }
   security: {
+    email: string
     hasPassword: boolean
     singleSessionModel: boolean
     lastSignInAt: string | null

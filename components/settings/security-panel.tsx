@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, KeyRound, Loader2, Lock, LogOut, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { Field, INPUT_CLASS, Notice, Panel } from './ui'
 import { cn } from '@/lib/utils'
 
 type SecuritySummary = {
+  email: string
   hasPassword: boolean
   singleSessionModel: boolean
   lastSignInAt: string | null
@@ -26,6 +27,16 @@ const ACTION_LABELS: Record<string, string> = {
   PASSWORD_CHANGED: 'Password changed',
   SESSIONS_REVOKED_ALL: 'All sessions signed out',
   SESSION_RISK_SIGNAL: 'Sign-in risk alert',
+}
+
+function maskEmail(email: string) {
+  const at = email.indexOf('@')
+  return at > 0 ? `${email.slice(0, 1)}•••@${email.slice(at + 1)}` : email
+}
+
+function retryAfterSec(response: Response) {
+  const value = Number(response.headers.get('Retry-After'))
+  return Number.isFinite(value) && value > 0 ? value : 60
 }
 
 function passwordScore(value: string) {
@@ -50,53 +61,94 @@ export function SecurityPanel({
   onReload: () => void
 }) {
   const router = useRouter()
+  const hasPassword = security.hasPassword
+  const [proof, setProof] = useState<'password' | 'email'>(hasPassword ? 'password' : 'email')
   const [currentPassword, setCurrentPassword] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
-  const [codeMode, setCodeMode] = useState(false)
+  const [resendIn, setResendIn] = useState(0)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [reveal, setReveal] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [sendingCode, setSendingCode] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [signOutBusy, setSignOutBusy] = useState(false)
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [emailUnavailable, setEmailUnavailable] = useState(false)
+  const [forgotHint, setForgotHint] = useState(false)
 
   const score = useMemo(() => passwordScore(newPassword), [newPassword])
-  const hasPassword = security.hasPassword
-  // Email-code proof serves accounts without a password and password accounts
-  // whose owner forgot the current password while signed in.
-  const emailProof = !hasPassword || codeMode
+  const emailProof = !hasPassword || proof === 'email'
   const mismatch = confirmPassword.length > 0 && confirmPassword !== newPassword
   const canSubmit =
-    (emailProof ? (codeSent && verificationCode.length === 6) : currentPassword.length > 0) &&
+    (emailProof ? codeSent && verificationCode.length === 6 : currentPassword.length > 0) &&
     newPassword.length >= 8 &&
     newPassword === confirmPassword &&
-    !busy
+    !submitting &&
+    !sendingCode
+
+  useEffect(() => {
+    if (resendIn <= 0) return
+    const timer = setInterval(() => setResendIn((value) => Math.max(0, value - 1)), 1000)
+    return () => clearInterval(timer)
+  }, [resendIn])
 
   async function requestStepUpCode() {
-    setBusy(true)
+    if (sendingCode) return
+    setSendingCode(true)
     setError(null)
+    setSuccess(null)
+    setEmailUnavailable(false)
     try {
       const response = await fetch('/api/settings/password/request-step-up', { method: 'POST' })
       const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string }
+      if (response.status === 429) {
+        const seconds = retryAfterSec(response)
+        setResendIn(seconds)
+        throw new Error(`Too many requests. Try again in ${seconds}s.`)
+      }
+      if (response.status === 503) {
+        setEmailUnavailable(true)
+        throw new Error("We can't send email right now.")
+      }
       if (!response.ok) throw new Error(data.error ?? 'Unable to send a verification code.')
       setCodeSent(true)
-      setSuccess(data.message ?? 'A verification code has been sent to your email.')
+      setResendIn(60)
+      setSuccess(`We sent a 6-digit code to ${maskEmail(security.email)}. It expires in 10 minutes.`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to send a verification code.')
     } finally {
-      setBusy(false)
+      setSendingCode(false)
     }
+  }
+
+  function startEmailProof() {
+    setProof('email')
+    setForgotHint(false)
+    void requestStepUpCode()
+  }
+
+  function backToPassword() {
+    setProof('password')
+    setVerificationCode('')
+    setCodeSent(false)
+    setResendIn(0)
+    setError(null)
+    setSuccess(null)
+    setEmailUnavailable(false)
+    setForgotHint(false)
   }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!canSubmit) return
-    setBusy(true)
+    setSubmitting(true)
     setError(null)
     setSuccess(null)
+    setEmailUnavailable(false)
+    setForgotHint(false)
     try {
       const response = await fetch('/api/settings/password', {
         method: 'POST',
@@ -108,11 +160,20 @@ export function SecurityPanel({
         ),
       })
       const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string }
-      if (!response.ok) throw new Error(data.error ?? 'Unable to change the password.')
+      if (response.status === 429) {
+        const seconds = retryAfterSec(response)
+        setResendIn(seconds)
+        throw new Error(`Too many requests. Try again in ${seconds}s.`)
+      }
+      if (!response.ok) {
+        if (response.status === 401 && !emailProof) setForgotHint(true)
+        throw new Error(data.error ?? 'Unable to change the password.')
+      }
       setCurrentPassword('')
       setVerificationCode('')
       setCodeSent(false)
-      setCodeMode(false)
+      setResendIn(0)
+      setProof(hasPassword ? 'password' : 'email')
       setNewPassword('')
       setConfirmPassword('')
       setSuccess(data.message ?? 'Password updated.')
@@ -121,7 +182,7 @@ export function SecurityPanel({
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to change the password.')
     } finally {
-      setBusy(false)
+      setSubmitting(false)
     }
   }
 
@@ -167,24 +228,24 @@ export function SecurityPanel({
                     </p>
                   </>
                 )}
+                {codeSent ? (
+                  <p className="mt-2 font-medium text-foreground">
+                    We sent a 6-digit code to {maskEmail(security.email)}. It expires in 10 minutes.
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void requestStepUpCode()}
-                  disabled={busy}
+                  disabled={sendingCode || resendIn > 0 || !security.email}
                   className="mt-2 inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 text-xs font-semibold text-foreground transition hover:border-primary/50 hover:text-primary disabled:opacity-60"
                 >
-                  {busy ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
-                  {codeSent ? 'Send a new code' : 'Email a verification code'}
+                  {sendingCode ? <Loader2 className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
+                  {resendIn > 0 ? `Send a new code in ${resendIn}s` : codeSent ? 'Send a new code' : 'Email a verification code'}
                 </button>
                 {hasPassword ? (
                   <button
                     type="button"
-                    onClick={() => {
-                      setCodeMode(false)
-                      setCodeSent(false)
-                      setVerificationCode('')
-                      setError(null)
-                    }}
+                    onClick={backToPassword}
                     className="ml-2 text-xs text-muted-foreground underline-offset-4 transition hover:text-foreground hover:underline"
                   >
                     Use current password instead
@@ -193,16 +254,26 @@ export function SecurityPanel({
               </div>
             </div>
           ) : (
-            <Field label="Current password" className="sm:col-span-2">
-              <input
-                type={reveal ? 'text' : 'password'}
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                autoComplete="current-password"
-                className={INPUT_CLASS}
-                required
-              />
-            </Field>
+            <>
+              <Field label="Current password" className="sm:col-span-2">
+                <input
+                  type={reveal ? 'text' : 'password'}
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                  autoComplete="current-password"
+                  className={INPUT_CLASS}
+                  required
+                />
+              </Field>
+              <button
+                type="button"
+                onClick={startEmailProof}
+                disabled={sendingCode}
+                className="-mt-2 justify-self-start text-xs text-primary underline-offset-4 transition hover:underline disabled:opacity-60 sm:col-span-2"
+              >
+                Forgot your current password?
+              </button>
+            </>
           )}
           {emailProof && codeSent ? (
             <Field label="Verification code">
@@ -277,12 +348,34 @@ export function SecurityPanel({
               disabled={!canSubmit}
               className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50"
             >
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
-              {busy ? 'Updating…' : 'Update password'}
+              {submitting ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}
+              {submitting ? 'Updating…' : 'Update password'}
             </button>
           </div>
 
-          {error ? <div className="sm:col-span-2"><Notice tone="error">{error}</Notice></div> : null}
+          {error ? (
+            <div className="sm:col-span-2">
+              <Notice tone="error">
+                {error}
+                {emailUnavailable ? (
+                  <>
+                    {' '}
+                    <a href="/login" className="font-medium underline underline-offset-4">
+                      Reset it from the sign-in page
+                    </a>
+                  </>
+                ) : null}
+                {forgotHint ? (
+                  <>
+                    {' '}
+                    <button type="button" onClick={startEmailProof} className="font-medium underline underline-offset-4">
+                      Forgot it? Use an emailed code.
+                    </button>
+                  </>
+                ) : null}
+              </Notice>
+            </div>
+          ) : null}
           {success ? <div className="sm:col-span-2"><Notice tone="success">{success}</Notice></div> : null}
         </form>
       </Panel>
