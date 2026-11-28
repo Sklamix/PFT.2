@@ -116,7 +116,9 @@ export function SecurityPanel({
       if (!response.ok) throw new Error(data.error ?? 'Unable to send a verification code.')
       setCodeSent(true)
       setResendIn(60)
-      setSuccess(`We sent a 6-digit code to ${maskEmail(security.email)}. It expires in 10 minutes.`)
+      // The confirmation lives in the email-proof block next to the code field;
+      // setting `success` too would print the same sentence twice on the panel.
+      setSuccess(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to send a verification code.')
     } finally {
@@ -162,7 +164,8 @@ export function SecurityPanel({
       const data = (await response.json().catch(() => ({}))) as { error?: string; message?: string }
       if (response.status === 429) {
         const seconds = retryAfterSec(response)
-        setResendIn(seconds)
+        // Do not start the resend cooldown here: this limit is on password
+        // attempts, and the email-code button must stay usable.
         throw new Error(`Too many requests. Try again in ${seconds}s.`)
       }
       if (!response.ok) {
@@ -229,7 +232,7 @@ export function SecurityPanel({
                   </>
                 )}
                 {codeSent ? (
-                  <p className="mt-2 font-medium text-foreground">
+                  <p role="status" className="mt-2 font-medium text-foreground">
                     We sent a 6-digit code to {maskEmail(security.email)}. It expires in 10 minutes.
                   </p>
                 ) : null}
@@ -276,7 +279,7 @@ export function SecurityPanel({
             </>
           )}
           {emailProof && codeSent ? (
-            <Field label="Verification code">
+            <Field label="Verification code" className="sm:col-span-2">
               <input
                 type="text"
                 inputMode="numeric"
