@@ -1,8 +1,44 @@
 /**
  * Immersive space background for the trader dashboard: deep gradient, a faint
  * technical dot/line grid, and soft ambient glows. Fixed behind all content.
+ * The `planet` variant is used only by Overview and drops the grid/glows in
+ * favour of a CSS-only planet rising from the lower right corner.
  */
-export function SpaceBackground() {
+export function SpaceBackground({ variant = 'grid' }: { variant?: 'grid' | 'planet' }) {
+  if (variant === 'planet') {
+    return (
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 z-0 overflow-hidden"
+        style={{ background: 'linear-gradient(180deg,#05080F 0%,#08101F 55%,#060B16 100%)' }}
+      >
+        {/* Sparse stars, kept on the right so they do not sit behind text */}
+        <div
+          className="absolute inset-y-0 right-0 w-1/2 opacity-45"
+          style={{
+            backgroundImage:
+              'radial-gradient(1px 1px at 25% 35%, rgba(200,220,255,0.9) 50%, transparent 60%), radial-gradient(1.5px 1.5px at 75% 70%, rgba(200,220,255,0.75) 50%, transparent 60%)',
+            backgroundSize: '131px 173px, 197px 229px',
+          }}
+        />
+        {/* Planet: a single radial-gradient disc with an atmospheric halo */}
+        <div
+          className="absolute"
+          style={{
+            right: '-30%',
+            bottom: '-84%',
+            width: '1150px',
+            aspectRatio: '1',
+            borderRadius: '50%',
+            background:
+              'radial-gradient(circle closest-side at 50% 50%, #07101E 0 62%, #0C1B31 70%, #1B4570 76%, #3E86C8 79.5%, #9BD4FF 81%, rgba(90,150,220,.45) 82%, transparent 86%)',
+            boxShadow: '0 0 180px 40px rgba(70,140,220,.18)',
+          }}
+        />
+      </div>
+    )
+  }
+
   return (
     <div
       aria-hidden="true"
