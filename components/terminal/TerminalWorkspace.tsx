@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Loader2, LogOut, Plus, RefreshCw, Rocket, X, XCircle } from 'lucide-react'
+import { ArrowLeft, ChevronDown, Loader2, LogOut, Plus, RefreshCw, Rocket, X, XCircle } from 'lucide-react'
 import { ChallengeCalculator } from '@/components/challenge-calculator'
 import { useMarketData } from '@/hooks/useMarketData'
 import { Button } from '@/components/ui/button'
@@ -216,15 +216,18 @@ export function TerminalWorkspace() {
   }, [accountStatus, openCount, pendingCount, sync])
 
   return (
-    <div data-terminal-root className="flex min-h-0 flex-1 flex-col">
+    <div data-terminal-root className="flex min-h-0 flex-1 flex-col bg-[linear-gradient(180deg,#0A101E,#0B1121)]">
       {trader && (
-        <AccountBar
-          trader={trader}
-          accountId={accountId}
-          challengeViewOpen={challengeViewOpen}
-          onNewChallenge={() => setChallengeViewOpen(true)}
-          onBackToTerminal={() => setChallengeViewOpen(false)}
-        />
+        <div className="mx-6 mt-6 mb-3 overflow-hidden rounded-[16px] border border-white/[0.08] bg-[#080E1C] shadow-[0_24px_60px_-40px_rgba(0,0,0,0.9)]">
+          <AccountBar
+            trader={trader}
+            accountId={accountId}
+            challengeViewOpen={challengeViewOpen}
+            onNewChallenge={() => setChallengeViewOpen(true)}
+            onBackToTerminal={() => setChallengeViewOpen(false)}
+          />
+          {!challengeViewOpen && !hasNoAccounts ? <TerminalHeader /> : null}
+        </div>
       )}
       {challengeViewOpen && trader ? (
         <main className="flex-1 overflow-y-auto">
@@ -250,7 +253,6 @@ export function TerminalWorkspace() {
         <NoAccountsState onNewChallenge={() => setChallengeViewOpen(true)} />
       ) : (
         <>
-          <TerminalHeader />
           <NoticeBar />
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:flex-row">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
@@ -398,38 +400,46 @@ function AccountBar({
   onBackToTerminal: () => void
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-1.5 text-xs lg:px-4">
+    <div className="flex min-h-14 flex-wrap items-center gap-3 border-b border-white/[0.06] px-6 py-2 text-xs">
       {trader.accounts.length > 0 ? (
-        <label className="flex items-center gap-2 text-muted-foreground">
-          Account
-          <select
-            value={accountId}
-            onChange={(event) => switchAccount(event.target.value)}
-            className="h-7 rounded-md border border-border bg-background px-2 font-mono text-xs text-foreground"
-          >
-            {trader.accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.displayId} · {account.status.replace(/_/g, ' ').toLowerCase()}
-              </option>
-            ))}
-          </select>
+        <label className="flex items-center gap-3">
+          <span className="text-[13px] font-semibold text-[#307DFD]">Account</span>
+          <span className="relative">
+            <select
+              value={accountId}
+              onChange={(event) => switchAccount(event.target.value)}
+              className="h-[38px] w-[300px] max-w-full appearance-none rounded-full border border-white/[0.08] bg-[#0B1224] pl-4 pr-10 font-mono text-[14px] text-[#F4F7FF] outline-none focus-visible:ring-2 focus-visible:ring-[#307DFD]/50"
+            >
+              {trader.accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.displayId} · {account.status.replace(/_/g, ' ').toLowerCase()}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 size-4 -translate-y-1/2 text-[#8FA3C4]" aria-hidden="true" />
+          </span>
         </label>
       ) : (
-        <span className="text-muted-foreground">No linked trading accounts</span>
+        <span className="text-[13px] text-[#8FA3C4]">No linked trading accounts</span>
       )}
-      <span className="ml-auto truncate text-muted-foreground">{trader.trader.email}</span>
+      <span className="ml-auto truncate text-[13px] text-[#8FA3C4]">{trader.trader.email}</span>
       <button
         type="button"
         onClick={challengeViewOpen ? onBackToTerminal : onNewChallenge}
-        className="group inline-flex h-8 items-center gap-1.5 rounded-md bg-linear-to-r from-primary via-highlight to-primary bg-size-[200%_100%] bg-left px-3 text-xs font-semibold text-primary-foreground shadow-[0_0_20px_-10px] shadow-primary transition-[background-position,box-shadow] duration-300 hover:bg-right hover:shadow-[0_0_28px_-8px] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="group inline-flex h-[38px] items-center gap-2 rounded-full bg-linear-to-r from-[#307DFD] to-[#30C8F1] px-4 text-[14px] font-semibold text-white shadow-[0_0_20px_-12px_rgba(48,125,253,0.9)] transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[#307DFD]/60 focus-visible:outline-none"
       >
         {challengeViewOpen
-          ? <ArrowLeft className="size-3.5" aria-hidden="true" />
-          : <Plus className="size-3.5 transition-transform group-hover:rotate-90" aria-hidden="true" />}
+          ? <ArrowLeft className="size-4" aria-hidden="true" />
+          : <Plus className="size-4 transition-transform group-hover:rotate-90" aria-hidden="true" />}
         {challengeViewOpen ? 'Back to terminal' : 'New Challenge'}
       </button>
-      <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2 text-xs" onClick={() => void signOut()}>
-        <LogOut className="size-3.5" aria-hidden="true" />
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-[38px] gap-2 px-3 text-[14px] font-medium text-[#F4F7FF]"
+        onClick={() => void signOut()}
+      >
+        <LogOut className="size-4" aria-hidden="true" />
         Sign out
       </Button>
     </div>

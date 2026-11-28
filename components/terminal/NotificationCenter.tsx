@@ -160,7 +160,7 @@ export function NotificationCenter() {
   const retrySeconds = retryAt == null ? 0 : Math.max(0, Math.ceil((retryAt - now) / 1000))
 
   return (
-    <div className="relative shrink-0">
+    <div className="relative flex shrink-0 flex-col items-end">
       <Button
         ref={triggerRef}
         type="button"
@@ -168,22 +168,22 @@ export function NotificationCenter() {
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={(event) => (open ? closePanel() : openPanel(event.currentTarget))}
-        className="h-7 rounded-md bg-emerald-500 px-3 text-emerald-950 hover:bg-emerald-400"
+        className="h-10 rounded-full bg-linear-to-r from-[#00B774] to-[#00D9A0] px-4 text-[#04231A] shadow-[0_0_20px_-12px_rgba(0,183,116,0.9)] transition-opacity hover:opacity-90"
       >
-        <Bell className="size-3.5" aria-hidden="true" />
-        <span className="font-mono text-[10px] uppercase tracking-widest">Notifications</span>
+        <Bell className="size-4" aria-hidden="true" />
+        <span className="text-[12px] font-bold uppercase tracking-[0.06em]">Notifications</span>
         {unread > 0 ? (
-          <span className="rounded-full bg-emerald-950/20 px-1.5 font-mono text-[10px] tabular-nums text-emerald-950">
+          <span className="flex size-5 items-center justify-center rounded-full bg-black/25 font-mono text-[10px] font-bold tabular-nums text-[#04231A]">
             {unread > 99 ? '99+' : unread}
           </span>
         ) : null}
-        <ChevronDown className={cn('size-3.5 text-emerald-950 transition-transform duration-300', open && 'rotate-180')} aria-hidden="true" />
+        <ChevronDown className={cn('size-4 text-[#04231A] transition-transform duration-300', open && 'rotate-180')} aria-hidden="true" />
       </Button>
       {lastItem && !open ? (
         <button
           type="button"
           onClick={() => openPanel()}
-          className="ml-2 hidden max-w-40 truncate text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 sm:block"
+          className="mt-1 max-w-[260px] truncate text-right text-[11px] leading-none text-[#8FA3C4] transition-colors hover:text-[#F4F7FF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#307DFD]/60"
         >
           {lastItem.title}: {lastItem.message}
         </button>

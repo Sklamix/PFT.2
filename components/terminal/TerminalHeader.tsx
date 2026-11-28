@@ -1,8 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Check, ChevronDown, Clock, Plus, Star } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useState, type ReactNode } from 'react'
+import { BarChart3, Check, ChevronDown, Clock, Plus, Scale, ShieldAlert, Star } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -46,80 +45,111 @@ export function TerminalHeader() {
   const ddRatio = snapshot.dailyUsedRatio
 
   return (
-    <header className="flex flex-col gap-3 border-b border-border bg-card/80 px-3 py-2.5 backdrop-blur-md xl:px-4">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+    <div className="flex min-w-0 flex-col">
+      {/* Quote row — 80px, inside the shared terminal card. */}
+      <div className="flex min-h-[80px] flex-wrap items-center gap-x-5 gap-y-3 border-b border-white/[0.06] px-6 py-3">
         <SymbolPicker selectedSymbol={selectedSymbol} onSelect={setSelectedSymbol} />
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 font-mono">
-          <QuoteStack label="Bid" value={formatPrice(selectedSymbol, bid)} tone="danger" />
-          <QuoteStack label="Ask" value={formatPrice(selectedSymbol, ask)} tone="primary" />
-          <div className="hidden sm:block">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Spread</p>
-            <p className="text-sm tabular-nums text-foreground">{formatSpreadValue(selectedSymbol, spread)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">24h</p>
-            <p className={cn('text-sm tabular-nums', up ? 'text-primary' : 'text-danger')}>{formatPct(change, true)}</p>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex shrink-0 items-stretch divide-x divide-white/[0.06]">
+            <QuoteStack label="Bid" value={formatPrice(selectedSymbol, bid)} tone="danger" />
+            <QuoteStack label="Ask" value={formatPrice(selectedSymbol, ask)} tone="primary" />
+            <div className="hidden px-4 sm:block">
+              <p className="text-[10px] uppercase tracking-[0.08em] text-[#8FA3C4]">Spread</p>
+              <p className="mt-0.5 font-mono text-[15px] font-semibold tabular-nums text-[#F4F7FF]">{formatSpreadValue(selectedSymbol, spread)}</p>
+            </div>
+            <div className="pl-4 pr-0">
+              <p className="text-[10px] uppercase tracking-[0.08em] text-[#8FA3C4]">24h</p>
+              <QuoteDelta value={formatPct(change, true)} up={up} />
+            </div>
           </div>
           <StatusChip status={account ? account.status : '—'} />
           <span
             className={cn(
-              'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
+              'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em]',
               live
-                ? 'border-primary/30 bg-primary/10 text-primary'
-                : 'border-danger/30 bg-danger/10 text-danger',
+                ? 'border-[#307DFD]/35 bg-[#307DFD]/10 text-[#307DFD]'
+                : 'border-[#E14C55]/35 bg-[#E14C55]/10 text-[#E14C55]',
             )}
           >
-            <span
-              className={cn('size-1.5 rounded-full', live ? 'bg-primary' : 'bg-danger')}
-              aria-hidden="true"
-            />
+            <span className={cn('size-1.5 rounded-full', live ? 'bg-[#307DFD]' : 'bg-[#E14C55]')} aria-hidden="true" />
             {feedLabel}
           </span>
         </div>
 
-        <div className="ml-auto flex shrink-0 items-center gap-3">
+        <div className="flex w-full shrink-0 items-start justify-end gap-3 xl:ml-auto xl:w-auto">
           <NotificationCenter />
           <TimezoneClock />
         </div>
       </div>
 
       {/* A description list: each Stat renders dt/dd, which must live inside a dl. */}
-      <dl className="flex flex-wrap items-stretch gap-x-6 gap-y-3 border-t border-border pt-3">
+      <dl className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-[26px]">
         {/* Zone A — how much money */}
-        <div className="min-w-0 flex-1">
-          <Stat
-            label="EQUITY"
-            value={formatUsd(snapshot.equity)}
-            tone={snapshot.floatingPnl >= 0 ? 'primary' : 'danger'}
-            size="hero"
+        <MetricCard className="lg:basis-[42%] lg:shrink-0">
+          {/* soft fill behind the planet limb */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'radial-gradient(120% 130% at 100% 125%, rgba(56,116,214,0.40), transparent 62%)' }}
           />
-          <div className="mt-1 flex flex-col gap-0.5">
-            <Stat label="BALANCE" value={formatUsd(snapshot.balance)} tone="muted" size="sm" />
-            <Stat label="FREE MARGIN" value={formatUsd(snapshot.freeMargin)} tone="muted" size="sm" />
+          {/* planet limb, clipped by the card edge */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-[38%] -bottom-[70%] aspect-square w-[125%] rounded-full"
+            style={{ background:
+              'radial-gradient(circle at 50% 50%, #080E1C 0 58%, rgba(150,200,255,0.65) 60.5%, rgba(70,130,215,0.25) 65%, transparent 72%)' }}
+          />
+          <div className="relative">
+            <Stat
+              label="EQUITY"
+              value={formatUsd(snapshot.equity)}
+              tone={snapshot.floatingPnl >= 0 ? 'primary' : 'danger'}
+              size="hero"
+              icon={<Scale className="size-4 text-[#307DFD]" aria-hidden="true" />}
+            />
+            <div className="mt-4 flex items-stretch border-t border-white/[0.07] pt-4">
+              <div className="min-w-0 flex-1 pr-4">
+                <Stat label="BALANCE" value={formatUsd(snapshot.balance)} size="sm" />
+              </div>
+              <div className="w-px shrink-0 bg-white/[0.07]" aria-hidden="true" />
+              <div className="min-w-0 flex-1 pl-4">
+                <Stat label="FREE MARGIN" value={formatUsd(snapshot.freeMargin)} size="sm" />
+              </div>
+            </div>
           </div>
-        </div>
+        </MetricCard>
 
         {/* Zone B — how much is used */}
-        <div className="border-l border-border pl-6 shrink-0">
-          <Stat label="MARGIN" value={formatUsd(snapshot.marginUsed)} tone="normal" size="sm" />
-        </div>
+        <MetricCard className="lg:basis-[11.5%] lg:shrink-0">
+          <Stat
+            label="MARGIN"
+            value={formatUsd(snapshot.marginUsed)}
+            size="md"
+            icon={<BarChart3 className="size-4 text-[#307DFD]" aria-hidden="true" />}
+          />
+        </MetricCard>
 
         {/* Zone C — how much is left before breach */}
-        <div className="border-l border-border pl-6 flex-1 min-w-0">
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-muted-foreground">
-            <span>DAILY DD BUFFER</span>
-            <span className="font-mono tabular-nums text-foreground">{formatUsd(snapshot.dailyBufferUsd)}</span>
-            <span
-              className={cn(
-                'font-mono tabular-nums text-[10px]',
-                ddRatio >= 0.8 ? 'text-danger' : ddRatio >= 0.5 ? 'text-warning' : 'text-muted-foreground',
-              )}
-            >
-              · {Math.round(ddRatio * 100)}% used
-            </span>
+        <MetricCard className="lg:flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="size-4 text-[#307DFD]" aria-hidden="true" />
+              <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#8FA3C4]">DAILY DD BUFFER</span>
+            </div>
+            <div className="flex items-center gap-4 font-mono tabular-nums">
+              <span className="text-base font-bold text-[#F4F7FF]">{formatUsd(snapshot.dailyBufferUsd)}</span>
+              <span
+                className={cn(
+                  'text-[11px] uppercase tracking-[0.08em]',
+                  ddRatio >= 0.8 ? 'text-[#E14C55]' : ddRatio >= 0.5 ? 'text-warning' : 'text-[#8FA3C4]',
+                )}
+              >
+                {Math.round(ddRatio * 100)}% used
+              </span>
+            </div>
           </div>
           <div
-            className="mt-1 h-1.5 overflow-hidden rounded-full bg-secondary"
+            className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#101A2E]"
             role="meter"
             aria-label="Daily drawdown buffer remaining"
             aria-valuemin={0}
@@ -129,17 +159,16 @@ export function TerminalHeader() {
             <div
               className={cn(
                 'h-full rounded-full transition-[width]',
-                ddRatio >= 0.8 ? 'bg-danger' : ddRatio >= 0.5 ? 'bg-warning' : 'bg-primary',
+                ddRatio >= 0.8 ? 'bg-[#E14C55]' : ddRatio >= 0.5 ? 'bg-warning' : 'bg-[#307DFD]',
               )}
               style={{ width: `${Math.max(4, (1 - ddRatio) * 100)}%` }}
             />
           </div>
-        </div>
+        </MetricCard>
       </dl>
-    </header>
+    </div>
   )
 }
-
 function SymbolPicker({
   selectedSymbol,
   onSelect,
@@ -174,12 +203,19 @@ function SymbolPicker({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" className="h-9 min-w-40 justify-between gap-2 font-mono" />}>
-        <span className="flex flex-col items-start leading-none">
-          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Symbol</span>
-          <span className="mt-0.5 text-sm text-foreground">{getSymbol(selectedSymbol).displayName}</span>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="flex h-[52px] w-[210px] shrink-0 items-center justify-between gap-2 rounded-xl border border-white/[0.08] bg-[#0B1224] px-3.5 text-left transition-colors hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#307DFD]/50"
+          />
+        }
+      >
+        <span className="flex min-w-0 flex-col leading-none">
+          <span className="text-[10px] uppercase tracking-[0.08em] text-[#8FA3C4]">Symbol</span>
+          <span className="mt-1 truncate text-[15px] font-semibold text-[#F4F7FF]">{getSymbol(selectedSymbol).displayName}</span>
         </span>
-        <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        <ChevronDown className="size-4 shrink-0 text-[#8FA3C4]" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-80 p-0">
         <div className="border-b border-border p-2">
@@ -329,19 +365,23 @@ function TimezoneClock() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" className="h-9 shrink-0 justify-between gap-2 border-border bg-card px-2.5" />}
+        render={
+          <button
+            type="button"
+            className="flex h-[52px] w-[170px] shrink-0 items-center justify-between gap-2 rounded-xl border border-white/[0.08] bg-[#0B1224] px-3 text-left transition-colors hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#307DFD]/50"
+          />
+        }
         aria-label={`Terminal time ${time} ${label}. Change timezone`}>
-
-        <Clock className="size-4 text-primary" aria-hidden="true" />
-        <span className="flex flex-col items-start leading-none">
-          <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
-            {label} · {timeZoneOffsetLabel(timeZone)}
+        <Clock className="size-4 shrink-0 text-[#307DFD]" aria-hidden="true" />
+        <span className="flex min-w-0 flex-col leading-none">
+          <span className="truncate text-[10px] uppercase tracking-[0.08em] text-[#8FA3C4]">
+            {timeZoneOffsetLabel(timeZone)}
           </span>
-          <span className="mt-0.5 font-mono text-xs tabular-nums text-foreground">
-            {time} <span className="text-muted-foreground">{date}</span>
+          <span className="mt-1 whitespace-nowrap font-mono text-[14px] font-semibold tabular-nums text-[#F4F7FF]">
+            {time} <span className="text-[11px] font-normal text-[#8FA3C4]">{date}</span>
           </span>
         </span>
-        <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden="true" />
+        <ChevronDown className="size-4 shrink-0 text-[#8FA3C4]" aria-hidden="true" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-52">
         <DropdownMenuGroup>
@@ -363,13 +403,24 @@ function TimezoneClock() {
   )
 }
 
-function QuoteStack({ label, value, tone }: { label: string; value: string; tone: 'primary' | 'danger' }) {
+function QuoteStack({ label, value, tone }: { label: string; value: string; tone: 'primary' | 'danger' | 'normal' }) {
   return (
-    <div>
-      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
-      <p className={cn('text-sm font-semibold tabular-nums', tone === 'primary' ? 'text-primary' : 'text-danger')}>{value}</p>
+    <div className="px-4 first:pl-0">
+      <p className="text-[10px] uppercase tracking-[0.08em] text-[#8FA3C4]">{label}</p>
+      <p
+        className={cn(
+          'mt-0.5 font-mono text-[15px] font-semibold tabular-nums',
+          tone === 'primary' ? 'text-[#307DFD]' : tone === 'danger' ? 'text-[#E14C55]' : 'text-[#F4F7FF]',
+        )}
+      >
+        {value}
+      </p>
     </div>
   )
+}
+
+function QuoteDelta({ value, up }: { value: string; up: boolean }) {
+  return <p className={cn('mt-0.5 font-mono text-[15px] font-semibold tabular-nums', up ? 'text-[#307DFD]' : 'text-[#E14C55]')}>{value}</p>
 }
 
 /** Status chip — moved to row 1 per the terminal header spec. */
@@ -378,40 +429,59 @@ function StatusChip({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider',
-        active ? 'border-primary/30 bg-primary/10 text-primary' : 'border-danger/30 bg-danger/10 text-danger',
+        'inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.06em]',
+        active ? 'border-[#307DFD]/35 bg-[#307DFD]/10 text-[#307DFD]' : 'border-[#E14C55]/35 bg-[#E14C55]/10 text-[#E14C55]',
       )}
       aria-label={`Account status: ${status}`}
     >
       <span className="relative flex size-1.5" aria-hidden="true">
         {active ? (
-          <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:animate-none" />
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-[#307DFD] opacity-60 motion-reduce:animate-none" />
         ) : null}
-        <span className={cn('relative inline-flex size-1.5 rounded-full', active ? 'bg-primary' : 'bg-danger')} />
+        <span className={cn('relative inline-flex size-1.5 rounded-full', active ? 'bg-[#307DFD]' : 'bg-[#E14C55]')} />
       </span>
       {status}
     </span>
   )
 }
 
+function MetricCard({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn(
+      'relative min-w-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-[#080E1C] px-6 py-5',
+      className,
+    )}>
+      {children}
+    </div>
+  )
+}
+
 /**
  * A single header metric with an explicit accent level.
- * `size="hero"` is used for Equity; `size="sm"` for the rest.
+ * `size="hero"` is used for Equity; `size="md"` for Margin; `size="sm"` for the sub-stats.
  */
-function Stat({ label, value, tone = 'normal', size = 'sm' }: {
+function Stat({ label, value, tone = 'normal', size = 'sm', icon }: {
   label: string
   value: string
   tone?: 'normal' | 'primary' | 'danger' | 'muted' | 'warning'
-  size?: 'sm' | 'hero'
+  size?: 'sm' | 'md' | 'hero'
+  icon?: ReactNode
 }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</dt>
+      <dt className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.1em] text-[#8FA3C4]">
+        {icon}
+        {label}
+      </dt>
       <dd
         className={cn(
-          'font-mono tabular-nums',
-          size === 'hero' ? 'text-2xl font-semibold' : 'text-[13px]',
-          tone === 'primary' ? 'text-primary' : tone === 'danger' ? 'text-danger' : tone === 'muted' ? 'text-muted-foreground' : tone === 'warning' ? 'text-warning' : 'text-foreground',
+          'mt-1 font-mono tabular-nums',
+          size === 'hero'
+            ? 'text-[40px] leading-[1.1] font-semibold'
+            : size === 'md'
+              ? 'text-[22px] font-semibold'
+              : 'text-base font-semibold',
+          tone === 'primary' ? 'text-[#307DFD]' : tone === 'danger' ? 'text-[#E14C55]' : tone === 'warning' ? 'text-warning' : 'text-[#F4F7FF]',
         )}
       >
         {value}
